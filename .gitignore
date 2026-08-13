@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+.npm
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Environment files (NEVER commit these)
+.env
+.env.local
+.env.production
+.env.development.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Prisma
+apps/api/prisma/migrations/dev_migrations/
+
+# Uploads (local storage)
+apps/api/uploads/
+uploads/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# Testing
+coverage/
+.vitest/
+
+# TypeScript
+*.tsbuildinfo
+
+# Docker volumes (if mounted locally)
+postgres_data/
+redis_data/
+
+# Certificates
+nginx/ssl/
+*.pem
+*.key
+*.crt

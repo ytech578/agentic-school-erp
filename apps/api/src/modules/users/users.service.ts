@@ -1,0 +1,128 @@
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { PrismaService } from '../../core/database/prisma.service';
+import * as bcrypt from 'bcryptjs';
+
+@Injectable()
+export class UsersService {
+  constructor(private prisma: PrismaService) {}
+
+  async findById(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true, email: true, firstName: true, lastName: true, phone: true,
+        role: true, status: true, avatarUrl: true, lastLoginAt: true, createdAt: true,
+        school: { select: { id: true, name: true, code: true } },
+      },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
+
+  async findByEmail(email: string) {
+    return this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+  }
+
+  async findAll(schoolId: string, query: { page?: number; limit?: number; role?: string; status?: string; search?: string }) {
+    const { page = 1, limit = 20, role, status, search } = query;
+    const skip = (page - 1) * limit;
+
+    const where: any = { schoolId };
+    if (role) where.role = role;
+    if (status) where.status = status;
+    if (search) {
+      where.OR = [
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        select: {
+          id: true, email: true, firstName: true, lastName: true,
+          role: true, status: true, phone: true, avatarUrl: true,
+          lastLoginAt: true, createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return {
+      data: users,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  async createUser(schoolId: string, data: {
+    email: string; firstName: string; lastName: string;
+    role: string; phone?: string; password?: string;
+  }) {
+    const existing = await this.prisma.user.findUnique({ where: { email: data.email.toLowerCase() } });
+    if (existing) throw new ConflictException('Email already exists');
+
+    const password = data.password || Math.random().toString(36).slice(-10) + 'A1!';
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    const user = await this.prisma.user.create({
+      data: {
+        schoolId,
+        email: data.email.toLowerCase(),
+        firstName: data.firstName,
+        lastName: data.lastName,
+        role: data.role as any,
+        phone: data.phone,
+        passwordHash,
+        status: 'ACTIVE',
+      },
+      select: {
+        id: true, email: true, firstName: true, lastName: true, role: true, status: true, createdAt: true,
+      },
+    });
+
+    return { ...user, temporaryPassword: data.password ? undefined : password };
+  }
+
+  async updateUser(id: string, data: { firstName?: string; lastName?: string; phone?: string; role?: string }) {
+    return this.prisma.user.update({
+      where: { id },
+      data: {
+        firstName: data.firstName,
+        lastName: data.lastName,
+        phone: data.phone,
+        role: data.role as any,
+      },
+      select: {
+        id: true, email: true, firstName: true, lastName: true, role: true, status: true,
+      },
+    });
+  }
+
+  async updateStatus(id: string, status: string) {
+    return this.prisma.user.update({
+      where: { id },
+      data: { status: status as any },
+      select: { id: true, status: true },
+    });
+  }
+
+  async resetPassword(id: string, newPassword: string) {
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await this.prisma.user.update({ where: { id }, data: { passwordHash } });
+    return { message: 'Password reset successfully' };
+  }
+
+  async deactivateUser(id: string) {
+    return this.prisma.user.update({
+      where: { id },
+      data: { status: 'INACTIVE' },
+      select: { id: true, status: true },
+    });
+  }
+}
