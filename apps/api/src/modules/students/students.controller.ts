@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Body,
   Param,
   Query,
@@ -12,7 +13,7 @@ import { StudentsService } from './students.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
-import { CreateStudentSchema } from '@school-erp/shared';
+import { CreateStudentSchema, UpdateStudentSchema } from '@school-erp/shared';
 
 @Controller('students')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -21,10 +22,7 @@ export class StudentsController {
 
   @Post()
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  async createStudent(
-    @Request() req: any,
-    @Body() body: any,
-  ) {
+  async createStudent(@Request() req: any, @Body() body: any) {
     const parsedBody = CreateStudentSchema.parse(body);
     const schoolId = req.user.schoolId;
     return this.studentsService.createStudent(schoolId, parsedBody);
@@ -52,5 +50,23 @@ export class StudentsController {
   async getStudentById(@Request() req: any, @Param('id') id: string) {
     const schoolId = req.user.schoolId;
     return this.studentsService.getStudentById(schoolId, id);
+  }
+
+  @Post('calculate-risk')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  async calculateRiskScores(@Request() req: any) {
+    const schoolId = req.user.schoolId;
+    return this.studentsService.calculateRiskScores(schoolId);
+  }
+  @Put(':id')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  async updateStudent(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: any,
+  ) {
+    const parsedBody = UpdateStudentSchema.parse(body);
+    const schoolId = req.user.schoolId;
+    return this.studentsService.updateStudent(schoolId, id, parsedBody);
   }
 }

@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 
 const GRADE_SCALE = [
@@ -7,34 +11,46 @@ const GRADE_SCALE = [
   { min: 60, grade: 'B' },
   { min: 50, grade: 'C' },
   { min: 35, grade: 'D' },
-  { min: 0,  grade: 'F' },
+  { min: 0, grade: 'F' },
 ];
 
 function calculateGrade(obtained: number, max: number): string {
   const pct = max > 0 ? (obtained / max) * 100 : 0;
-  return GRADE_SCALE.find(g => pct >= g.min)?.grade ?? 'F';
+  return GRADE_SCALE.find((g) => pct >= g.min)?.grade ?? 'F';
 }
 
 @Injectable()
 export class ExamsService {
   constructor(private prisma: PrismaService) {}
 
-  private async resolveAcademicYearId(schoolId: string, providedId?: string): Promise<string> {
+  private async resolveAcademicYearId(
+    schoolId: string,
+    providedId?: string,
+  ): Promise<string> {
     if (providedId && !providedId.startsWith('AY')) return providedId;
-    const activeYear = await this.prisma.academicYear.findFirst({ where: { schoolId, isActive: true } });
-    if (!activeYear) throw new BadRequestException('No active academic year found');
+    const activeYear = await this.prisma.academicYear.findFirst({
+      where: { schoolId, isActive: true },
+    });
+    if (!activeYear)
+      throw new BadRequestException('No active academic year found');
     return activeYear.id;
   }
 
   // ─── Create Exam ──────────────────────────────────────────────────────────
-  async createExam(schoolId: string, data: {
-    academicYearId: string;
-    name: string;
-    examType: string;
-    startDate: string;
-    endDate: string;
-  }) {
-    const resolvedAcademicYearId = await this.resolveAcademicYearId(schoolId, data.academicYearId);
+  async createExam(
+    schoolId: string,
+    data: {
+      academicYearId: string;
+      name: string;
+      examType: string;
+      startDate: string;
+      endDate: string;
+    },
+  ) {
+    const resolvedAcademicYearId = await this.resolveAcademicYearId(
+      schoolId,
+      data.academicYearId,
+    );
     return this.prisma.exam.create({
       data: {
         schoolId,
@@ -48,9 +64,50 @@ export class ExamsService {
     });
   }
 
+  // ─── Update Exam ──────────────────────────────────────────────────────────
+  async updateExam(
+    schoolId: string,
+    examId: string,
+    data: { name?: string; examType?: string; startDate?: string; endDate?: string },
+  ) {
+    const exam = await this.prisma.exam.findFirst({ where: { id: examId, schoolId } });
+    if (!exam) throw new NotFoundException('Exam not found');
+    return this.prisma.exam.update({
+      where: { id: examId },
+      data: {
+        ...(data.name && { name: data.name }),
+        ...(data.examType && { examType: data.examType }),
+        ...(data.startDate && { startDate: new Date(data.startDate) }),
+        ...(data.endDate && { endDate: new Date(data.endDate) }),
+      },
+      include: { _count: { select: { subjects: true, reportCards: true } } },
+    });
+  }
+
+  // ─── Delete Exam ──────────────────────────────────────────────────────────
+  async deleteExam(schoolId: string, examId: string) {
+    const exam = await this.prisma.exam.findFirst({
+      where: { id: examId, schoolId },
+      include: { _count: { select: { reportCards: true } } },
+    });
+    if (!exam) throw new NotFoundException('Exam not found');
+    if ((exam._count as any).reportCards > 0) {
+      throw new BadRequestException('Cannot delete an exam that has report cards. Unpublish first.');
+    }
+    // Delete subjects first, then exam
+    await this.prisma.examSubject.deleteMany({ where: { examId } });
+    await this.prisma.exam.delete({ where: { id: examId } });
+    return { message: 'Exam deleted successfully' };
+  }
+
+
+
   // ─── List Exams ───────────────────────────────────────────────────────────
   async listExams(schoolId: string, academicYearId?: string) {
-    const resolvedAcademicYearId = await this.resolveAcademicYearId(schoolId, academicYearId);
+    const resolvedAcademicYearId = await this.resolveAcademicYearId(
+      schoolId,
+      academicYearId,
+    );
     return this.prisma.exam.findMany({
       where: { schoolId, academicYearId: resolvedAcademicYearId },
       include: {
@@ -82,15 +139,21 @@ export class ExamsService {
   }
 
   // ─── Add Subject to Exam ──────────────────────────────────────────────────
-  async addExamSubject(examId: string, schoolId: string, data: {
-    subjectId: string;
-    classId: string;
-    maxMarks: number;
-    passMarks: number;
-    examDate?: string;
-    duration?: number;
-  }) {
-    const exam = await this.prisma.exam.findFirst({ where: { id: examId, schoolId } });
+  async addExamSubject(
+    examId: string,
+    schoolId: string,
+    data: {
+      subjectId: string;
+      classId: string;
+      maxMarks: number;
+      passMarks: number;
+      examDate?: string;
+      duration?: number;
+    },
+  ) {
+    const exam = await this.prisma.exam.findFirst({
+      where: { id: examId, schoolId },
+    });
     if (!exam) throw new NotFoundException('Exam not found');
     return this.prisma.examSubject.create({
       data: {
@@ -110,7 +173,12 @@ export class ExamsService {
   async enterMarks(
     examSubjectId: string,
     schoolId: string,
-    marks: { studentId: string; marksObtained?: number; isAbsent?: boolean; remarks?: string }[],
+    marks: {
+      studentId: string;
+      marksObtained?: number;
+      isAbsent?: boolean;
+      remarks?: string;
+    }[],
     enteredById: string,
   ) {
     const examSubject = await this.prisma.examSubject.findUnique({
@@ -121,13 +189,16 @@ export class ExamsService {
       throw new NotFoundException('Exam subject not found');
     }
 
-    const ops = marks.map(m => {
-      const grade = (!m.isAbsent && m.marksObtained !== undefined)
-        ? calculateGrade(m.marksObtained, Number(examSubject.maxMarks))
-        : undefined;
+    const ops = marks.map((m) => {
+      const grade =
+        !m.isAbsent && m.marksObtained !== undefined
+          ? calculateGrade(m.marksObtained, Number(examSubject.maxMarks))
+          : undefined;
 
       return this.prisma.studentMark.upsert({
-        where: { studentId_examSubjectId: { studentId: m.studentId, examSubjectId } },
+        where: {
+          studentId_examSubjectId: { studentId: m.studentId, examSubjectId },
+        },
         create: {
           studentId: m.studentId,
           examSubjectId,
@@ -156,7 +227,8 @@ export class ExamsService {
       where: { id: examSubjectId },
       include: { exam: true, subject: { select: { name: true } } },
     });
-    if (!es || es.exam.schoolId !== schoolId) throw new NotFoundException('Exam subject not found');
+    if (!es || es.exam.schoolId !== schoolId)
+      throw new NotFoundException('Exam subject not found');
 
     const marks = await this.prisma.studentMark.findMany({
       where: { examSubjectId },
@@ -164,7 +236,15 @@ export class ExamsService {
         student: {
           include: {
             user: { select: { firstName: true, lastName: true } },
-            enrollments: { where: { status: 'ACTIVE' }, include: { section: { select: { name: true, class: { select: { name: true } } } } }, take: 1 },
+            enrollments: {
+              where: { status: 'ACTIVE' },
+              include: {
+                section: {
+                  select: { name: true, class: { select: { name: true } } },
+                },
+              },
+              take: 1,
+            },
           },
         },
       },
@@ -174,7 +254,11 @@ export class ExamsService {
   }
 
   // ─── Get Students for Marks Entry (by section) ────────────────────────────
-  async getStudentsForMarksEntry(examSubjectId: string, sectionId: string, schoolId: string) {
+  async getStudentsForMarksEntry(
+    examSubjectId: string,
+    sectionId: string,
+    schoolId: string,
+  ) {
     const examSubject = await this.prisma.examSubject.findUnique({
       where: { id: examSubjectId },
       include: { exam: true, subject: { select: { name: true } }, marks: true },
@@ -197,8 +281,8 @@ export class ExamsService {
 
     return {
       examSubject,
-      students: enrollments.map(e => {
-        const mark = examSubject.marks.find(m => m.studentId === e.studentId);
+      students: enrollments.map((e) => {
+        const mark = examSubject.marks.find((m) => m.studentId === e.studentId);
         return {
           studentId: e.studentId,
           rollNumber: e.rollNumber,
@@ -239,12 +323,13 @@ export class ExamsService {
     }
 
     // Sort for rank calculation
-    const sorted = [...studentMap.entries()]
-      .sort((a, b) => b[1].obtained - a[1].obtained);
+    const sorted = [...studentMap.entries()].sort(
+      (a, b) => b[1].obtained - a[1].obtained,
+    );
 
     const ops = sorted.map(([studentId, data], index) => {
       const pct = data.total > 0 ? (data.obtained / data.total) * 100 : 0;
-      const grade = GRADE_SCALE.find(g => pct >= g.min)?.grade ?? 'F';
+      const grade = GRADE_SCALE.find((g) => pct >= g.min)?.grade ?? 'F';
       return this.prisma.reportCard.upsert({
         where: { studentId_examId: { studentId, examId } },
         create: {
@@ -272,7 +357,9 @@ export class ExamsService {
 
   // ─── Get Class Results ────────────────────────────────────────────────────
   async getClassResults(examId: string, schoolId: string) {
-    const exam = await this.prisma.exam.findFirst({ where: { id: examId, schoolId } });
+    const exam = await this.prisma.exam.findFirst({
+      where: { id: examId, schoolId },
+    });
     if (!exam) throw new NotFoundException('Exam not found');
 
     const reportCards = await this.prisma.reportCard.findMany({
@@ -280,10 +367,16 @@ export class ExamsService {
       include: {
         student: {
           include: {
-            user: { select: { firstName: true, lastName: true, avatarUrl: true } },
+            user: {
+              select: { firstName: true, lastName: true, avatarUrl: true },
+            },
             enrollments: {
               where: { status: 'ACTIVE' },
-              include: { section: { select: { name: true, class: { select: { name: true } } } } },
+              include: {
+                section: {
+                  select: { name: true, class: { select: { name: true } } },
+                },
+              },
               take: 1,
             },
           },
@@ -296,25 +389,44 @@ export class ExamsService {
   }
 
   // ─── Get Student Report Card ──────────────────────────────────────────────
-  async getStudentReportCard(examId: string, studentId: string, schoolId: string) {
-    const exam = await this.prisma.exam.findFirst({ where: { id: examId, schoolId } });
+  async getStudentReportCard(
+    examId: string,
+    studentId: string,
+    schoolId: string,
+  ) {
+    const exam = await this.prisma.exam.findFirst({
+      where: { id: examId, schoolId },
+    });
     if (!exam) throw new NotFoundException('Exam not found');
 
-    const [reportCard, subjectMarks] = await Promise.all([
+    const [reportCard, subjectMarks, studentEnrollments] = await Promise.all([
       this.prisma.reportCard.findUnique({
         where: { studentId_examId: { studentId, examId } },
         include: {
           student: {
             include: {
-              user: { select: { firstName: true, lastName: true, avatarUrl: true } },
+              user: {
+                select: { firstName: true, lastName: true, avatarUrl: true },
+              },
               enrollments: {
                 where: { status: 'ACTIVE' },
-                include: { section: { select: { name: true, class: { select: { name: true } } } } },
+                include: {
+                  section: {
+                    select: { name: true, class: { select: { name: true } } },
+                  },
+                },
                 take: 1,
               },
             },
           },
-          exam: { select: { name: true, examType: true, startDate: true, endDate: true } },
+          exam: {
+            select: {
+              name: true,
+              examType: true,
+              startDate: true,
+              endDate: true,
+            },
+          },
         },
       }),
       this.prisma.studentMark.findMany({
@@ -328,14 +440,50 @@ export class ExamsService {
           },
         },
       }),
+      this.prisma.studentSubjectEnrollment.findMany({
+        where: { studentId, status: 'ACTIVE' },
+        include: {
+          schoolSubjectOffering: {
+            include: {
+              globalSubject: true,
+              curriculumSubject: {
+                include: { subjectGroup: true },
+              },
+            },
+          },
+        },
+      }),
     ]);
 
-    return { reportCard, subjectMarks };
+    const curriculumEnrollments = studentEnrollments.map((se) => ({
+      offeringId: se.schoolSubjectOfferingId,
+      subjectName:
+        se.schoolSubjectOffering.curriculumSubject?.displayName ||
+        se.schoolSubjectOffering.customName ||
+        se.schoolSubjectOffering.globalSubject.name,
+      subjectCode:
+        se.schoolSubjectOffering.curriculumSubject?.subjectCode ||
+        se.schoolSubjectOffering.customCode ||
+        se.schoolSubjectOffering.globalSubject.code,
+      groupName:
+        se.schoolSubjectOffering.curriculumSubject?.subjectGroup?.name ||
+        'General Academic',
+      selectionType: se.schoolSubjectOffering.selectionType,
+      periodsPerWeek: se.schoolSubjectOffering.periodsPerWeek,
+      theoryEnabled: se.schoolSubjectOffering.theoryEnabled,
+      practicalEnabled: se.schoolSubjectOffering.practicalEnabled,
+      internalAssessmentEnabled:
+        se.schoolSubjectOffering.internalAssessmentEnabled,
+    }));
+
+    return { reportCard, subjectMarks, curriculumEnrollments };
   }
 
   // ─── Publish Results ──────────────────────────────────────────────────────
   async publishResults(examId: string, schoolId: string) {
-    const exam = await this.prisma.exam.findFirst({ where: { id: examId, schoolId } });
+    const exam = await this.prisma.exam.findFirst({
+      where: { id: examId, schoolId },
+    });
     if (!exam) throw new NotFoundException('Exam not found');
 
     await Promise.all([
@@ -362,12 +510,66 @@ export class ExamsService {
 
   // ─── Get Student Results (all exams) ─────────────────────────────────────
   async getStudentResults(studentId: string, schoolId: string) {
-    return this.prisma.reportCard.findMany({
+    const reportCards = await this.prisma.reportCard.findMany({
       where: { studentId, isPublished: true },
       include: {
-        exam: { select: { name: true, examType: true, startDate: true, academicYear: { select: { name: true } } } },
+        exam: {
+          select: {
+            id: true,
+            name: true,
+            examType: true,
+            startDate: true,
+            academicYear: { select: { name: true } },
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    const marks = await this.prisma.studentMark.findMany({
+      where: { studentId },
+      include: {
+        examSubject: {
+          include: {
+            subject: { select: { name: true } },
+            exam: { select: { id: true, name: true, examType: true, startDate: true } },
+          },
+        },
+      },
+    });
+
+    // Group marks by examId
+    const marksByExam = new Map<string, any[]>();
+    for (const m of marks) {
+      const eId = m.examSubject.exam.id;
+      if (!marksByExam.has(eId)) marksByExam.set(eId, []);
+      marksByExam.get(eId)!.push({
+        subjectId: m.examSubject.subjectId,
+        subjectName: m.examSubject.subject.name,
+        marksObtained: m.marksObtained ? Number(m.marksObtained) : 0,
+        maxMarks: Number(m.examSubject.maxMarks || 100),
+        passMarks: Number(m.examSubject.passMarks || 35),
+        grade: m.grade,
+        isAbsent: m.isAbsent,
+        remarks: m.remarks,
+      });
+    }
+
+    return reportCards.map((rc) => ({
+      id: rc.id,
+      examId: rc.examId,
+      name: rc.exam.name,
+      examName: rc.exam.name,
+      examType: rc.exam.examType,
+      startDate: rc.exam.startDate,
+      totalMarks: Number(rc.totalMarks),
+      obtainedMarks: Number(rc.obtainedMarks),
+      percentage: Number(rc.percentage),
+      grade: rc.grade,
+      rank: rc.rank,
+      isPublished: rc.isPublished,
+      marks: marksByExam.get(rc.examId) || [],
+      subjects: marksByExam.get(rc.examId) || [],
+    }));
   }
 }

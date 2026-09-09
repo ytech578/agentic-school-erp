@@ -32,7 +32,7 @@ export default function StaffDirectoryPage() {
     fetchStaff();
   }, []);
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = (e: React.SyntheticEvent) => {
     e.preventDefault();
     fetchStaff(searchTerm);
   };
@@ -74,7 +74,11 @@ export default function StaffDirectoryPage() {
           >
             <Eye size={16} />
           </Button>
-          <Button variant="ghost" size="sm">
+          <Button 
+            variant="ghost" 
+            size="sm"
+            onClick={() => router.push(`/staff/${row.id}/edit`)}
+          >
             <Edit size={16} />
           </Button>
         </div>

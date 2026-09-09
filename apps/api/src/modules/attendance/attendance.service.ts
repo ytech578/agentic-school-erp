@@ -19,9 +19,13 @@ export class AttendanceService {
     });
   }
 
-  async getStudentsForAttendance(schoolId: string, sectionId: string, date: string) {
+  async getStudentsForAttendance(
+    schoolId: string,
+    sectionId: string,
+    date: string,
+  ) {
     const targetDate = new Date(date);
-    
+
     // Validate date
     if (isNaN(targetDate.getTime())) {
       throw new BadRequestException('Invalid date format');
@@ -46,13 +50,10 @@ export class AttendanceService {
           },
         },
       },
-      orderBy: [
-        { user: { firstName: 'asc' } },
-        { user: { lastName: 'asc' } }
-      ]
+      orderBy: [{ user: { firstName: 'asc' } }, { user: { lastName: 'asc' } }],
     });
 
-    return students.map(student => ({
+    return students.map((student) => ({
       id: student.id,
       firstName: student.user.firstName,
       lastName: student.user.lastName,
@@ -62,7 +63,11 @@ export class AttendanceService {
     }));
   }
 
-  async markAttendance(schoolId: string, userId: string, data: MarkAttendanceInput) {
+  async markAttendance(
+    schoolId: string,
+    userId: string,
+    data: MarkAttendanceInput,
+  ) {
     const targetDate = new Date(data.date);
 
     if (isNaN(targetDate.getTime())) {
@@ -78,7 +83,7 @@ export class AttendanceService {
               studentId: record.studentId,
               sectionId: data.sectionId,
               date: targetDate,
-            }
+            },
           },
           update: {
             status: record.status as AttendanceStatus,

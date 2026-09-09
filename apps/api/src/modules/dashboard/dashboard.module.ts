@@ -3,10 +3,10 @@ import { DashboardService } from './dashboard.service';
 import { DashboardController } from './dashboard.controller';
 import { PrismaModule } from '../../core/database/prisma.module';
 
-@Module({ 
+@Module({
   imports: [PrismaModule],
-  controllers: [DashboardController], 
-  providers: [DashboardService], 
-  exports: [DashboardService] 
+  controllers: [DashboardController],
+  providers: [DashboardService],
+  exports: [DashboardService],
 })
 export class DashboardModule {}

@@ -34,7 +34,10 @@ export class EmailService {
   async sendMail(options: SendMailOptions): Promise<void> {
     try {
       await this.transporter.sendMail({
-        from: this.config.get<string>('SMTP_FROM', 'AI School ERP <noreply@schoolerp.com>'),
+        from: this.config.get<string>(
+          'SMTP_FROM',
+          'AI School ERP <noreply@schoolerp.com>',
+        ),
         to: options.to,
         subject: options.subject,
         html: options.html,
@@ -42,12 +45,18 @@ export class EmailService {
       });
       this.logger.log(`Email sent to ${options.to}: ${options.subject}`);
     } catch (error) {
-      this.logger.error(`Failed to send email to ${options.to}: ${error.message}`);
+      this.logger.error(
+        `Failed to send email to ${options.to}: ${error.message}`,
+      );
       // Don't throw — email failure should not break the API flow
     }
   }
 
-  async sendPasswordReset(to: string, firstName: string, resetUrl: string): Promise<void> {
+  async sendPasswordReset(
+    to: string,
+    firstName: string,
+    resetUrl: string,
+  ): Promise<void> {
     await this.sendMail({
       to,
       subject: 'Reset Your AI School ERP Password',
@@ -63,7 +72,12 @@ export class EmailService {
     });
   }
 
-  async sendWelcome(to: string, firstName: string, role: string, tempPassword?: string): Promise<void> {
+  async sendWelcome(
+    to: string,
+    firstName: string,
+    role: string,
+    tempPassword?: string,
+  ): Promise<void> {
     await this.sendMail({
       to,
       subject: 'Welcome to AI School ERP',
@@ -73,7 +87,10 @@ export class EmailService {
 
   // ─── Email Templates ──────────────────────────────────────────────────────
 
-  private getPasswordResetTemplate(firstName: string, resetUrl: string): string {
+  private getPasswordResetTemplate(
+    firstName: string,
+    resetUrl: string,
+  ): string {
     return `
       <!DOCTYPE html>
       <html>
@@ -123,7 +140,11 @@ export class EmailService {
     `;
   }
 
-  private getWelcomeTemplate(firstName: string, role: string, tempPassword?: string): string {
+  private getWelcomeTemplate(
+    firstName: string,
+    role: string,
+    tempPassword?: string,
+  ): string {
     const appUrl = this.config.get('app.appUrl', 'http://localhost:3000');
     return `
       <!DOCTYPE html>

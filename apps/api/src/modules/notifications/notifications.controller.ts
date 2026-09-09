@@ -1,4 +1,12 @@
-import { Controller, Get, Patch, Query, Param, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Patch,
+  Query,
+  Param,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -28,7 +36,10 @@ export class NotificationsController {
   @Get('count')
   @ApiOperation({ summary: 'Get unread notification count' })
   async getUnreadCount(@Request() req: any) {
-    const count = await this.service.getUnreadCount(req.user.id, req.user.schoolId);
+    const count = await this.service.getUnreadCount(
+      req.user.id,
+      req.user.schoolId,
+    );
     return { count };
   }
 

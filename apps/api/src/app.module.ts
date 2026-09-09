@@ -19,6 +19,11 @@ import { TimetableModule } from './modules/timetable/timetable.module';
 import { StorageModule } from './services/storage/storage.module';
 import { EmailModule } from './services/email/email.module';
 import { AdmissionsModule } from './modules/admissions/admissions.module';
+import { MessagesModule } from './modules/messages/messages.module';
+import { HRModule } from './modules/hr/hr.module';
+import { AssignmentsModule } from './modules/assignments/assignments.module';
+import { ActivitiesModule } from './modules/activities/activities.module';
+import { CurriculumModule } from './modules/curriculum/curriculum.module';
 import appConfig from './config/app.config';
 import databaseConfig from './config/database.config';
 import jwtConfig from './config/jwt.config';
@@ -67,6 +72,11 @@ import aiConfig from './config/ai.config';
     ReportsModule,
     TimetableModule,
     AdmissionsModule,
+    MessagesModule,
+    HRModule,
+    AssignmentsModule,
+    ActivitiesModule,
+    CurriculumModule,
   ],
 })
 export class AppModule {}

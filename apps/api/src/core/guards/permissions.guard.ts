@@ -28,6 +28,11 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException('Authentication required');
     }
 
+    // SUPER_ADMIN has global master permissions
+    if (user.role === 'SUPER_ADMIN') {
+      return true;
+    }
+
     const userPermissions = ROLE_PERMISSIONS[user.role as UserRole] ?? [];
     const hasAllPermissions = requiredPermissions.every((p) =>
       userPermissions.includes(p),

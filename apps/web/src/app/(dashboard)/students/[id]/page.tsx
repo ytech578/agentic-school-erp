@@ -55,7 +55,7 @@ export default function StudentProfilePage() {
             </p>
           </div>
         </div>
-        <Button variant="secondary">
+        <Button variant="secondary" onClick={() => router.push(`/students/${id}/edit`)}>
           <Edit size={18} style={{ marginRight: "0.5rem" }} />
           Edit Profile
         </Button>

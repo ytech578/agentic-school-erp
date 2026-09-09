@@ -9,6 +9,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { CollectFeeSchema } from "@school-erp/shared";
 import { ArrowLeft, Save, IndianRupee } from "lucide-react";
+import { formatCurrencyINR as formatCurrency } from "@/lib/formatters";
 
 export default function CollectFeePage() {
   const { studentId } = useParams();
@@ -71,10 +72,6 @@ export default function CollectFeePage() {
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(amount);
   };
 
   const paymentMode = watch("paymentMode");
@@ -172,12 +169,23 @@ export default function CollectFeePage() {
             />
           </div>
 
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "1rem", marginTop: "1rem" }}>
-            <Button type="button" variant="secondary" onClick={() => router.back()}>Cancel</Button>
-            <Button type="submit" isLoading={isSubmitting}>
-              <IndianRupee size={16} style={{ marginRight: "0.5rem" }} />
-              Record Payment
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem" }}>
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={() => {
+                alert(`Simulated: Payment link sent to Parent of ${student.firstName} via WhatsApp.`);
+              }}
+            >
+              Simulate Payment Link (Razorpay)
             </Button>
+            <div style={{ display: "flex", gap: "1rem" }}>
+              <Button type="button" variant="secondary" onClick={() => router.back()}>Cancel</Button>
+              <Button type="submit" isLoading={isSubmitting}>
+                <IndianRupee size={16} style={{ marginRight: "0.5rem" }} />
+                Record Payment
+              </Button>
+            </div>
           </div>
         </form>
       </div>

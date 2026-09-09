@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { AdmissionStatus, EnquiryStatus, Gender } from '@prisma/client';
 
@@ -12,7 +16,17 @@ export class AdmissionsService {
     const activeYear = await this.prisma.academicYear.findFirst({
       where: { schoolId, isActive: true },
     });
-    if (!activeYear) throw new BadRequestException('No active academic year found');
+    if (!activeYear)
+      throw new BadRequestException('No active academic year found');
+
+    // Calculate simple lead score based on source and phone
+    let leadScore = 50;
+    if (data.source === 'WEBSITE') leadScore += 20;
+    if (data.source === 'REFERRAL') leadScore += 30;
+    if (data.phone) leadScore += 10;
+
+    let nextAction = 'Call parent to schedule tour';
+    if (leadScore >= 80) nextAction = 'Send fast-track application link';
 
     return this.prisma.admissionEnquiry.create({
       data: {
@@ -28,6 +42,8 @@ export class AdmissionsService {
         notes: data.notes,
         followUpDate: data.followUpDate ? new Date(data.followUpDate) : null,
         status: data.status || EnquiryStatus.NEW,
+        leadScore,
+        nextAction,
       },
     });
   }
@@ -39,11 +55,61 @@ export class AdmissionsService {
     });
   }
 
-  async updateEnquiryStatus(schoolId: string, id: string, status: EnquiryStatus) {
+  async updateEnquiryStatus(
+    schoolId: string,
+    id: string,
+    status: EnquiryStatus,
+  ) {
     return this.prisma.admissionEnquiry.update({
       where: { id, schoolId },
       data: { status },
     });
+  }
+
+  async calculateLeadScores(schoolId: string) {
+    const enquiries = await this.prisma.admissionEnquiry.findMany({
+      where: { schoolId },
+    });
+
+    let updatedCount = 0;
+    for (const enquiry of enquiries) {
+      // Logic for lead scoring
+      let score = 40; // Base score
+
+      // Source bonus
+      if (enquiry.source === 'REFERRAL') score += 35;
+      else if (enquiry.source === 'WEBSITE') score += 25;
+      else if (enquiry.source === 'WALK_IN') score += 15;
+
+      // Contact info bonus
+      if (enquiry.email) score += 10;
+      if (enquiry.phone) score += 10;
+
+      // Status adjustments
+      if (enquiry.status === 'INTERESTED') score += 20;
+      if (enquiry.status === 'NOT_INTERESTED') score = 0;
+      if (enquiry.status === 'CONVERTED') score = 100;
+
+      // Cap at 99 for non-converted
+      if (score > 99 && enquiry.status !== 'CONVERTED') score = 99;
+
+      let nextAction = 'Send introductory email';
+      if (score >= 80) nextAction = 'Priority: Call to schedule tour';
+      else if (score >= 60) nextAction = 'Follow up via WhatsApp';
+
+      if (enquiry.status === 'CONVERTED') nextAction = 'Enrollment complete';
+      if (enquiry.status === 'NOT_INTERESTED') nextAction = 'Archive';
+
+      await this.prisma.admissionEnquiry.update({
+        where: { id: enquiry.id },
+        data: { leadScore: score, nextAction },
+      });
+      updatedCount++;
+    }
+    return {
+      success: true,
+      message: `Updated lead scores for ${updatedCount} enquiries`,
+    };
   }
 
   // ================= APPLICATIONS =================
@@ -52,7 +118,8 @@ export class AdmissionsService {
     const activeYear = await this.prisma.academicYear.findFirst({
       where: { schoolId, isActive: true },
     });
-    if (!activeYear) throw new BadRequestException('No active academic year found');
+    if (!activeYear)
+      throw new BadRequestException('No active academic year found');
 
     const appCount = await this.prisma.admissionApplication.count({
       where: { schoolId, academicYearId: activeYear.id },
@@ -96,7 +163,11 @@ export class AdmissionsService {
     return app;
   }
 
-  async updateApplicationStatus(schoolId: string, id: string, status: AdmissionStatus) {
+  async updateApplicationStatus(
+    schoolId: string,
+    id: string,
+    status: AdmissionStatus,
+  ) {
     return this.prisma.admissionApplication.update({
       where: { id, schoolId },
       data: { status },
@@ -109,7 +180,9 @@ export class AdmissionsService {
     });
     if (!app) throw new NotFoundException('Application not found');
     if (app.status !== AdmissionStatus.ACCEPTED) {
-      throw new BadRequestException('Only ACCEPTED applications can be converted');
+      throw new BadRequestException(
+        'Only ACCEPTED applications can be converted',
+      );
     }
     if (app.convertedStudentId) {
       throw new BadRequestException('Application already converted to student');
@@ -119,7 +192,9 @@ export class AdmissionsService {
       // Create user for student (randomized credentials for now, could be sent via email later)
       const user = await tx.user.create({
         data: {
-          email: app.parentEmail ? `student_${app.applicationNo}@example.com` : `temp_${app.applicationNo}@example.com`,
+          email: app.parentEmail
+            ? `student_${app.applicationNo}@example.com`
+            : `temp_${app.applicationNo}@example.com`,
           password: 'Password123', // In real app, generate securely
           firstName: app.studentName.split(' ')[0],
           lastName: app.studentName.split(' ').slice(1).join(' '),
@@ -162,7 +237,10 @@ export class AdmissionsService {
       // Update application
       const updatedApp = await tx.admissionApplication.update({
         where: { id: app.id },
-        data: { convertedStudentId: student.id, status: AdmissionStatus.ACCEPTED },
+        data: {
+          convertedStudentId: student.id,
+          status: AdmissionStatus.ACCEPTED,
+        },
       });
 
       return { student, application: updatedApp };

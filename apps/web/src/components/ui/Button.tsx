@@ -34,7 +34,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     if (size === "lg") sizeClass = "px-6 py-3 text-base";
     if (size === "icon") sizeClass = "p-2";
 
-    const baseClass = `btn ${variantClass} ${className}`;
+    const baseClass = `btn ${variantClass} ${sizeClass} ${className}`;
 
     return (
       <button
@@ -48,6 +48,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           gap: "0.5rem",
           padding: size === "icon" ? "0.5rem" : undefined,
         }}
+        suppressHydrationWarning
         {...props}
       >
         {isLoading && (

@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Patch, Param, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { AdmissionsService } from './admissions.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
@@ -26,8 +35,22 @@ export class AdmissionsController {
 
   @Patch('enquiries/:id/status')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  updateEnquiryStatus(@Request() req: any, @Param('id') id: string, @Body('status') status: EnquiryStatus) {
-    return this.admissionsService.updateEnquiryStatus(req.user.schoolId, id, status);
+  updateEnquiryStatus(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body('status') status: EnquiryStatus,
+  ) {
+    return this.admissionsService.updateEnquiryStatus(
+      req.user.schoolId,
+      id,
+      status,
+    );
+  }
+
+  @Post('enquiries/calculate-scores')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  calculateLeadScores(@Request() req: any) {
+    return this.admissionsService.calculateLeadScores(req.user.schoolId);
   }
 
   // ================= APPLICATIONS =================
@@ -52,14 +75,25 @@ export class AdmissionsController {
 
   @Patch('applications/:id/status')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  updateApplicationStatus(@Request() req: any, @Param('id') id: string, @Body('status') status: AdmissionStatus) {
-    return this.admissionsService.updateApplicationStatus(req.user.schoolId, id, status);
+  updateApplicationStatus(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body('status') status: AdmissionStatus,
+  ) {
+    return this.admissionsService.updateApplicationStatus(
+      req.user.schoolId,
+      id,
+      status,
+    );
   }
 
   @Post('applications/:id/convert')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   convertApplicationToStudent(@Request() req: any, @Param('id') id: string) {
-    return this.admissionsService.convertApplicationToStudent(req.user.schoolId, id);
+    return this.admissionsService.convertApplicationToStudent(
+      req.user.schoolId,
+      id,
+    );
   }
 
   // ================= ANALYTICS =================

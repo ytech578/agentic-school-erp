@@ -5,9 +5,14 @@ import { PrismaService } from '../../core/database/prisma.service';
 export class ReportsService {
   constructor(private prisma: PrismaService) {}
 
-  private async resolveActiveYear(schoolId: string, academicYearId?: string): Promise<string | undefined> {
+  private async resolveActiveYear(
+    schoolId: string,
+    academicYearId?: string,
+  ): Promise<string | undefined> {
     if (academicYearId) return academicYearId;
-    const ay = await this.prisma.academicYear.findFirst({ where: { schoolId, isActive: true } });
+    const ay = await this.prisma.academicYear.findFirst({
+      where: { schoolId, isActive: true },
+    });
     return ay?.id;
   }
 
@@ -29,20 +34,33 @@ export class ReportsService {
       this.prisma.student.count({ where: { schoolId, isActive: true } }),
     ]);
 
-    const summary: Record<string, number> = { PRESENT: 0, ABSENT: 0, LATE: 0, EXCUSED: 0 };
-    records.forEach(r => { summary[r.status] = r._count.status; });
+    const summary: Record<string, number> = {
+      PRESENT: 0,
+      ABSENT: 0,
+      LATE: 0,
+      EXCUSED: 0,
+    };
+    records.forEach((r) => {
+      summary[r.status] = r._count.status;
+    });
 
     return {
       date: (date ? new Date(date) : new Date()).toISOString().split('T')[0],
       totalStudents,
       ...summary,
-      attendanceRate: totalStudents > 0
-        ? ((summary.PRESENT / totalStudents) * 100).toFixed(1)
-        : '0',
+      attendanceRate:
+        totalStudents > 0
+          ? ((summary.PRESENT / totalStudents) * 100).toFixed(1)
+          : '0',
     };
   }
 
-  async getAttendanceRegister(schoolId: string, sectionId: string, month: number, year: number) {
+  async getAttendanceRegister(
+    schoolId: string,
+    sectionId: string,
+    month: number,
+    year: number,
+  ) {
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 0, 23, 59, 59);
 
@@ -63,7 +81,7 @@ export class ReportsService {
 
     // Build lookup: studentId → { day → status }
     const recordMap: Record<string, Record<string, string>> = {};
-    records.forEach(r => {
+    records.forEach((r) => {
       const day = new Date(r.date).getDate().toString();
       if (!recordMap[r.studentId]) recordMap[r.studentId] = {};
       recordMap[r.studentId][day] = r.status;
@@ -72,10 +90,12 @@ export class ReportsService {
     const daysInMonth = new Date(year, month, 0).getDate();
     const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
-    const students = enrollments.map(e => {
+    const students = enrollments.map((e) => {
       const studentRecords = recordMap[e.studentId] || {};
-      let present = 0, absent = 0, late = 0;
-      days.forEach(d => {
+      let present = 0,
+        absent = 0,
+        late = 0;
+      days.forEach((d) => {
         const s = studentRecords[d.toString()];
         if (s === 'PRESENT') present++;
         else if (s === 'ABSENT') absent++;
@@ -86,8 +106,11 @@ export class ReportsService {
         name: `${e.student.user.firstName} ${e.student.user.lastName}`,
         rollNumber: e.rollNumber,
         days: studentRecords,
-        present, absent, late,
-        percentage: daysInMonth > 0 ? ((present / daysInMonth) * 100).toFixed(1) : '0',
+        present,
+        absent,
+        late,
+        percentage:
+          daysInMonth > 0 ? ((present / daysInMonth) * 100).toFixed(1) : '0',
       };
     });
 
@@ -102,7 +125,9 @@ export class ReportsService {
         user: { select: { firstName: true, lastName: true } },
         enrollments: {
           where: { status: 'ACTIVE' },
-          include: { section: { include: { class: { select: { name: true } } } } },
+          include: {
+            section: { include: { class: { select: { name: true } } } },
+          },
           take: 1,
         },
       },
@@ -111,7 +136,9 @@ export class ReportsService {
     const results: any[] = [];
     for (const s of students) {
       const [present, total] = await Promise.all([
-        this.prisma.attendanceRecord.count({ where: { studentId: s.id, status: 'PRESENT' } }),
+        this.prisma.attendanceRecord.count({
+          where: { studentId: s.id, status: 'PRESENT' },
+        }),
         this.prisma.attendanceRecord.count({ where: { studentId: s.id } }),
       ]);
       const pct = total > 0 ? (present / total) * 100 : 0;
@@ -127,7 +154,9 @@ export class ReportsService {
         });
       }
     }
-    return results.sort((a, b) => parseFloat(a.percentage) - parseFloat(b.percentage));
+    return results.sort(
+      (a, b) => parseFloat(a.percentage) - parseFloat(b.percentage),
+    );
   }
 
   // ── Fee Reports ────────────────────────────────────────────────────────
@@ -150,10 +179,13 @@ export class ReportsService {
       orderBy: { paymentDate: 'desc' },
     });
 
-    const totalCollected = payments.reduce((s, p) => s + p.totalAmount.toNumber(), 0);
+    const totalCollected = payments.reduce(
+      (s, p) => s + p.totalAmount.toNumber(),
+      0,
+    );
 
     // Group by feeHeadId (we don't have feeHead name without the relation, use headId as key)
-    const byPayment = payments.map(p => ({
+    const byPayment = payments.map((p) => ({
       id: p.id,
       studentName: `${p.student.user.firstName} ${p.student.user.lastName}`,
       totalAmount: p.totalAmount,
@@ -162,7 +194,8 @@ export class ReportsService {
     }));
 
     return {
-      from, to,
+      from,
+      to,
       totalCollected,
       totalPayments: payments.length,
       payments: byPayment,
@@ -173,7 +206,7 @@ export class ReportsService {
     const pending = await this.prisma.feePayment.findMany({
       where: {
         schoolId,
-        paymentStatus: { in: ['PENDING', 'PARTIAL'] },
+        paymentStatus: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] },
       },
       include: {
         student: {
@@ -181,7 +214,9 @@ export class ReportsService {
             user: { select: { firstName: true, lastName: true } },
             enrollments: {
               where: { status: 'ACTIVE' },
-              include: { section: { include: { class: { select: { name: true } } } } },
+              include: {
+                section: { include: { class: { select: { name: true } } } },
+              },
               take: 1,
             },
           },
@@ -190,7 +225,7 @@ export class ReportsService {
       orderBy: { paymentDate: 'asc' },
     });
 
-    return pending.map(p => ({
+    return pending.map((p) => ({
       paymentId: p.id,
       studentId: p.studentId,
       studentName: `${p.student.user.firstName} ${p.student.user.lastName}`,
@@ -222,7 +257,7 @@ export class ReportsService {
       include: { subject: { select: { name: true } } },
     });
 
-    const examSubjectIds = examSubjects.map(es => es.id);
+    const examSubjectIds = examSubjects.map((es) => es.id);
 
     // Get all marks for those exam subjects
     const marks = await this.prisma.studentMark.findMany({
@@ -239,13 +274,15 @@ export class ReportsService {
 
     // Group by student
     const studentMap: Record<string, any> = {};
-    marks.forEach(m => {
+    marks.forEach((m) => {
       if (!studentMap[m.studentId]) {
         studentMap[m.studentId] = {
           studentId: m.studentId,
           name: `${m.student.user.firstName} ${m.student.user.lastName}`,
           rollNumber: m.student.rollNumber,
-          subjects: {}, total: 0, maxTotal: 0,
+          subjects: {},
+          total: 0,
+          maxTotal: 0,
         };
       }
       const subName = m.examSubject.subject.name;
@@ -262,23 +299,40 @@ export class ReportsService {
     const students = Object.values(studentMap)
       .map((s: any) => ({
         ...s,
-        percentage: s.maxTotal > 0 ? ((s.total / s.maxTotal) * 100).toFixed(1) : '0',
-        grade: this.calcGrade(s.maxTotal > 0 ? (s.total / s.maxTotal) * 100 : 0),
+        percentage:
+          s.maxTotal > 0 ? ((s.total / s.maxTotal) * 100).toFixed(1) : '0',
+        grade: this.calcGrade(
+          s.maxTotal > 0 ? (s.total / s.maxTotal) * 100 : 0,
+        ),
       }))
       .sort((a: any, b: any) => b.total - a.total)
       .map((s: any, i: number) => ({ ...s, rank: i + 1 }));
 
-    const avg = students.length > 0
-      ? students.reduce((s: number, st: any) => s + parseFloat(st.percentage), 0) / students.length
-      : 0;
-    const passed = students.filter((s: any) => parseFloat(s.percentage) >= 35).length;
+    const avg =
+      students.length > 0
+        ? students.reduce(
+            (s: number, st: any) => s + parseFloat(st.percentage),
+            0,
+          ) / students.length
+        : 0;
+    const passed = students.filter(
+      (s: any) => parseFloat(s.percentage) >= 35,
+    ).length;
 
     return {
-      exam: { id: exam.id, name: exam.name, type: exam.examType, academicYear: exam.academicYear.name },
+      exam: {
+        id: exam.id,
+        name: exam.name,
+        type: exam.examType,
+        academicYear: exam.academicYear.name,
+      },
       classAverage: avg.toFixed(1),
       passCount: passed,
       failCount: students.length - passed,
-      passPercentage: students.length > 0 ? ((passed / students.length) * 100).toFixed(1) : '0',
+      passPercentage:
+        students.length > 0
+          ? ((passed / students.length) * 100).toFixed(1)
+          : '0',
       topScore: students[0]?.percentage || '0',
       students,
     };
@@ -323,7 +377,9 @@ export class ReportsService {
       _count: { status: true },
     });
     const attMap: Record<string, number> = {};
-    attendanceGroups.forEach(a => { attMap[a.status] = a._count.status; });
+    attendanceGroups.forEach((a) => {
+      attMap[a.status] = a._count.status;
+    });
     const totalDays = Object.values(attMap).reduce((s, n) => s + n, 0);
     const presentDays = attMap['PRESENT'] || 0;
 
@@ -342,7 +398,8 @@ export class ReportsService {
       attendance: {
         present: presentDays,
         total: totalDays,
-        percentage: totalDays > 0 ? ((presentDays / totalDays) * 100).toFixed(1) : '0',
+        percentage:
+          totalDays > 0 ? ((presentDays / totalDays) * 100).toFixed(1) : '0',
       },
     };
   }

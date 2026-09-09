@@ -89,7 +89,9 @@ async function bootstrap() {
   await app.listen(port);
 
   const logger = new Logger('Bootstrap');
-  logger.log(`🚀 AI School ERP API running on: http://localhost:${port}/${apiPrefix}`);
+  logger.log(
+    `🚀 AI School ERP API running on: http://localhost:${port}/${apiPrefix}`,
+  );
   if (process.env.NODE_ENV !== 'production') {
     logger.log(`📚 Swagger docs: http://localhost:${port}/${apiPrefix}/docs`);
   }

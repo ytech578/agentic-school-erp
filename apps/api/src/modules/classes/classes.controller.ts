@@ -13,13 +13,27 @@ export class ClassesController {
   constructor(private service: ClassesService) {}
 
   @Get()
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'STUDENT', 'PARENT')
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'STUDENT',
+    'PARENT',
+  )
   findAll(@Request() req: any) {
     return this.service.findAll(req.user.schoolId);
   }
 
   @Get(':id/sections')
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'STUDENT', 'PARENT')
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'STUDENT',
+    'PARENT',
+  )
   findSections(@Request() req: any, @Param('id') id: string) {
     return this.service.findSections(req.user.schoolId, id);
   }

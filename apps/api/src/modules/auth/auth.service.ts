@@ -29,11 +29,7 @@ export class AuthService {
 
   // ─── Login ────────────────────────────────────────────────────────────────
 
-  async login(
-    dto: LoginInput,
-    ipAddress: string,
-    userAgent: string,
-  ) {
+  async login(dto: LoginInput, ipAddress: string, userAgent: string) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email.toLowerCase() },
       include: { school: { select: { id: true, name: true, code: true } } },
@@ -57,7 +53,9 @@ export class AuthService {
 
     // Account status check
     if (user.status === 'INACTIVE' || user.status === 'SUSPENDED') {
-      throw new ForbiddenException('Your account has been deactivated. Contact your administrator.');
+      throw new ForbiddenException(
+        'Your account has been deactivated. Contact your administrator.',
+      );
     }
 
     // Reset failed attempts on successful login
@@ -72,10 +70,20 @@ export class AuthService {
     });
 
     // Generate tokens
-    const tokens = await this.generateTokens(user.id, user.email, user.role as UserRole, user.schoolId);
+    const tokens = await this.generateTokens(
+      user.id,
+      user.email,
+      user.role,
+      user.schoolId,
+    );
 
     // Store session
-    const session = await this.createSession(user.id, tokens.refreshToken, ipAddress, userAgent);
+    const session = await this.createSession(
+      user.id,
+      tokens.refreshToken,
+      ipAddress,
+      userAgent,
+    );
 
     // Audit log
     await this.createAuditLog(user.id, user.schoolId, 'LOGIN', ipAddress);
@@ -92,7 +100,7 @@ export class AuthService {
         role: user.role,
         schoolId: user.schoolId,
         avatarUrl: user.avatarUrl,
-        permissions: ROLE_PERMISSIONS[user.role as UserRole] ?? [],
+        permissions: ROLE_PERMISSIONS[user.role] ?? [],
         school: user.school,
       },
       accessToken: tokens.accessToken,
@@ -129,7 +137,11 @@ export class AuthService {
       },
     });
 
-    if (!session || session.status !== 'ACTIVE' || session.expiresAt < new Date()) {
+    if (
+      !session ||
+      session.status !== 'ACTIVE' ||
+      session.expiresAt < new Date()
+    ) {
       throw new UnauthorizedException('Session expired. Please login again.');
     }
 
@@ -139,13 +151,24 @@ export class AuthService {
     }
 
     // Rotate refresh token
-    const tokens = await this.generateTokens(user.id, user.email, user.role as UserRole, user.schoolId);
+    const tokens = await this.generateTokens(
+      user.id,
+      user.email,
+      user.role,
+      user.schoolId,
+    );
 
     await this.prisma.userSession.update({
       where: { id: session.id },
       data: {
         refreshToken: tokens.refreshToken,
-        expiresAt: new Date(Date.now() + this.config.get<number>('jwt.refreshExpiresInMs', 7 * 24 * 60 * 60 * 1000)),
+        expiresAt: new Date(
+          Date.now() +
+            this.config.get<number>(
+              'jwt.refreshExpiresInMs',
+              7 * 24 * 60 * 60 * 1000,
+            ),
+        ),
         ipAddress,
       },
     });
@@ -172,7 +195,7 @@ export class AuthService {
       role: user.role,
       schoolId: user.schoolId,
       avatarUrl: user.avatarUrl,
-      permissions: ROLE_PERMISSIONS[user.role as UserRole] ?? [],
+      permissions: ROLE_PERMISSIONS[user.role] ?? [],
       school: user.school,
     };
   }
@@ -188,7 +211,10 @@ export class AuthService {
     if (!user) return;
 
     const rawToken = crypto.randomBytes(32).toString('hex');
-    const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(rawToken)
+      .digest('hex');
     const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
     await this.prisma.user.update({
@@ -200,7 +226,11 @@ export class AuthService {
     });
 
     const resetUrl = `${this.config.get('app.appUrl')}/reset-password?token=${rawToken}`;
-    await this.emailService.sendPasswordReset(user.email, user.firstName, resetUrl);
+    await this.emailService.sendPasswordReset(
+      user.email,
+      user.firstName,
+      resetUrl,
+    );
 
     this.logger.log(`Password reset email sent to ${email}`);
   }
@@ -208,7 +238,10 @@ export class AuthService {
   // ─── Reset Password ───────────────────────────────────────────────────────
 
   async resetPassword(dto: ResetPasswordInput): Promise<void> {
-    const hashedToken = crypto.createHash('sha256').update(dto.token).digest('hex');
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(dto.token)
+      .digest('hex');
 
     const user = await this.prisma.user.findFirst({
       where: {
@@ -218,7 +251,9 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new BadRequestException('Password reset link is invalid or has expired');
+      throw new BadRequestException(
+        'Password reset link is invalid or has expired',
+      );
     }
 
     const passwordHash = await bcrypt.hash(
@@ -277,7 +312,11 @@ export class AuthService {
     userAgent: string,
   ) {
     const expiresAt = new Date(
-      Date.now() + this.config.get<number>('jwt.refreshExpiresInMs', 7 * 24 * 60 * 60 * 1000),
+      Date.now() +
+        this.config.get<number>(
+          'jwt.refreshExpiresInMs',
+          7 * 24 * 60 * 60 * 1000,
+        ),
     );
 
     return this.prisma.userSession.create({

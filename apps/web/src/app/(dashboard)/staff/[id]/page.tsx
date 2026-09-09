@@ -53,7 +53,7 @@ export default function StaffProfilePage({ params }: { params: Promise<{ id: str
           <h1 style={{ marginBottom: 0 }}>Staff Profile</h1>
         </div>
         <div style={{ display: "flex", gap: "0.5rem" }}>
-          <Button variant="secondary">
+          <Button variant="secondary" onClick={() => router.push(`/staff/${id}/edit`)}>
             <Edit size={16} style={{ marginRight: "0.5rem" }} />
             Edit Profile
           </Button>

@@ -30,7 +30,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
       if (typeof exceptionResponse === 'string') {
         message = exceptionResponse;
-      } else if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+      } else if (
+        typeof exceptionResponse === 'object' &&
+        exceptionResponse !== null
+      ) {
         const res = exceptionResponse as Record<string, unknown>;
         message = (res.message as string) || message;
         error = (res.error as string) || error;
@@ -64,7 +67,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           break;
         }
         default: {
-          this.logger.error(`Prisma error ${exception.code}: ${exception.message}`);
+          this.logger.error(
+            `Prisma error ${exception.code}: ${exception.message}`,
+          );
           message = 'Database operation failed';
           error = 'DATABASE_ERROR';
         }

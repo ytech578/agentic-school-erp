@@ -1,12 +1,15 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { Mail, Lock, AlertCircle, Loader2, Eye, EyeOff } from "lucide-react";
+import { 
+  Mail, Lock, AlertCircle, Loader2, Eye, EyeOff, 
+  ShieldCheck, HelpCircle, Building2, X, AlertTriangle
+} from "lucide-react";
 import { LoginSchema } from "@school-erp/shared/src/schemas/auth.schema";
 import { apiClient } from "@/lib/axios";
 import { useAuthStore } from "@/store/auth.store";
@@ -16,34 +19,74 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const returnUrl = searchParams.get("returnUrl") || "/dashboard";
   const { setAuth } = useAuthStore();
+  
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [capsLockActive, setCapsLockActive] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
 
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<z.infer<typeof LoginSchema>>({
     resolver: zodResolver(LoginSchema) as any,
     defaultValues: {
       email: "",
       password: "",
+      rememberMe: false,
     },
   });
+
+  // Restore remembered email on mount
+  useEffect(() => {
+    try {
+      const savedEmail = localStorage.getItem("erp_remembered_email");
+      if (savedEmail) {
+        setValue("email", savedEmail);
+        setRememberMe(true);
+      }
+    } catch {
+      // localStorage may be restricted
+    }
+  }, [setValue]);
+
+  // Keyboard handler for Caps Lock detection
+  const handlePasswordKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    setCapsLockActive(e.getModifierState("CapsLock"));
+  };
 
   const onSubmit = async (data: z.infer<typeof LoginSchema>) => {
     try {
       setGlobalError(null);
       const response = await apiClient.post("/auth/login", data);
       const { user, accessToken } = response.data.data;
+
+      // Handle remember me persistence
+      try {
+        if (rememberMe) {
+          localStorage.setItem("erp_remembered_email", data.email);
+        } else {
+          localStorage.removeItem("erp_remembered_email");
+        }
+      } catch {
+        // Ignore storage errors
+      }
+
       setAuth(user, accessToken);
       router.push(returnUrl);
     } catch (error: any) {
-      if (error.response?.data?.message) {
-        setGlobalError(error.response.data.message);
+      const rawMsg = error.response?.data?.message;
+      const status = error.response?.status;
+
+      if (status === 401 || rawMsg === "Unauthorized") {
+        setGlobalError("Invalid email or password. Please verify your school credentials and try again.");
+      } else if (rawMsg) {
+        setGlobalError(rawMsg);
       } else {
-        setGlobalError("Failed to connect to the server. Please try again.");
+        setGlobalError("Unable to connect to the school server. Please verify your connection or try again.");
       }
     }
   };
@@ -55,28 +98,32 @@ function LoginForm() {
         {/* Logo above the card */}
         <div className="login-logo">
           <div className="login-logo-icon">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <svg width="42" height="42" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M24 2L4 12V26C4 37.05 12.85 47.4 24 50C35.15 47.4 44 37.05 44 26V12L24 2Z" fill="#1a3a6b" />
               <path d="M24 6L8 15V26C8 35.2 15.2 44.1 24 46.5C32.8 44.1 40 35.2 40 26V15L24 6Z" fill="#2563eb" />
               <text x="24" y="32" textAnchor="middle" fontSize="18" fontWeight="bold" fill="white">🎓</text>
             </svg>
           </div>
           <div className="login-logo-text">
-            <span className="login-logo-name">AI School ERP</span>
-            <span className="login-logo-tagline">Smart School. Smarter Future.</span>
+            <span className="login-logo-name">Agentic School ERP</span>
+            <span className="login-logo-tagline">Sunrise International School · Session 2026-27</span>
           </div>
         </div>
 
-        {/* The white floating card */}
+        {/* Floating login card */}
         <div className="login-card">
           <div className="login-card-header">
-            <h1 className="login-title">Welcome Back! 👋</h1>
-            <p className="login-subtitle">Sign in to continue to your account</p>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.2rem" }}>
+              <h1 className="login-title">Sign In</h1>
+              <span className="portal-badge">Official Portal</span>
+            </div>
+            <p className="login-subtitle">Enter your institutional credentials to access your portal</p>
           </div>
 
+          {/* Error Banner */}
           {globalError && (
             <div className="global-error">
-              <AlertCircle size={18} />
+              <AlertCircle size={16} style={{ flexShrink: 0, marginTop: "1px" }} />
               <span>{globalError}</span>
             </div>
           )}
@@ -84,15 +131,17 @@ function LoginForm() {
           <form onSubmit={handleSubmit(onSubmit)} className="login-form">
             {/* Email */}
             <div className="form-group">
-              <label className="form-label" htmlFor="email">Email / Username</label>
+              <label className="form-label" htmlFor="email">Institutional Email / Username</label>
               <div className="input-container">
-                <Mail className="input-icon" size={18} />
+                <Mail className="input-icon" size={17} />
                 <input
                   id="email"
                   type="email"
-                  placeholder="admin@sunriseschool.edu"
+                  placeholder="name@sunriseschool.edu.in"
                   className={`form-input ${errors.email ? "has-error" : ""}`}
                   disabled={isSubmitting}
+                  autoComplete="email"
+                  suppressHydrationWarning
                   {...register("email")}
                 />
               </div>
@@ -101,25 +150,37 @@ function LoginForm() {
 
             {/* Password */}
             <div className="form-group">
-              <label className="form-label" htmlFor="password">Password</label>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <label className="form-label" htmlFor="password">Password</label>
+                {capsLockActive && (
+                  <span className="caps-lock-warning">
+                    <AlertTriangle size={11} /> Caps Lock is ON
+                  </span>
+                )}
+              </div>
               <div className="input-container">
-                <Lock className="input-icon" size={18} />
+                <Lock className="input-icon" size={17} />
                 <input
                   id="password"
                   type={showPassword ? "text" : "password"}
-                  placeholder="••••••••••"
+                  placeholder="••••••••••••"
                   className={`form-input ${errors.password ? "has-error" : ""}`}
                   disabled={isSubmitting}
-                  style={{ paddingRight: "3rem" }}
+                  style={{ paddingRight: "2.75rem" }}
+                  autoComplete="current-password"
+                  onKeyDown={handlePasswordKey}
+                  onKeyUp={handlePasswordKey}
+                  suppressHydrationWarning
                   {...register("password")}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="password-toggle"
+                  title={showPassword ? "Hide password" : "Show password"}
                   tabIndex={-1}
                 >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
                 </button>
               </div>
               {errors.password && <span className="error-message">{errors.password.message}</span>}
@@ -139,57 +200,127 @@ function LoginForm() {
             </div>
 
             {/* Sign In button */}
-            <button type="submit" className="btn-signin" disabled={isSubmitting}>
+            <button type="submit" className="btn-signin" disabled={isSubmitting} suppressHydrationWarning>
               {isSubmitting ? (
-                <><Loader2 className="spinner" size={18} /> Signing in...</>
+                <><Loader2 className="spinner" size={17} /> Authenticating...</>
               ) : (
-                "Sign In"
+                "Sign In to ERP"
               )}
             </button>
           </form>
 
-          {/* Social login divider */}
-          <div className="social-divider">
-            <span className="social-divider-line" />
-            <span className="social-divider-text">or continue with</span>
-            <span className="social-divider-line" />
+          {/* Institutional Help & Directory Notice */}
+          <div className="helpdesk-banner">
+            <div className="helpdesk-icon">
+              <Building2 size={16} />
+            </div>
+            <div className="helpdesk-text">
+              <span>Credentials provisioned by school admin.</span>
+              <button 
+                type="button" 
+                onClick={() => setShowHelpModal(true)} 
+                className="helpdesk-link"
+              >
+                Need login help? &rarr;
+              </button>
+            </div>
           </div>
 
-          {/* Social buttons */}
-          <div className="social-buttons">
-            <button className="social-btn" type="button">
-              <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
-                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-              </svg>
-              Google
-            </button>
-            <button className="social-btn" type="button">
-              <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path d="M11 11H3V3h8v8z" fill="#F25022"/>
-                <path d="M21 11h-8V3h8v8z" fill="#7FBA00"/>
-                <path d="M11 21H3v-8h8v8z" fill="#00A4EF"/>
-                <path d="M21 21h-8v-8h8v8z" fill="#FFB900"/>
-              </svg>
-              Microsoft
-            </button>
+          {/* Security Trust Assurance */}
+          <div className="security-trust-badge">
+            <ShieldCheck size={13} style={{ color: "#059669" }} />
+            <span>256-Bit SSL Encrypted · Role-Based Security</span>
           </div>
         </div>
 
         {/* Footer */}
         <div className="login-footer">
-          © 2026 AI School ERP. All rights reserved.
+          © 2026 Sunrise International School · Powered by Agentic ERP
         </div>
       </div>
+
+      {/* ========================================================
+          INSTITUTIONAL HELPDESK MODAL
+          Strict Solid Background + 12px Backdrop Blur
+          ======================================================== */}
+      {showHelpModal && (
+        <div className="modal-overlay">
+          <div className="modal-card">
+            <div className="modal-header">
+              <div style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
+                <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#EFF6FF", color: "#2563EB", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <HelpCircle size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: "1.125rem", fontWeight: 700, color: "#0F172A", margin: 0 }}>
+                    School Portal Helpdesk
+                  </h3>
+                  <p style={{ fontSize: "0.75rem", color: "#64748B", margin: 0 }}>
+                    Sunrise International School · IT Support
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowHelpModal(false)}
+                className="modal-close-btn"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <p style={{ fontSize: "0.875rem", color: "#475569", lineHeight: 1.6 }}>
+                All student, parent, and teacher login accounts are provisioned directly by the school administration upon enrollment or staff onboarding.
+              </p>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem", marginTop: "0.5rem" }}>
+                <div className="help-info-row">
+                  <span className="help-info-label">🏫 School Office</span>
+                  <span className="help-info-value">Administrative Block, Room 104</span>
+                </div>
+                <div className="help-info-row">
+                  <span className="help-info-label">📧 IT Helpline</span>
+                  <span className="help-info-value">support@sunriseschool.edu.in</span>
+                </div>
+                <div className="help-info-row">
+                  <span className="help-info-label">📞 Phone Support</span>
+                  <span className="help-info-value">+91 (020) 1234-5678 (Ext. 104)</span>
+                </div>
+                <div className="help-info-row">
+                  <span className="help-info-label">⏰ Support Hours</span>
+                  <span className="help-info-value">Mon – Fri: 8:00 AM – 4:30 PM</span>
+                </div>
+              </div>
+
+              <div style={{ marginTop: "1rem", padding: "0.75rem 1rem", borderRadius: "8px", background: "#F1F5F9", border: "1px solid #E2E8F0", fontSize: "0.8125rem", color: "#64748B", lineHeight: 1.5 }}>
+                💡 <strong>Forgot password?</strong> Use the <Link href="/forgot-password" onClick={() => setShowHelpModal(false)} style={{ color: "#2563EB", fontWeight: 600 }}>Forgot Password link</Link> to receive a reset token on your registered email address.
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button 
+                type="button" 
+                onClick={() => setShowHelpModal(false)}
+                className="btn-modal-close"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}><Loader2 size={32} style={{ animation: "spin 1s linear infinite" }} /></div>}>
+    <Suspense fallback={
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
+        <Loader2 size={32} style={{ animation: "spin 1s linear infinite", color: "#2563EB" }} />
+      </div>
+    }>
       <LoginForm />
     </Suspense>
   );

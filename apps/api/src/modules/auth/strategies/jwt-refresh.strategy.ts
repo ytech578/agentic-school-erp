@@ -6,7 +6,10 @@ import { Request } from 'express';
 import { PrismaService } from '../../../core/database/prisma.service';
 
 @Injectable()
-export class JwtRefreshStrategy extends PassportStrategy(Strategy, 'jwt-refresh') {
+export class JwtRefreshStrategy extends PassportStrategy(
+  Strategy,
+  'jwt-refresh',
+) {
   constructor(
     config: ConfigService,
     private prisma: PrismaService,
@@ -30,7 +33,11 @@ export class JwtRefreshStrategy extends PassportStrategy(Strategy, 'jwt-refresh'
       where: { refreshToken },
     });
 
-    if (!session || session.status !== 'ACTIVE' || session.expiresAt < new Date()) {
+    if (
+      !session ||
+      session.status !== 'ACTIVE' ||
+      session.expiresAt < new Date()
+    ) {
       throw new UnauthorizedException('Session expired. Please login again.');
     }
 

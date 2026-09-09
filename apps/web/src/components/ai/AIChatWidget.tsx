@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useAIStore } from "@/store/ai.store";
-import { Sparkles, X, Send, User, Bot, Loader2, Maximize2 } from "lucide-react";
+import { BrainCircuit, X, Send, Loader2, Maximize2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 
@@ -18,7 +18,7 @@ export default function AIChatWidget() {
     }
   }, [messages]);
 
-  const handleSend = async (e?: React.FormEvent) => {
+  const handleSend = async (e?: React.SyntheticEvent) => {
     e?.preventDefault();
     if (!input.trim() || isLoading) return;
     const text = input;
@@ -55,7 +55,7 @@ export default function AIChatWidget() {
         onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.1)")}
         onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
       >
-        <Sparkles size={24} />
+        <BrainCircuit size={24} />
       </button>
     );
   }
@@ -63,10 +63,11 @@ export default function AIChatWidget() {
   return (
     <div style={{
       position: "fixed", bottom: "5rem", right: "2rem", zIndex: 100,
-      width: "350px", height: "500px", background: "var(--bg-surface)",
-      borderRadius: "var(--radius-xl)", border: "1px solid var(--border-light)",
-      backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
-      boxShadow: "var(--shadow-xl)", display: "flex", flexDirection: "column",
+      width: "360px", height: "520px", background: "var(--bg-surface-solid)",
+      backgroundColor: "var(--bg-surface-solid)", opacity: 1,
+      borderRadius: "var(--radius-xl)", border: "1px solid var(--border-default)",
+      boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1)",
+      display: "flex", flexDirection: "column",
       overflow: "hidden", animation: "fadeInUp 0.3s ease-out"
     }}>
       <div style={{
@@ -75,8 +76,8 @@ export default function AIChatWidget() {
         padding: "1rem", color: "#ffffff", display: "flex", alignItems: "center", justifyContent: "space-between"
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <Sparkles size={20} />
-          <span style={{ fontWeight: 600 }}>AI Assistant</span>
+          <BrainCircuit size={20} />
+          <span style={{ fontWeight: 600 }}>Agentic AI</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <button onClick={() => { toggle(); router.push("/ai"); }} style={{ background: "none", border: "none", color: "#ffffff", cursor: "pointer", opacity: 0.9 }} title="Open Full Page">
@@ -92,11 +93,11 @@ export default function AIChatWidget() {
       <div style={{ flex: 1, overflowY: "auto", padding: "1rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
         {messages.length === 0 ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: "1.5rem", color: "var(--text-secondary)", textAlign: "center" }}>
-            <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "var(--primary-100)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Sparkles size={32} color="var(--primary-500)" />
+            <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "var(--brand-teal-subtle)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <BrainCircuit size={32} color="var(--brand-teal)" />
             </div>
             <div>
-              <p style={{ fontWeight: "var(--font-medium)", color: "var(--text-primary)", marginBottom: "0.5rem" }}>How can I help you today?</p>
+              <p style={{ fontWeight: "var(--font-medium)", color: "var(--text-primary)", marginBottom: "0.5rem" }}>How can I automate tasks for you?</p>
               <p style={{ fontSize: "var(--text-sm)" }}>Ask me about students, fees, attendance, or system navigation.</p>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", width: "100%" }}>
@@ -104,10 +105,10 @@ export default function AIChatWidget() {
                 <button key={c} onClick={() => sendMessage(c)}
                   style={{
                     padding: "0.5rem 1rem", background: "var(--bg-surface)", border: "1px solid var(--border-default)",
-                    borderRadius: "var(--radius-full)", fontSize: "0.75rem", color: "var(--primary-500)",
+                    borderRadius: "var(--radius-full)", fontSize: "0.75rem", color: "var(--brand-teal)",
                     cursor: "pointer", textAlign: "left", transition: "all 0.2s"
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--primary-500)")}
+                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--brand-teal)")}
                   onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border-default)")}
                 >
                   {c}
@@ -119,8 +120,8 @@ export default function AIChatWidget() {
           messages.map((msg, i) => (
             <div key={i} style={{ display: "flex", gap: "0.75rem", alignSelf: msg.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%" }}>
               {msg.role === "assistant" && (
-                <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: "var(--primary-100)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <Bot size={16} color="var(--primary-500)" />
+                <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: "var(--brand-teal-subtle)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <BrainCircuit size={16} color="var(--brand-teal)" />
                 </div>
               )}
               <div style={{
@@ -161,8 +162,8 @@ export default function AIChatWidget() {
         )}
         {isLoading && (
           <div style={{ display: "flex", gap: "0.75rem", alignSelf: "flex-start", maxWidth: "85%" }}>
-            <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: "var(--primary-100)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Bot size={16} color="var(--primary-500)" />
+            <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: "var(--brand-teal-subtle)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <BrainCircuit size={16} color="var(--brand-teal)" />
             </div>
             <div style={{ background: "var(--bg-surface)", padding: "0.75rem 1rem", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-default)", display: "flex", gap: "0.25rem" }}>
               <span className="typing-dot" style={{ animationDelay: "0s" }} />

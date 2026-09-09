@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { Button } from "@/components/ui/Button";
 import { AlertOctagon } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 export default function Error({
   error,
@@ -11,6 +12,8 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const router = useRouter();
+
   useEffect(() => {
     console.error(error);
   }, [error]);
@@ -39,7 +42,7 @@ export default function Error({
           An unexpected error occurred in the application. Our team has been notified.
         </p>
         <div style={{ display: "flex", gap: "1rem" }}>
-          <Button variant="secondary" onClick={() => window.location.href = "/dashboard"}>
+          <Button variant="secondary" onClick={() => router.push("/dashboard")}>
             Go to Dashboard
           </Button>
           <Button onClick={() => reset()}>

@@ -63,6 +63,7 @@ enum AttendanceStatus {
   LATE
   EXCUSED
   HOLIDAY
+  HALF_DAY
 }
 
 enum AttendanceMethod {
@@ -151,6 +152,36 @@ enum AuditAction {
   EXPORT
 }
 
+enum BoardCategory {
+  CBSE
+  CISCE
+  STATE
+}
+
+enum SubjectClassification {
+  CORE
+  LANGUAGE
+  ELECTIVE
+  ADDITIONAL
+  CO_CURRICULAR
+  INTERNAL_ASSESSMENT
+  VOCATIONAL
+  OTHER
+}
+
+enum SubjectSelectionType {
+  MANDATORY
+  OPTIONAL
+  ELECTIVE
+  CHOICE
+  ADDITIONAL
+}
+
+enum OfferingSource {
+  CURRICULUM
+  SCHOOL_CUSTOM
+}
+
 // ============================================================
 // SCHOOL (Multi-Tenant Root)
 // ============================================================
@@ -172,6 +203,8 @@ model School {
   affiliationNo     String?
   udiseCode         String?
   boardType         String?
+  boardId           String?
+  activeCurriculumId String?
   currency          String    @default("INR")
   timezone          String    @default("Asia/Kolkata")
   dateFormat        String    @default("DD/MM/YYYY")
@@ -183,21 +216,28 @@ model School {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  users          User[]
-  academicYears  AcademicYear[]
-  departments    Department[]
-  admissionEnquiries AdmissionEnquiry[]
+  board                 Board?                 @relation(fields: [boardId], references: [id])
+  users                 User[]
+  academicYears         AcademicYear[]
+  departments           Department[]
+  admissionEnquiries    AdmissionEnquiry[]
   admissionApplications AdmissionApplication[]
-  students       Student[]
-  feeHeads       FeeHead[]
-  subjects       Subject[]
-  notifications  Notification[]
-  activityLogs   ActivityLog[]
-  systemConfigs  SystemConfig[]
-  promotions     StudentPromotion[]
-  timetableSlots TimetableSlot[]
+  students              Student[]
+  feeHeads              FeeHead[]
+  subjects              Subject[]
+  schoolSubjectOfferings SchoolSubjectOffering[]
+  notifications         Notification[]
+  activityLogs          ActivityLog[]
+  systemConfigs         SystemConfig[]
+  promotions            StudentPromotion[]
+  timetableSlots        TimetableSlot[]
+  leaveRequests         LeaveRequest[]
+  Assignment            Assignment[]
+  activities            Activity[]
+  agentAlerts           AgentAlert[]
 
   @@index([code])
+  @@index([boardId])
   @@map("schools")
 }
 
@@ -216,13 +256,14 @@ model AcademicYear {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  school         School             @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  classes        Class[]
-  feeStructures  FeeStructure[]
-  exams          Exam[]
-  promotions     StudentPromotion[]
-  timetableSlots TimetableSlot[]
-  admissionEnquiries AdmissionEnquiry[]
+  school                School                 @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classes               Class[]
+  feeStructures         FeeStructure[]
+  assignments           Assignment[]
+  exams                 Exam[]
+  promotions            StudentPromotion[]
+  timetableSlots        TimetableSlot[]
+  admissionEnquiries    AdmissionEnquiry[]
   admissionApplications AdmissionApplication[]
 
   @@unique([schoolId, name])
@@ -277,16 +318,19 @@ model User {
 // ============================================================
 
 model UserSession {
-  id           String        @id @default(cuid())
-  userId       String
-  refreshToken String        @unique
-  deviceInfo   String?
-  ipAddress    String?
-  userAgent    String?
-  status       SessionStatus @default(ACTIVE)
-  expiresAt    DateTime
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id             String          @id @default(cuid())
+  userId         String
+  refreshToken   String          @unique
+  deviceInfo     String?
+  ipAddress      String?
+  userAgent      String?
+  status         SessionStatus   @default(ACTIVE)
+  expiresAt      DateTime
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  timetableSlots TimetableSlot[]
+  assignments    Assignment[]
+  activities     Activity[]
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -341,6 +385,8 @@ model Department {
   school         School          @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   staff          Staff[]
   timetableSlots TimetableSlot[]
+  Section        Section[]
+  Assignment     Assignment[]
 
   @@unique([schoolId, name])
   @@map("departments")
@@ -363,6 +409,7 @@ model Class {
   sections       Section[]
   subjects       ClassSubject[]
   timetableSlots TimetableSlot[]
+  Assignment     Assignment[]
 
   @@unique([schoolId, academicYearId, name])
   @@index([schoolId, academicYearId])
@@ -383,6 +430,9 @@ model Section {
   teacherAssignments TeacherAssignment[]
   attendanceRecords  AttendanceRecord[]
   timetableSlots     TimetableSlot[]
+  Department         Department?         @relation(fields: [departmentId], references: [id])
+  departmentId       String?
+  Assignment         Assignment[]
 
   @@unique([classId, name])
   @@map("sections")
@@ -406,6 +456,8 @@ model Subject {
   teacherAssignments TeacherAssignment[]
   examSubjects       ExamSubject[]
   timetableSlots     TimetableSlot[]
+  Assignment         Assignment[]
+  schoolOfferings    SchoolSubjectOffering[]
 
   @@unique([schoolId, name])
   @@map("subjects")
@@ -424,45 +476,255 @@ model ClassSubject {
 }
 
 // ============================================================
+// BOARD & AFFILIATION
+// ============================================================
+
+model Board {
+  id          String        @id @default(cuid())
+  code        String        @unique // "CBSE", "CISCE", "STATE_AP", "STATE_TS"
+  name        String
+  category    BoardCategory
+  stateCode   String?       // "AP", "TS", null for national
+  country     String        @default("India")
+  description String?       @db.Text
+  isActive    Boolean       @default(true)
+  metadata    Json?         @default("{}")
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  curriculums Curriculum[]
+  schools     School[]
+
+  @@index([category, stateCode])
+  @@map("boards")
+}
+
+// ============================================================
+// CURRICULUM & VERSIONING
+// ============================================================
+
+model Curriculum {
+  id            String    @id @default(cuid())
+  boardId       String
+  code          String    @unique // "CBSE_2026", "ICSE_2026", "AP_SSC_2026", "TS_SSC_2026"
+  name          String    // "CBSE Curriculum 2026-27"
+  version       String    // "2026-27"
+  description   String?   @db.Text
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+  isActive      Boolean   @default(true)
+  metadata      Json?     @default("{}") // stage definitions, promotion rules
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  board         Board                   @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  subjectGroups SubjectGroup[]
+  subjects      CurriculumSubject[]
+  offerings     SchoolSubjectOffering[]
+
+  @@index([boardId, isActive])
+  @@map("curriculums")
+}
+
+// ============================================================
+// SUBJECT GROUP
+// ============================================================
+
+model SubjectGroup {
+  id           String   @id @default(cuid())
+  curriculumId String
+  code         String   // "GROUP_I", "GROUP_II", "LANGUAGES", "CORE_ACADEMIC", "ELECTIVES"
+  name         String   // "Group I: Compulsory", "Languages"
+  description  String?
+  minSelection Int      @default(0)
+  maxSelection Int?
+  isRequired   Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  metadata     Json?    @default("{}")
+  createdAt    DateTime @default(now())
+
+  curriculum Curriculum          @relation(fields: [curriculumId], references: [id], onDelete: Cascade)
+  subjects   CurriculumSubject[]
+
+  @@unique([curriculumId, code])
+  @@map("subject_groups")
+}
+
+// ============================================================
+// GLOBAL SUBJECT MASTER
+// ============================================================
+
+model GlobalSubject {
+  id          String                @id @default(cuid())
+  code        String                @unique // "ENG", "MAT", "SCI", "PHY_SCI", "BIO_SCI", "SOC", "TEL", "HIN", etc.
+  name        String
+  category    SubjectClassification @default(CORE)
+  description String?
+  isCommon    Boolean               @default(true)
+  createdAt   DateTime              @default(now())
+
+  curriculumSubjects CurriculumSubject[]
+  schoolOfferings    SchoolSubjectOffering[]
+
+  @@map("global_subjects")
+}
+
+// ============================================================
+// CURRICULUM SUBJECT / COURSE
+// ============================================================
+
+model CurriculumSubject {
+  id                        String                @id @default(cuid())
+  curriculumId              String
+  globalSubjectId           String
+  subjectGroupId            String?
+  subjectCode               String                // Board subject code, e.g. "041", "086", "184"
+  displayName               String
+  gradeFrom                 Int                   // 1 to 10
+  gradeTo                   Int                   // 1 to 10
+  subjectType               SubjectClassification @default(CORE)
+  selectionType             SubjectSelectionType  @default(MANDATORY)
+  theoryEnabled             Boolean               @default(true)
+  practicalEnabled          Boolean               @default(false)
+  internalAssessmentEnabled Boolean               @default(false)
+  examEnabled               Boolean               @default(true)
+  maxMarks                  Int                   @default(100)
+  passMarks                 Int                   @default(35)
+  theoryMarks               Int?
+  practicalMarks            Int?
+  internalMarks             Int?
+  periodsPerWeek            Int                   @default(5)
+  isActive                  Boolean               @default(true)
+  metadata                  Json?                 @default("{}") // choice group tags, board guidelines
+  createdAt                 DateTime              @default(now())
+
+  curriculum      Curriculum              @relation(fields: [curriculumId], references: [id], onDelete: Cascade)
+  globalSubject   GlobalSubject           @relation(fields: [globalSubjectId], references: [id])
+  subjectGroup    SubjectGroup?           @relation(fields: [subjectGroupId], references: [id])
+  schoolOfferings SchoolSubjectOffering[]
+
+  @@unique([curriculumId, subjectCode, gradeFrom, gradeTo])
+  @@index([curriculumId, gradeFrom, gradeTo])
+  @@map("curriculum_subjects")
+}
+
+// ============================================================
+// SCHOOL SUBJECT OFFERING
+// ============================================================
+
+model SchoolSubjectOffering {
+  id                        String                @id @default(cuid())
+  schoolId                  String
+  curriculumId              String
+  academicYearId            String
+  curriculumSubjectId       String?               // Nullable if SCHOOL_CUSTOM
+  globalSubjectId           String
+  legacySubjectId           String?               // Direct backwards-compatibility bridge to existing Subject table
+  customName                String?
+  customCode                String?
+  source                    OfferingSource        @default(CURRICULUM)
+  gradeFrom                 Int
+  gradeTo                   Int
+  periodsPerWeek            Int                   @default(5)
+  isOffered                 Boolean               @default(true)
+  subjectType               SubjectClassification @default(CORE)
+  selectionType             SubjectSelectionType  @default(MANDATORY)
+  theoryEnabled             Boolean               @default(true)
+  practicalEnabled          Boolean               @default(false)
+  internalAssessmentEnabled Boolean               @default(false)
+  examEnabled               Boolean               @default(true)
+  maxMarks                  Int                   @default(100)
+  passMarks                 Int                   @default(35)
+  metadata                  Json?                 @default("{}")
+  createdAt                 DateTime              @default(now())
+  updatedAt                 DateTime              @updatedAt
+
+  school             School                     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  curriculum         Curriculum                 @relation(fields: [curriculumId], references: [id])
+  curriculumSubject  CurriculumSubject?         @relation(fields: [curriculumSubjectId], references: [id])
+  globalSubject      GlobalSubject              @relation(fields: [globalSubjectId], references: [id])
+  legacySubject      Subject?                   @relation(fields: [legacySubjectId], references: [id])
+  studentEnrollments StudentSubjectEnrollment[]
+
+  @@unique([schoolId, academicYearId, globalSubjectId, gradeFrom, gradeTo])
+  @@index([schoolId, academicYearId, isOffered])
+  @@map("school_subject_offerings")
+}
+
+// ============================================================
+// STUDENT SUBJECT ENROLLMENT (Languages & Electives)
+// ============================================================
+
+model StudentSubjectEnrollment {
+  id                      String               @id @default(cuid())
+  studentId               String
+  schoolSubjectOfferingId String
+  academicYearId          String
+  enrollmentType          SubjectSelectionType @default(MANDATORY)
+  status                  EnrollmentStatus     @default(ACTIVE)
+  enrolledAt              DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+
+  student               Student               @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  schoolSubjectOffering SchoolSubjectOffering @relation(fields: [schoolSubjectOfferingId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, schoolSubjectOfferingId, academicYearId])
+  @@index([studentId, academicYearId, status])
+  @@map("student_subject_enrollments")
+}
+
+// ============================================================
 // STUDENT
 // ============================================================
 
+enum RiskLevel {
+  NONE
+  LOW
+  MEDIUM
+  HIGH
+}
+
 model Student {
-  id              String     @id @default(cuid())
-  schoolId        String
-  userId          String     @unique
-  admissionNumber String
-  rollNumber      String?
-  dateOfBirth     DateTime?
-  gender          Gender?
-  bloodGroup      BloodGroup @default(UNKNOWN)
-  religion        String?
-  caste           String?
-  nationality     String     @default("Indian")
-  aadhaarNumber   String?
-  address         String?
-  city            String?
-  state           String?
-  pinCode         String?
-  medicalNotes    String?
-  previousSchool  String?
-  previousClass   String?
-  tcNumber        String?
-  admissionDate   DateTime   @default(now())
-  isActive        Boolean    @default(true)
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-  user        User                @relation(fields: [userId], references: [id])
-  school      School              @relation(fields: [schoolId], references: [id])
-  guardians   Guardian[]
-  enrollments StudentEnrollment[]
-  attendance  AttendanceRecord[]
-  feePayments FeePayment[]
-  marks       StudentMark[]
-  documents   StudentDocument[]
-  reportCards ReportCard[]
-  promotions  StudentPromotion[]
-  admissionApplication AdmissionApplication?
+  id                    String                 @id @default(cuid())
+  schoolId              String
+  userId                String                 @unique
+  admissionNumber       String
+  rollNumber            String?
+  dateOfBirth           DateTime?
+  gender                Gender?
+  bloodGroup            BloodGroup             @default(UNKNOWN)
+  religion              String?
+  caste                 String?
+  nationality           String                 @default("Indian")
+  aadhaarNumber         String?
+  address               String?
+  city                  String?
+  state                 String?
+  pinCode               String?
+  medicalNotes          String?
+  previousSchool        String?
+  previousClass         String?
+  tcNumber              String?
+  admissionDate         DateTime               @default(now())
+  isActive              Boolean                @default(true)
+  riskScore             Int                    @default(0)
+  riskLevel             RiskLevel              @default(NONE)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  user                  User                   @relation(fields: [userId], references: [id])
+  school                School                 @relation(fields: [schoolId], references: [id])
+  guardians             Guardian[]
+  enrollments           StudentEnrollment[]
+  attendance            AttendanceRecord[]
+  feePayments           FeePayment[]
+  marks                 StudentMark[]
+  documents             StudentDocument[]
+  reportCards           ReportCard[]
+  assignmentSubmissions AssignmentSubmission[]
+  activities            Activity[]
+  promotions            StudentPromotion[]
+  admissionApplication  AdmissionApplication?
+  subjectEnrollments    StudentSubjectEnrollment[]
 
   @@unique([schoolId, admissionNumber])
   @@index([schoolId])
@@ -558,10 +820,12 @@ model AdmissionEnquiry {
   parentName     String
   phone          String
   email          String?
-  source         String?       // WALK_IN | WEBSITE | REFERRAL | PHONE
+  source         String? // WALK_IN | WEBSITE | REFERRAL | PHONE
   notes          String?
   followUpDate   DateTime?
   status         EnquiryStatus @default(NEW)
+  leadScore      Int?          @default(0)
+  nextAction     String?
   createdAt      DateTime      @default(now())
 
   school       School       @relation(fields: [schoolId], references: [id])
@@ -572,29 +836,29 @@ model AdmissionEnquiry {
 }
 
 model AdmissionApplication {
-  id                 String           @id @default(cuid())
+  id                 String              @id @default(cuid())
   schoolId           String
   academicYearId     String
-  applicationNo      String           @unique
+  applicationNo      String              @unique
   studentName        String
   dateOfBirth        DateTime
   gender             Gender
   religion           String?
-  category           String?          // GENERAL | OBC | SC | ST
+  category           String? // GENERAL | OBC | SC | ST
   classApplied       String
   previousSchool     String?
   parentName         String
   parentEmail        String?
   parentPhone        String
   address            String?
-  status             AdmissionStatus  @default(SUBMITTED)
+  status             AdmissionStatus     @default(SUBMITTED)
   entranceScore      Float?
   interviewDate      DateTime?
   interviewNotes     String?
-  convertedStudentId String?          @unique
+  convertedStudentId String?             @unique
   documents          AdmissionDocument[]
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
   school       School       @relation(fields: [schoolId], references: [id])
   academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
@@ -605,15 +869,15 @@ model AdmissionApplication {
 }
 
 model AdmissionDocument {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   applicationId String
-  documentType  String   // BIRTH_CERT | TC | PHOTO | AADHAR | etc.
+  documentType  String // BIRTH_CERT | TC | PHOTO | AADHAR | etc.
   fileUrl       String
-  isVerified    Boolean  @default(false)
+  isVerified    Boolean   @default(false)
   verifiedBy    String?
   verifiedAt    DateTime?
 
-  application   AdmissionApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application AdmissionApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@index([applicationId])
   @@map("admission_documents")
@@ -674,6 +938,8 @@ model Staff {
   teacherAssignments TeacherAssignment[]
   attendanceRecords  StaffAttendance[]
   timetableSlots     TimetableSlot[]
+  leaveRequests      LeaveRequest[]
+  Assignment         Assignment[]
 
   @@unique([schoolId, employeeId])
   @@index([schoolId])
@@ -756,6 +1022,51 @@ model StaffAttendance {
   @@unique([staffId, date])
   @@index([schoolId, date])
   @@map("staff_attendance")
+}
+
+// ============================================================
+// HR — LEAVE MANAGEMENT
+// ============================================================
+
+enum LeaveType {
+  CASUAL
+  SICK
+  EARNED
+  MATERNITY
+  PATERNITY
+  UNPAID
+  COMPENSATORY
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model LeaveRequest {
+  id         String      @id @default(cuid())
+  schoolId   String
+  staffId    String
+  leaveType  LeaveType
+  startDate  DateTime    @db.Date
+  endDate    DateTime    @db.Date
+  totalDays  Int
+  reason     String
+  status     LeaveStatus @default(PENDING)
+  reviewedBy String?
+  reviewNote String?
+  reviewedAt DateTime?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  staff  Staff  @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId, status])
+  @@index([staffId])
+  @@map("leave_requests")
 }
 
 // ============================================================
@@ -980,19 +1291,102 @@ model TimetableSlot {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  school       School       @relation(fields: [schoolId], references: [id])
-  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
-  class        Class        @relation(fields: [classId], references: [id])
-  section      Section?     @relation(fields: [sectionId], references: [id])
-  subject      Subject?     @relation(fields: [subjectId], references: [id])
-  staff        Staff?       @relation(fields: [staffId], references: [id])
-  Department   Department?  @relation(fields: [departmentId], references: [id])
-  departmentId String?
+  school        School       @relation(fields: [schoolId], references: [id])
+  academicYear  AcademicYear @relation(fields: [academicYearId], references: [id])
+  class         Class        @relation(fields: [classId], references: [id])
+  section       Section?     @relation(fields: [sectionId], references: [id])
+  subject       Subject?     @relation(fields: [subjectId], references: [id])
+  staff         Staff?       @relation(fields: [staffId], references: [id])
+  Department    Department?  @relation(fields: [departmentId], references: [id])
+  departmentId  String?
+  UserSession   UserSession? @relation(fields: [userSessionId], references: [id])
+  userSessionId String?
 
   @@index([schoolId, academicYearId])
   @@index([sectionId, dayOfWeek])
   @@index([staffId, dayOfWeek])
   @@map("timetable_slots")
+}
+
+// ============================================================
+// ASSIGNMENTS & HOMEWORK
+// ============================================================
+
+model Assignment {
+  id             String   @id @default(cuid())
+  schoolId       String
+  academicYearId String
+  classId        String
+  sectionId      String?
+  subjectId      String
+  staffId        String
+  title          String
+  description    String?  @db.Text
+  dueDate        DateTime
+  maxMarks       Int?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  school       School       @relation(fields: [schoolId], references: [id])
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
+  class        Class        @relation(fields: [classId], references: [id])
+  section      Section?     @relation(fields: [sectionId], references: [id])
+  subject      Subject      @relation(fields: [subjectId], references: [id])
+  staff        Staff        @relation(fields: [staffId], references: [id])
+
+  submissions   AssignmentSubmission[]
+  UserSession   UserSession?           @relation(fields: [userSessionId], references: [id])
+  userSessionId String?
+  Department    Department?            @relation(fields: [departmentId], references: [id])
+  departmentId  String?
+
+  @@index([schoolId, sectionId])
+  @@index([staffId])
+  @@map("assignments")
+}
+
+model AssignmentSubmission {
+  id            String    @id @default(cuid())
+  assignmentId  String
+  studentId     String
+  status        String    @default("PENDING") // PENDING, SUBMITTED, GRADED, LATE, MISSING
+  marksObtained Decimal?  @db.Decimal(5, 2)
+  feedback      String?   @db.Text
+  submittedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student    Student    @relation(fields: [studentId], references: [id])
+
+  @@unique([assignmentId, studentId])
+  @@map("assignment_submissions")
+}
+
+// ============================================================
+// ACTIVITIES & ACHIEVEMENTS
+// ============================================================
+
+model Activity {
+  id          String   @id @default(cuid())
+  schoolId    String
+  studentId   String
+  title       String
+  event       String?
+  date        DateTime @db.Date
+  icon        String   @default("award")
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school        School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  student       Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  UserSession   UserSession? @relation(fields: [userSessionId], references: [id])
+  userSessionId String?
+
+  @@index([schoolId, studentId])
+  @@map("activities")
 }
 
 // ============================================================
@@ -1077,6 +1471,27 @@ model AIMessage {
 
   @@index([conversationId])
   @@map("ai_messages")
+}
+
+// ============================================================
+// AGENT ALERTS (Proactive Background Monitoring)
+// ============================================================
+
+model AgentAlert {
+  id          String   @id @default(cuid())
+  schoolId    String
+  type        String   // WARNING | CRITICAL | INFO | SUCCESS
+  title       String
+  description String
+  actionLabel String?
+  actionRoute String?
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId, isRead])
+  @@map("agent_alerts")
 }
 
 // ============================================================

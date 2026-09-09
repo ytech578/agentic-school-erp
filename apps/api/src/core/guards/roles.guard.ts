@@ -28,6 +28,11 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('Authentication required');
     }
 
+    // SUPER_ADMIN has global master access to all endpoints
+    if (user.role === 'SUPER_ADMIN') {
+      return true;
+    }
+
     const hasRole = requiredRoles.includes(user.role as UserRole);
     if (!hasRole) {
       throw new ForbiddenException(

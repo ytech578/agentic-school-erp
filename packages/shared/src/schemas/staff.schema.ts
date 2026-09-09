@@ -28,3 +28,9 @@ export const CreateStaffSchema = z.object({
 });
 
 export type CreateStaffInput = z.infer<typeof CreateStaffSchema>;
+
+export const UpdateStaffSchema = CreateStaffSchema.partial().extend({
+  // Override or add specific fields if needed
+});
+
+export type UpdateStaffInput = z.infer<typeof UpdateStaffSchema>;

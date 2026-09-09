@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { apiClient } from "@/lib/axios";
+import { StatCard, Badge } from "@/components/ui/StatCard";
 import {
   BarChart3, Users, FileText, TrendingDown, Download,
   Calendar, DollarSign, AlertCircle, CheckCircle2,
@@ -9,39 +10,6 @@ import {
 } from "lucide-react";
 
 type ReportTab = "overview" | "attendance" | "fees" | "exams";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────
-
-function StatCard({ label, value, sub, color = "var(--primary-500)", icon: Icon }: any) {
-  return (
-    <div style={{ background: "var(--bg-surface)", borderRadius: "var(--radius-lg)", padding: "1.25rem 1.5rem", border: "1px solid var(--border-light)", display: "flex", gap: "1rem", alignItems: "flex-start" }}>
-      <div style={{ padding: "0.75rem", borderRadius: "var(--radius-md)", background: `${color}18`, flexShrink: 0 }}>
-        <Icon size={22} color={color} />
-      </div>
-      <div>
-        <p style={{ fontSize: "0.8125rem", color: "var(--text-secondary)", marginBottom: "0.25rem" }}>{label}</p>
-        <p style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1 }}>{value}</p>
-        {sub && <p style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "0.25rem" }}>{sub}</p>}
-      </div>
-    </div>
-  );
-}
-
-function Badge({ children, color = "blue" }: { children: React.ReactNode; color?: string }) {
-  const colors: Record<string, { bg: string; text: string }> = {
-    green: { bg: "#f0fdf4", text: "#166534" },
-    red: { bg: "#fef2f2", text: "#991b1b" },
-    yellow: { bg: "#fefce8", text: "#854d0e" },
-    blue: { bg: "#eff6ff", text: "#1d4ed8" },
-    gray: { bg: "var(--bg-app)", text: "var(--text-secondary)" },
-  };
-  const c = colors[color] || colors.blue;
-  return (
-    <span style={{ padding: "0.2rem 0.625rem", borderRadius: "var(--radius-full)", fontSize: "0.75rem", fontWeight: 600, background: c.bg, color: c.text }}>
-      {children}
-    </span>
-  );
-}
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────
 
@@ -61,7 +29,7 @@ function OverviewTab() {
     }).catch(() => { }).finally(() => setLoading(false));
   }, []);
 
-  const totalOutstanding = outstanding.reduce((s, r) => s + r.outstanding, 0);
+  const totalOutstanding = outstanding.reduce((s, r) => s + Number(r.outstanding || 0), 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
@@ -391,7 +359,7 @@ function FeesTab() {
           <div style={{ padding: "1rem 1.5rem", borderBottom: "1px solid var(--border-light)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h3 style={{ fontWeight: 600 }}>Outstanding Fee Dues</h3>
             <span style={{ fontWeight: 700, color: "#dc2626", fontSize: "1.125rem" }}>
-              Total: ₹{outstanding.reduce((s, r) => s + r.outstanding, 0).toLocaleString()}
+              Total: ₹{outstanding.reduce((s, r) => s + Number(r.outstanding || 0), 0).toLocaleString()}
             </span>
           </div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>

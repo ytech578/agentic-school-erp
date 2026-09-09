@@ -1,12 +1,20 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { Prisma } from '@prisma/client';
+import { TIMETABLE_TEMPLATES, getClassCategory } from '@school-erp/shared';
 
 @Injectable()
 export class TimetableService {
   constructor(private prisma: PrismaService) {}
 
-  private async resolveActiveYear(schoolId: string, academicYearId?: string): Promise<string> {
+  private async resolveActiveYear(
+    schoolId: string,
+    academicYearId?: string,
+  ): Promise<string> {
     if (academicYearId) return academicYearId;
     const ay = await this.prisma.academicYear.findFirst({
       where: { schoolId, isActive: true },
@@ -15,9 +23,12 @@ export class TimetableService {
     return ay.id;
   }
 
-  async getTimetable(schoolId: string, query: { classId?: string; sectionId?: string; academicYearId?: string }) {
+  async getTimetable(
+    schoolId: string,
+    query: { classId?: string; sectionId?: string; academicYearId?: string },
+  ) {
     const ayId = await this.resolveActiveYear(schoolId, query.academicYearId);
-    
+
     const where: Prisma.TimetableSlotWhereInput = {
       schoolId,
       academicYearId: ayId,
@@ -38,14 +49,15 @@ export class TimetableService {
         class: { select: { id: true, name: true } },
         section: { select: { id: true, name: true } },
       },
-      orderBy: [
-        { dayOfWeek: 'asc' },
-        { periodNumber: 'asc' },
-      ],
+      orderBy: [{ dayOfWeek: 'asc' }, { periodNumber: 'asc' }],
     });
   }
 
-  async getTeacherTimetable(schoolId: string, staffId: string, academicYearId?: string) {
+  async getTeacherTimetable(
+    schoolId: string,
+    staffId: string,
+    academicYearId?: string,
+  ) {
     const ayId = await this.resolveActiveYear(schoolId, academicYearId);
     return this.prisma.timetableSlot.findMany({
       where: {
@@ -59,17 +71,18 @@ export class TimetableService {
         class: { select: { id: true, name: true } },
         section: { select: { id: true, name: true } },
       },
-      orderBy: [
-        { dayOfWeek: 'asc' },
-        { periodNumber: 'asc' },
-      ],
+      orderBy: [{ dayOfWeek: 'asc' }, { periodNumber: 'asc' }],
     });
   }
 
-  async getTodaySchedule(schoolId: string, sectionId: string, academicYearId?: string) {
+  async getTodaySchedule(
+    schoolId: string,
+    sectionId: string,
+    academicYearId?: string,
+  ) {
     const ayId = await this.resolveActiveYear(schoolId, academicYearId);
     const dayOfWeek = new Date().getDay() || 7; // Convert 0 (Sunday) to 7 if using 1=Mon..7=Sun, or adjust per your week standard
-    
+
     return this.prisma.timetableSlot.findMany({
       where: {
         schoolId,
@@ -88,9 +101,14 @@ export class TimetableService {
     });
   }
 
-  async checkConflicts(schoolId: string, academicYearId: string, data: any, excludeSlotId?: string) {
+  async checkConflicts(
+    schoolId: string,
+    academicYearId: string,
+    data: any,
+    excludeSlotId?: string,
+  ) {
     const { dayOfWeek, startTime, endTime, staffId, roomNumber } = data;
-    
+
     // Convert times to comparable numbers (e.g., "09:00" -> 900)
     const start = parseInt(startTime.replace(':', ''), 10);
     const end = parseInt(endTime.replace(':', ''), 10);
@@ -103,19 +121,25 @@ export class TimetableService {
       ...(excludeSlotId ? { id: { not: excludeSlotId } } : {}),
     };
 
-    const slots = await this.prisma.timetableSlot.findMany({ where: whereBase });
-    
+    const slots = await this.prisma.timetableSlot.findMany({
+      where: whereBase,
+    });
+
     for (const slot of slots) {
       const sStart = parseInt(slot.startTime.replace(':', ''), 10);
       const sEnd = parseInt(slot.endTime.replace(':', ''), 10);
-      
+
       // Check time overlap
       if (start < sEnd && end > sStart) {
         if (staffId && slot.staffId === staffId) {
-          throw new ConflictException(`Teacher is already booked for period ${slot.periodNumber} (${slot.startTime}-${slot.endTime})`);
+          throw new ConflictException(
+            `Teacher is already booked for period ${slot.periodNumber} (${slot.startTime}-${slot.endTime})`,
+          );
         }
         if (roomNumber && slot.roomNumber === roomNumber) {
-          throw new ConflictException(`Room ${roomNumber} is already booked for period ${slot.periodNumber}`);
+          throw new ConflictException(
+            `Room ${roomNumber} is already booked for period ${slot.periodNumber}`,
+          );
         }
       }
     }
@@ -123,7 +147,7 @@ export class TimetableService {
 
   async saveSlot(schoolId: string, data: any) {
     const ayId = await this.resolveActiveYear(schoolId, data.academicYearId);
-    
+
     if (data.staffId || data.roomNumber) {
       await this.checkConflicts(schoolId, ayId, data, data.id);
     }
@@ -172,7 +196,7 @@ export class TimetableService {
   async bulkSaveSlots(schoolId: string, slots: any[]) {
     const results = [];
     const errors = [];
-    
+
     // Get active academic year if not provided
     let ayId = slots[0]?.academicYearId;
     if (!ayId) {
@@ -181,7 +205,10 @@ export class TimetableService {
 
     for (const slot of slots) {
       try {
-        const result = await this.saveSlot(schoolId, { ...slot, academicYearId: ayId });
+        const result = await this.saveSlot(schoolId, {
+          ...slot,
+          academicYearId: ayId,
+        });
         results.push(result);
       } catch (e: any) {
         errors.push({ slot, error: e.message });
@@ -189,5 +216,113 @@ export class TimetableService {
     }
 
     return { success: results.length, errors };
+  }
+
+  async autoGenerateTimetable(schoolId: string, classId: string, sectionId: string, academicYearId?: string) {
+    const ayId = await this.resolveActiveYear(schoolId, academicYearId);
+
+    const assignments = await this.prisma.teacherAssignment.findMany({
+      where: { sectionId, academicYearId: ayId },
+    });
+
+    if (assignments.length === 0) {
+      throw new ConflictException("No teachers assigned to this section. Assign teachers first in the Class management module.");
+    }
+
+    const classDetails = await this.prisma.class.findUnique({ where: { id: classId } });
+    if (!classDetails) throw new NotFoundException("Class not found");
+
+    const DAYS = [1, 2, 3, 4, 5, 6];
+    const category = getClassCategory(classDetails.name);
+    const template = TIMETABLE_TEMPLATES[category];
+    const PERIODS = template.filter((p: any) => !p.isBreak).map((p: any) => ({
+      num: p.num as number,
+      start: p.start,
+      end: p.end
+    }));
+
+    const generatedSlots: any[] = [];
+    
+    // Clear existing timetable slots for this section to avoid conflicts during generation
+    await this.prisma.timetableSlot.updateMany({
+      where: { schoolId, sectionId, academicYearId: ayId },
+      data: { isActive: false }
+    });
+
+    // Fetch other active slots to check teacher availability
+    const otherSectionsSlots = await this.prisma.timetableSlot.findMany({
+      where: { schoolId, academicYearId: ayId, isActive: true }
+    });
+
+    const isTeacherAvailable = (staffId: string, day: number, start: string, end: string) => {
+      const sStart = parseInt(start.replace(':', ''), 10);
+      const sEnd = parseInt(end.replace(':', ''), 10);
+      
+      const hasConflictInDb = otherSectionsSlots.some(slot => {
+         if (slot.staffId !== staffId || slot.dayOfWeek !== day) return false;
+         const slotStart = parseInt(slot.startTime.replace(':', ''), 10);
+         const slotEnd = parseInt(slot.endTime.replace(':', ''), 10);
+         return (sStart < slotEnd && sEnd > slotStart);
+      });
+      if (hasConflictInDb) return false;
+
+      const hasConflictInGenerated = generatedSlots.some(slot => {
+         if (slot.staffId !== staffId || slot.dayOfWeek !== day) return false;
+         const slotStart = parseInt(slot.startTime.replace(':', ''), 10);
+         const slotEnd = parseInt(slot.endTime.replace(':', ''), 10);
+         return (sStart < slotEnd && sEnd > slotStart);
+      });
+      return !hasConflictInGenerated;
+    };
+
+    for (const day of DAYS) {
+      const dailySubjectCount: Record<string, number> = {};
+      
+      // Shuffle assignments to ensure varied schedule each day
+      const dailyAssignments = [...assignments].sort(() => Math.random() - 0.5);
+      let assignmentIndex = 0;
+      
+      for (const period of PERIODS) {
+        let placed = false;
+        let attempts = 0;
+        
+        while (!placed && attempts < dailyAssignments.length) {
+           const assignment = dailyAssignments[assignmentIndex % dailyAssignments.length];
+           assignmentIndex++;
+           attempts++;
+           
+           if (!assignment.subjectId) continue;
+           
+           // We have 8-9 periods per day but only 7 subjects in the DB.
+           // To avoid empty periods, we must allow some subjects to be taught up to twice per day.
+           if ((dailySubjectCount[assignment.subjectId] || 0) >= 2) continue; // max 2 periods of same subject per day
+           
+           if (isTeacherAvailable(assignment.staffId, day, period.start, period.end)) {
+              generatedSlots.push({
+                 schoolId,
+                 academicYearId: ayId,
+                 classId,
+                 sectionId,
+                 dayOfWeek: day,
+                 periodNumber: period.num,
+                 startTime: period.start,
+                 endTime: period.end,
+                 subjectId: assignment.subjectId,
+                 staffId: assignment.staffId,
+                 slotType: 'CLASS',
+                 isActive: true
+              });
+              dailySubjectCount[assignment.subjectId] = (dailySubjectCount[assignment.subjectId] || 0) + 1;
+              placed = true;
+           }
+        }
+      }
+    }
+
+    if (generatedSlots.length > 0) {
+      await this.prisma.timetableSlot.createMany({ data: generatedSlots });
+    }
+
+    return { success: true, count: generatedSlots.length, message: "Timetable generated successfully with AI Optimizer." };
   }
 }

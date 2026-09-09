@@ -43,6 +43,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
               paddingLeft: leftIcon ? "2.5rem" : undefined,
               borderColor: error ? "var(--danger)" : undefined,
             }}
+            suppressHydrationWarning
             {...props}
           />
         </div>

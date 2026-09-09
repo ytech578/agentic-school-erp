@@ -1,5 +1,16 @@
 import {
-  Controller, Get, Post, Body, Param, Query, UseGuards, Request,
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { ExamsService } from './exams.service';
@@ -47,6 +58,27 @@ export class ExamsController {
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   async getExam(@Request() req: any, @Param('id') id: string) {
     return this.service.getExam(req.user.schoolId, id);
+  }
+
+  // ─── Update Exam ──────────────────────────────────────────────────────────
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update exam details' })
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  async updateExam(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: { name?: string; examType?: string; startDate?: string; endDate?: string },
+  ) {
+    return this.service.updateExam(req.user.schoolId, id, body);
+  }
+
+  // ─── Delete Exam ──────────────────────────────────────────────────────────
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete an exam' })
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  async deleteExam(@Request() req: any, @Param('id') id: string) {
+    return this.service.deleteExam(req.user.schoolId, id);
   }
 
   // ─── Add Subject to Exam ─────────────────────────────────────────────────
@@ -125,13 +157,24 @@ export class ExamsController {
   // ─── Get Student Report Card ──────────────────────────────────────────────
   @Get(':id/results/:studentId')
   @ApiOperation({ summary: 'Get report card for a student' })
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'STUDENT', 'PARENT')
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'STUDENT',
+    'PARENT',
+  )
   async getStudentReportCard(
     @Request() req: any,
     @Param('id') examId: string,
     @Param('studentId') studentId: string,
   ) {
-    return this.service.getStudentReportCard(examId, studentId, req.user.schoolId);
+    return this.service.getStudentReportCard(
+      examId,
+      studentId,
+      req.user.schoolId,
+    );
   }
 
   // ─── Publish Results ──────────────────────────────────────────────────────
@@ -145,7 +188,14 @@ export class ExamsController {
   // ─── Student Results (all exams) ──────────────────────────────────────────
   @Get('student/:studentId/results')
   @ApiOperation({ summary: 'Get all results for a student' })
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'STUDENT', 'PARENT')
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'STUDENT',
+    'PARENT',
+  )
   async getStudentResults(
     @Request() req: any,
     @Param('studentId') studentId: string,

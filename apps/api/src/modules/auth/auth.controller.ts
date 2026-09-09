@@ -10,7 +10,13 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiCookieAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiCookieAuth,
+} from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
@@ -18,7 +24,11 @@ import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { JwtRefreshGuard } from './guards/jwt-refresh.guard';
 import { CurrentUser } from '../../core/decorators/current-user.decorator';
-import { LoginSchema, ForgotPasswordSchema, ResetPasswordSchema } from '@school-erp/shared';
+import {
+  LoginSchema,
+  ForgotPasswordSchema,
+  ResetPasswordSchema,
+} from '@school-erp/shared';
 import type { JwtPayload } from '@school-erp/shared';
 
 @ApiTags('Auth')
@@ -44,7 +54,8 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const dto = LoginSchema.parse(body);
-    const ipAddress = (req.headers['x-forwarded-for'] as string) || req.ip || '';
+    const ipAddress =
+      (req.headers['x-forwarded-for'] as string) || req.ip || '';
     const userAgent = req.headers['user-agent'] || '';
 
     const result = await this.authService.login(dto, ipAddress, userAgent);
@@ -89,9 +100,13 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const refreshToken = req.cookies?.['refresh_token'];
-    const ipAddress = (req.headers['x-forwarded-for'] as string) || req.ip || '';
+    const ipAddress =
+      (req.headers['x-forwarded-for'] as string) || req.ip || '';
 
-    const tokens = await this.authService.refreshTokens(refreshToken, ipAddress);
+    const tokens = await this.authService.refreshTokens(
+      refreshToken,
+      ipAddress,
+    );
     this.setRefreshTokenCookie(res, tokens.refreshToken);
 
     return {
@@ -130,14 +145,21 @@ export class AuthController {
   async resetPassword(@Body() body: unknown) {
     const dto = ResetPasswordSchema.parse(body);
     await this.authService.resetPassword(dto);
-    return { data: null, message: 'Password reset successful. Please login with your new password.' };
+    return {
+      data: null,
+      message:
+        'Password reset successful. Please login with your new password.',
+    };
   }
 
   // ─── Private Cookie Helpers ───────────────────────────────────────────────
 
   private setRefreshTokenCookie(res: Response, token: string) {
     const isProduction = this.config.get('app.nodeEnv') === 'production';
-    const maxAge = this.config.get<number>('jwt.refreshExpiresInMs', 7 * 24 * 60 * 60 * 1000);
+    const maxAge = this.config.get<number>(
+      'jwt.refreshExpiresInMs',
+      7 * 24 * 60 * 60 * 1000,
+    );
 
     res.cookie('refresh_token', token, {
       httpOnly: true,

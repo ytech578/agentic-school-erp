@@ -8,6 +8,7 @@ import {
   Users, Plus, Search, Shield, CheckCircle2, XCircle,
   RefreshCw, Key, Edit2, MoreVertical, X, ChevronLeft, ChevronRight
 } from "lucide-react";
+import { useAuthStore } from "@/store/auth.store";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -59,7 +60,7 @@ function Avatar({ name, size = 36 }: { name: string; size?: number }) {
 
 // ─── Create User Modal ─────────────────────────────────────────────────────
 
-function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateUserModal({ onClose, onCreated, currentUserRole }: { onClose: () => void; onCreated: () => void; currentUserRole?: string }) {
   const [form, setForm] = useState({ firstName: "", lastName: "", email: "", phone: "", role: "TEACHER", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -78,8 +79,8 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
-      <div style={{ background: "var(--bg-surface-solid)", borderRadius: "var(--radius-xl)", padding: "2rem", width: "100%", maxWidth: "480px", boxShadow: "var(--shadow-xl)" }}>
+    <div style={{ position: "fixed", inset: 0, background: "var(--bg-overlay)", backdropFilter: "var(--modal-backdrop-blur)", WebkitBackdropFilter: "var(--modal-backdrop-blur)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", animation: "fadeIn 0.2s ease-out" }}>
+      <div style={{ background: "var(--bg-surface-solid)", backgroundColor: "var(--bg-surface-solid)", opacity: 1, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-default)", padding: "2rem", width: "100%", maxWidth: "480px", boxShadow: "var(--modal-shadow)", animation: "zoomIn 0.2s ease-out" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
           <h2 style={{ fontWeight: 700, fontSize: "1.125rem" }}>Create New User</h2>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-tertiary)" }}><X size={20} /></button>
@@ -111,7 +112,7 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
               <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
                 <label style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--text-secondary)" }}>Role *</label>
                 <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} style={{ padding: "0.625rem 0.875rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-default)", background: "var(--bg-surface)", fontSize: "0.875rem" }}>
-                  {ROLES.map(r => <option key={r} value={r}>{r.replace("_", " ")}</option>)}
+                  {ROLES.filter(r => currentUserRole === 'SUPER_ADMIN' ? true : (r !== 'SUPER_ADMIN' && r !== 'SCHOOL_ADMIN')).map(r => <option key={r} value={r}>{r.replace("_", " ")}</option>)}
                 </select>
               </div>
               <Input label="Password (optional — auto-generated if blank)" type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="Leave blank to auto-generate" />
@@ -129,7 +130,7 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
 // ─── Edit User Modal ───────────────────────────────────────────────────────
 
-function EditUserModal({ user, onClose, onSaved }: { user: any; onClose: () => void; onSaved: () => void }) {
+function EditUserModal({ user, onClose, onSaved, currentUserRole }: { user: any; onClose: () => void; onSaved: () => void; currentUserRole?: string }) {
   const [form, setForm] = useState({ firstName: user.firstName, lastName: user.lastName, phone: user.phone || "", role: user.role });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -161,8 +162,8 @@ function EditUserModal({ user, onClose, onSaved }: { user: any; onClose: () => v
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
-      <div style={{ background: "var(--bg-surface-solid)", borderRadius: "var(--radius-xl)", padding: "2rem", width: "100%", maxWidth: "520px", boxShadow: "var(--shadow-xl)", maxHeight: "90vh", overflowY: "auto" }}>
+    <div style={{ position: "fixed", inset: 0, background: "var(--bg-overlay)", backdropFilter: "var(--modal-backdrop-blur)", WebkitBackdropFilter: "var(--modal-backdrop-blur)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", animation: "fadeIn 0.2s ease-out" }}>
+      <div style={{ background: "var(--bg-surface-solid)", backgroundColor: "var(--bg-surface-solid)", opacity: 1, borderRadius: "var(--radius-xl)", border: "1px solid var(--border-default)", padding: "2rem", width: "100%", maxWidth: "520px", boxShadow: "var(--modal-shadow)", maxHeight: "90vh", overflowY: "auto", animation: "zoomIn 0.2s ease-out" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.875rem" }}>
             <Avatar name={`${user.firstName} ${user.lastName}`} size={44} />
@@ -189,7 +190,7 @@ function EditUserModal({ user, onClose, onSaved }: { user: any; onClose: () => v
               <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
                 <label style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--text-secondary)" }}>Role</label>
                 <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} style={{ padding: "0.625rem 0.875rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-default)", background: "var(--bg-surface)", fontSize: "0.875rem", height: "42px" }}>
-                  {ROLES.map(r => <option key={r} value={r}>{r.replace("_", " ")}</option>)}
+                  {ROLES.filter(r => currentUserRole === 'SUPER_ADMIN' ? true : (r !== 'SUPER_ADMIN' && r !== 'SCHOOL_ADMIN')).map(r => <option key={r} value={r}>{r.replace("_", " ")}</option>)}
                 </select>
               </div>
             </div>
@@ -239,6 +240,7 @@ function EditUserModal({ user, onClose, onSaved }: { user: any; onClose: () => v
 // ─── Main Users Page ────────────────────────────────────────────────────────
 
 export default function UsersPage() {
+  const { user: authUser } = useAuthStore();
   const [users, setUsers] = useState<any[]>([]);
   const [meta, setMeta] = useState({ total: 0, page: 1, totalPages: 1 });
   const [search, setSearch] = useState("");
@@ -385,8 +387,8 @@ export default function UsersPage() {
         )}
       </div>
 
-      {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onCreated={fetchUsers} />}
-      {editUser && <EditUserModal user={editUser} onClose={() => setEditUser(null)} onSaved={fetchUsers} />}
+      {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onCreated={fetchUsers} currentUserRole={authUser?.role} />}
+      {editUser && <EditUserModal user={editUser} onClose={() => setEditUser(null)} onSaved={fetchUsers} currentUserRole={authUser?.role} />}
     </div>
   );
 }

@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { TimetableService } from './timetable.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -13,14 +23,25 @@ export class TimetableController {
   constructor(private readonly timetableService: TimetableService) {}
 
   @Get()
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'STUDENT', 'PARENT')
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'STUDENT',
+    'PARENT',
+  )
   getTimetable(
     @Request() req: any,
     @Query('classId') classId?: string,
     @Query('sectionId') sectionId?: string,
     @Query('academicYearId') academicYearId?: string,
   ) {
-    return this.timetableService.getTimetable(req.user.schoolId, { classId, sectionId, academicYearId });
+    return this.timetableService.getTimetable(req.user.schoolId, {
+      classId,
+      sectionId,
+      academicYearId,
+    });
   }
 
   @Get('teacher/:staffId')
@@ -34,17 +55,32 @@ export class TimetableController {
     if (req.user.role === 'TEACHER' && req.user.staffId !== staffId) {
       // Allowing teachers to see others for collaboration is fine, but can restrict if needed.
     }
-    return this.timetableService.getTeacherTimetable(req.user.schoolId, staffId, academicYearId);
+    return this.timetableService.getTeacherTimetable(
+      req.user.schoolId,
+      staffId,
+      academicYearId,
+    );
   }
 
   @Get('today')
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'STUDENT', 'PARENT')
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'STUDENT',
+    'PARENT',
+  )
   getTodaySchedule(
     @Request() req: any,
     @Query('sectionId') sectionId: string,
     @Query('academicYearId') academicYearId?: string,
   ) {
-    return this.timetableService.getTodaySchedule(req.user.schoolId, sectionId, academicYearId);
+    return this.timetableService.getTodaySchedule(
+      req.user.schoolId,
+      sectionId,
+      academicYearId,
+    );
   }
 
   @Post('slots')
@@ -63,5 +99,11 @@ export class TimetableController {
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   deleteSlot(@Request() req: any, @Param('id') id: string) {
     return this.timetableService.deleteSlot(req.user.schoolId, id);
+  }
+
+  @Post('auto-generate')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  autoGenerateTimetable(@Request() req: any, @Body() data: { classId: string; sectionId: string; academicYearId?: string }) {
+    return this.timetableService.autoGenerateTimetable(req.user.schoolId, data.classId, data.sectionId, data.academicYearId);
   }
 }

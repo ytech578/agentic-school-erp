@@ -14,7 +14,9 @@ export class SchoolsService {
   }
 
   async findCurrent(schoolId: string) {
-    const school = await this.prisma.school.findUnique({ where: { id: schoolId } });
+    const school = await this.prisma.school.findUnique({
+      where: { id: schoolId },
+    });
     if (!school) throw new NotFoundException('School not found');
     return school;
   }
@@ -40,7 +42,10 @@ export class SchoolsService {
     });
   }
 
-  async createAcademicYear(schoolId: string, data: { name: string; startDate: string; endDate: string }) {
+  async createAcademicYear(
+    schoolId: string,
+    data: { name: string; startDate: string; endDate: string },
+  ) {
     // Deactivate all other years and set this one as active
     return this.prisma.academicYear.create({
       data: {

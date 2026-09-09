@@ -5,7 +5,12 @@ import { PrismaService } from '../../core/database/prisma.service';
 export class NotificationsService {
   constructor(private prisma: PrismaService) {}
 
-  async getNotifications(userId: string, schoolId: string, limit = 20, unreadOnly = false) {
+  async getNotifications(
+    userId: string,
+    schoolId: string,
+    limit = 20,
+    unreadOnly = false,
+  ) {
     return this.prisma.notification.findMany({
       where: {
         userId,

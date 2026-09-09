@@ -34,14 +34,14 @@ apiClient.interceptors.response.use(
       originalRequest._retry = true;
       try {
         const response = await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true });
-        const newAccessToken = response.data.data.accessToken;
-        
-        // Update store with new access token
-        useAuthStore.getState().setTokens(newAccessToken);
-        
-        // Retry the original request
-        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-        return apiClient(originalRequest);
+        const newAccessToken = response.data?.data?.accessToken || response.data?.accessToken;
+        if (newAccessToken) {
+          // Update store with new access token
+          useAuthStore.getState().setTokens(newAccessToken);
+          // Retry the original request
+          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+          return apiClient(originalRequest);
+        }
       } catch (refreshError) {
         // If refresh fails, log the user out
         useAuthStore.getState().logout();

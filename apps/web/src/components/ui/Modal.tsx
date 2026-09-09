@@ -40,19 +40,21 @@ export function Modal({ isOpen, onClose, title, children, footer }: ModalProps) 
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: "rgba(15, 23, 42, 0.6)",
-        backdropFilter: "blur(4px)",
+        backgroundColor: "var(--bg-overlay)",
+        backdropFilter: "var(--modal-backdrop-blur)",
+        WebkitBackdropFilter: "var(--modal-backdrop-blur)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        zIndex: 50,
+        zIndex: 1000,
         padding: "1rem",
+        animation: "fadeIn 0.2s ease-out",
       }}
       onClick={onClose}
     >
       <div
         ref={modalRef}
-        className="card"
+        className="modal-dialog"
         style={{
           width: "100%",
           maxWidth: "500px",
@@ -60,7 +62,9 @@ export function Modal({ isOpen, onClose, title, children, footer }: ModalProps) 
           display: "flex",
           flexDirection: "column",
           padding: 0,
-          overflow: "hidden",
+          backgroundColor: "var(--bg-surface-solid)",
+          background: "var(--bg-surface-solid)",
+          opacity: 1,
         }}
         onClick={(e) => e.stopPropagation()}
       >

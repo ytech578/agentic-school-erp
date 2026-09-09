@@ -157,12 +157,12 @@ async function main() {
   ]);
 
   // ─── Teachers ─────────────────────────────────────────────────────────────
-  const teacherData = [
-    { firstName: 'Priya', lastName: 'Patel', email: 'priya.patel@sunriseschool.edu.in', emp: 'EMP001' },
-    { firstName: 'Suresh', lastName: 'Kumar', email: 'suresh.kumar@sunriseschool.edu.in', emp: 'EMP002' },
-    { firstName: 'Anita', lastName: 'Singh', email: 'anita.singh@sunriseschool.edu.in', emp: 'EMP003' },
-    { firstName: 'Deepak', lastName: 'Verma', email: 'deepak.verma@sunriseschool.edu.in', emp: 'EMP004' },
-  ];
+  const teacherData = Array.from({ length: 50 }).map((_, i) => ({
+    firstName: `Teacher${i + 1}`,
+    lastName: 'Staff',
+    email: `teacher${i + 1}@sunriseschool.edu.in`,
+    emp: `EMP${String(i + 1).padStart(3, '0')}`
+  }));
 
   const teachers = [];
   for (const t of teacherData) {
@@ -200,7 +200,14 @@ async function main() {
   console.log(`✅ Teachers: ${teacherData.map(t => t.firstName).join(', ')}`);
 
   // ─── Subjects ─────────────────────────────────────────────────────────────
-  const subjectNames = ['Mathematics', 'Science', 'English', 'Hindi', 'Social Studies', 'Computer Science', 'Physical Education'];
+  const subjectNames = [
+    'Telugu', 'Hindi', 'English', 'Sanskrit',
+    'Mathematics', 'Environmental Science',
+    'General Science', 'Physical Science', 'Biological Science', 'Social Studies',
+    'Physics', 'Chemistry', 'Botany', 'Zoology',
+    'History', 'Economics', 'Civics', 'Commerce',
+    'Physical Education', 'Library', 'Computer Science', 'Value Education'
+  ];
   const subjects = [];
   for (const name of subjectNames) {
     const sub = await prisma.subject.upsert({
@@ -214,6 +221,14 @@ async function main() {
 
   // ─── Classes & Sections ───────────────────────────────────────────────────
   const classData = [
+    { name: 'Class 1', level: 3 },
+    { name: 'Class 2', level: 4 },
+    { name: 'Class 3', level: 5 },
+    { name: 'Class 4', level: 6 },
+    { name: 'Class 5', level: 7 },
+    { name: 'Class 6', level: 8 },
+    { name: 'Class 7', level: 9 },
+    { name: 'Class 8', level: 10 },
     { name: 'Class 9', level: 11 },
     { name: 'Class 10', level: 12 },
     { name: 'Class 11', level: 13 },
@@ -233,7 +248,11 @@ async function main() {
       },
     });
 
-    for (const secName of ['A', 'B']) {
+    const secNames = (cls.level >= 13) 
+      ? ['MPC', 'BiPC', 'CEC', 'HEC'] 
+      : ['A', 'B'];
+
+    for (const secName of secNames) {
       const section = await prisma.section.upsert({
         where: { classId_name: { classId: classRecord.id, name: secName } },
         update: {},

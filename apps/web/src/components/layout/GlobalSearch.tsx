@@ -30,14 +30,23 @@ export default function GlobalSearch({ isOpen, onClose }: { isOpen: boolean; onC
   return (
     <>
       <div 
-        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, backdropFilter: "blur(4px)" }}
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "var(--bg-overlay)",
+          zIndex: 1000,
+          backdropFilter: "var(--modal-backdrop-blur)",
+          WebkitBackdropFilter: "var(--modal-backdrop-blur)",
+          animation: "fadeIn 0.2s ease-out",
+        }}
         onClick={onClose}
       />
       <div style={{
         position: "fixed", top: "20%", left: "50%", transform: "translate(-50%, 0)", width: "100%", maxWidth: "560px",
-        background: "var(--bg-elevated)", borderRadius: "var(--radius-xl)", border: "1px solid var(--border-default)",
-        boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)", zIndex: 1001,
-        overflow: "hidden", animation: "fadeInDown 0.2s ease-out"
+        background: "var(--bg-surface-solid)", backgroundColor: "var(--bg-surface-solid)",
+        borderRadius: "var(--radius-xl)", border: "1px solid var(--border-default)",
+        boxShadow: "var(--modal-shadow)", zIndex: 1001,
+        overflow: "hidden", animation: "zoomIn 0.2s ease-out", opacity: 1
       }}>
         <div style={{ display: "flex", alignItems: "center", padding: "1rem 1.5rem", borderBottom: "1px solid var(--border-default)" }}>
           <Search size={20} color="var(--text-tertiary)" style={{ marginRight: "1rem" }} />

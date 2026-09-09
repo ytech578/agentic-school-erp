@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -26,14 +37,41 @@ export class UsersController {
     return this.usersService.findAll(req.user.schoolId, {
       page: page ? +page : 1,
       limit: limit ? +limit : 20,
-      role, status, search,
+      role,
+      status,
+      search,
     });
   }
 
   @Get('me')
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'STUDENT', 'PARENT')
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'STUDENT',
+    'PARENT',
+  )
   getMe(@Request() req: any) {
     return this.usersService.findById(req.user.id);
+  }
+
+  @Patch('me/profile')
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'STUDENT',
+    'PARENT',
+  )
+  updateMyProfile(@Request() req: any, @Body() data: any) {
+    // Only allow updating safe fields like avatarUrl or phone
+    const safeData = {
+      avatarUrl: data.avatarUrl,
+      // Add other safe fields if needed
+    };
+    return this.usersService.updateProfile(req.user.id, safeData);
   }
 
   @Get(':id')
@@ -45,30 +83,34 @@ export class UsersController {
   @Post()
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN')
   create(@Request() req: any, @Body() data: any) {
-    return this.usersService.createUser(req.user.schoolId, data);
+    return this.usersService.createUser(req.user.schoolId, data, req.user);
   }
 
   @Patch(':id')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  update(@Param('id') id: string, @Body() data: any) {
-    return this.usersService.updateUser(id, data);
+  update(@Request() req: any, @Param('id') id: string, @Body() data: any) {
+    return this.usersService.updateUser(id, data, req.user);
   }
 
   @Patch(':id/status')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN')
-  updateStatus(@Param('id') id: string, @Body() body: { status: string }) {
-    return this.usersService.updateStatus(id, body.status);
+  updateStatus(@Request() req: any, @Param('id') id: string, @Body() body: { status: string }) {
+    return this.usersService.updateStatus(id, body.status, req.user);
   }
 
   @Post(':id/reset-password')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN')
-  resetPassword(@Param('id') id: string, @Body() body: { newPassword: string }) {
-    return this.usersService.resetPassword(id, body.newPassword);
+  resetPassword(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: { newPassword: string },
+  ) {
+    return this.usersService.resetPassword(id, body.newPassword, req.user);
   }
 
   @Delete(':id')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN')
   remove(@Request() req: any, @Param('id') id: string) {
-    return this.usersService.deactivateUser(id);
+    return this.usersService.deactivateUser(id, req.user);
   }
 }

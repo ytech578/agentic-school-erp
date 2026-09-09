@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import * as bcrypt from 'bcryptjs';
 
@@ -10,8 +15,16 @@ export class UsersService {
     const user = await this.prisma.user.findUnique({
       where: { id },
       select: {
-        id: true, email: true, firstName: true, lastName: true, phone: true,
-        role: true, status: true, avatarUrl: true, lastLoginAt: true, createdAt: true,
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        role: true,
+        status: true,
+        avatarUrl: true,
+        lastLoginAt: true,
+        createdAt: true,
         school: { select: { id: true, name: true, code: true } },
       },
     });
@@ -20,10 +33,21 @@ export class UsersService {
   }
 
   async findByEmail(email: string) {
-    return this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    return this.prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+    });
   }
 
-  async findAll(schoolId: string, query: { page?: number; limit?: number; role?: string; status?: string; search?: string }) {
+  async findAll(
+    schoolId: string,
+    query: {
+      page?: number;
+      limit?: number;
+      role?: string;
+      status?: string;
+      search?: string;
+    },
+  ) {
     const { page = 1, limit = 20, role, status, search } = query;
     const skip = (page - 1) * limit;
 
@@ -43,9 +67,16 @@ export class UsersService {
       this.prisma.user.findMany({
         where,
         select: {
-          id: true, email: true, firstName: true, lastName: true,
-          role: true, status: true, phone: true, avatarUrl: true,
-          lastLoginAt: true, createdAt: true,
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          status: true,
+          phone: true,
+          avatarUrl: true,
+          lastLoginAt: true,
+          createdAt: true,
         },
         orderBy: { createdAt: 'desc' },
         skip,
@@ -60,14 +91,29 @@ export class UsersService {
     };
   }
 
-  async createUser(schoolId: string, data: {
-    email: string; firstName: string; lastName: string;
-    role: string; phone?: string; password?: string;
-  }) {
-    const existing = await this.prisma.user.findUnique({ where: { email: data.email.toLowerCase() } });
+  async createUser(
+    schoolId: string,
+    data: {
+      email: string;
+      firstName: string;
+      lastName: string;
+      role: string;
+      phone?: string;
+      password?: string;
+    },
+    requestingUser?: any,
+  ) {
+    if (requestingUser?.role === 'SCHOOL_ADMIN' && (data.role === 'SUPER_ADMIN' || data.role === 'SCHOOL_ADMIN')) {
+      throw new ForbiddenException('School Admins cannot create Super Admins or other School Admins');
+    }
+
+    const existing = await this.prisma.user.findUnique({
+      where: { email: data.email.toLowerCase() },
+    });
     if (existing) throw new ConflictException('Email already exists');
 
-    const password = data.password || Math.random().toString(36).slice(-10) + 'A1!';
+    const password =
+      data.password || Math.random().toString(36).slice(-10) + 'A1!';
     const passwordHash = await bcrypt.hash(password, 12);
 
     const user = await this.prisma.user.create({
@@ -82,14 +128,53 @@ export class UsersService {
         status: 'ACTIVE',
       },
       select: {
-        id: true, email: true, firstName: true, lastName: true, role: true, status: true, createdAt: true,
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        status: true,
+        createdAt: true,
       },
     });
 
     return { ...user, temporaryPassword: data.password ? undefined : password };
   }
 
-  async updateUser(id: string, data: { firstName?: string; lastName?: string; phone?: string; role?: string }) {
+  async updateProfile(id: string, data: { avatarUrl?: string; phone?: string; firstName?: string; lastName?: string }) {
+    return this.prisma.user.update({
+      where: { id },
+      data: {
+        avatarUrl: data.avatarUrl,
+        phone: data.phone,
+        firstName: data.firstName,
+        lastName: data.lastName,
+      },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        avatarUrl: true,
+      },
+    });
+  }
+
+  async updateUser(
+    id: string,
+    data: {
+      firstName?: string;
+      lastName?: string;
+      phone?: string;
+      role?: string;
+    },
+    requestingUser?: any,
+  ) {
+    if (requestingUser?.role === 'SCHOOL_ADMIN' && (data.role === 'SUPER_ADMIN' || data.role === 'SCHOOL_ADMIN')) {
+      throw new ForbiddenException('School Admins cannot assign Super Admin or School Admin roles');
+    }
+
     return this.prisma.user.update({
       where: { id },
       data: {
@@ -99,12 +184,17 @@ export class UsersService {
         role: data.role as any,
       },
       select: {
-        id: true, email: true, firstName: true, lastName: true, role: true, status: true,
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        status: true,
       },
     });
   }
 
-  async updateStatus(id: string, status: string) {
+  async updateStatus(id: string, status: string, requestingUser?: any) {
     return this.prisma.user.update({
       where: { id },
       data: { status: status as any },
@@ -112,13 +202,13 @@ export class UsersService {
     });
   }
 
-  async resetPassword(id: string, newPassword: string) {
+  async resetPassword(id: string, newPassword: string, requestingUser?: any) {
     const passwordHash = await bcrypt.hash(newPassword, 12);
     await this.prisma.user.update({ where: { id }, data: { passwordHash } });
     return { message: 'Password reset successfully' };
   }
 
-  async deactivateUser(id: string) {
+  async deactivateUser(id: string, requestingUser?: any) {
     return this.prisma.user.update({
       where: { id },
       data: { status: 'INACTIVE' },

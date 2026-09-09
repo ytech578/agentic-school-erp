@@ -1,10 +1,20 @@
-import { Controller, Get, Post, Body, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Query,
+  UseGuards,
+  Request,
+  UsePipes,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { AttendanceService } from './attendance.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
 import { MarkAttendanceSchema } from '@school-erp/shared';
+import { ZodValidationPipe } from '../../core/pipes/zod-validation.pipe';
 
 @ApiTags('Attendance')
 @ApiBearerAuth('JWT-auth')
@@ -26,13 +36,21 @@ export class AttendanceController {
     @Query('sectionId') sectionId: string,
     @Query('date') date: string,
   ) {
-    return this.service.getStudentsForAttendance(req.user.schoolId, sectionId, date);
+    return this.service.getStudentsForAttendance(
+      req.user.schoolId,
+      sectionId,
+      date,
+    );
   }
 
   @Post('mark')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
-  async markAttendance(@Request() req: any, @Body() body: any) {
-    const parsedData = MarkAttendanceSchema.parse(body);
-    return this.service.markAttendance(req.user.schoolId, req.user.id, parsedData);
+  @UsePipes(new ZodValidationPipe(MarkAttendanceSchema as any))
+  async markAttendance(@Request() req: any, @Body() parsedData: any) {
+    return this.service.markAttendance(
+      req.user.schoolId,
+      req.user.id,
+      parsedData,
+    );
   }
 }

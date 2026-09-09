@@ -6,6 +6,7 @@
 // Constants
 export * from './constants/permissions';
 export * from './constants/india.constants';
+export * from './constants/timetable';
 
 // Types
 export * from './types/index';
