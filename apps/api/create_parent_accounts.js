@@ -15,11 +15,22 @@ const path = require('path');
 
 const prisma = new PrismaClient();
 
-// Pre-computed bcrypt hash for faster batch processing
-// We hash per-password since each is unique (firstname@parent123)
+// Pre-computed bcrypt hash from DEMO_PASSWORD for faster batch processing
 const BATCH_SIZE = 20; // Process in batches to avoid DB overload
 
 async function main() {
+  if (process.env.NODE_ENV === 'production' && process.env.SEED_DEMO_DATA !== 'true') {
+    console.log('Skipping demo parent creation in production (SEED_DEMO_DATA is not set to "true").');
+    return;
+  }
+
+  const demoPassword = process.env.DEMO_PASSWORD;
+  if (!demoPassword) {
+    throw new Error('DEMO_PASSWORD environment variable is required to run create_parent_accounts.js');
+  }
+
+  const passwordHash = await bcrypt.hash(demoPassword, 10);
+
   console.log('🔍 Finding school...');
   const school = await prisma.school.findFirst({ where: { code: 'DEMO001' } });
   if (!school) throw new Error('Demo school not found.');
@@ -61,16 +72,12 @@ async function main() {
 
         // Generate parent credentials
         const parentEmail = `parent.${studentFirstName}${studentLastName}@sunriseschool.edu.in`;
-        const plainPassword = `${studentFirstName}@parent123`;
 
         // Check if this email already exists (handle duplicates by appending student id suffix)
         const existingUser = await prisma.user.findUnique({ where: { email: parentEmail } });
         const finalEmail = existingUser
           ? `parent.${studentFirstName}${studentLastName}.${student.id.slice(-4)}@sunriseschool.edu.in`
           : parentEmail;
-
-        // Hash password
-        const passwordHash = await bcrypt.hash(plainPassword, 10); // cost 10 for speed in testing
 
         // Create parent User account
         const parentUser = await prisma.user.create({
@@ -104,7 +111,6 @@ async function main() {
           studentName: `${student.user.firstName} ${student.user.lastName}`,
           studentEmail: student.user.email,
           parentEmail: finalEmail,
-          password: plainPassword,
           relationship: 'Parent',
         });
 
@@ -122,21 +128,21 @@ async function main() {
   console.log(`   Errors:  ${errors}`);
 
   // Export credentials CSV
-  const csvPath = path.join(__dirname, 'parent_credentials.csv');
-  const csvHeader = 'Student Name,Student Email,Parent Login Email,Parent Password,Relationship\n';
+  const csvPath = path.join(__dirname, 'parent.credentials.csv');
+  const csvHeader = 'Student Name,Student Email,Parent Login Email,Relationship\n';
   const csvRows = credentials.map(c =>
-    `"${c.studentName}","${c.studentEmail}","${c.parentEmail}","${c.password}","${c.relationship}"`
+    `"${c.studentName}","${c.studentEmail}","${c.parentEmail}","${c.relationship}"`
   ).join('\n');
   fs.writeFileSync(csvPath, csvHeader + csvRows, 'utf-8');
 
   console.log(`\n📄 Credentials CSV exported to: ${csvPath}`);
-  console.log(`   → Share this file with parents/admin for login details.\n`);
+  console.log(`   → Passwords are configured through DEMO_PASSWORD.\n`);
 
   // Print sample
-  console.log('Sample credentials (first 5):');
+  console.log('Sample parent accounts (first 5):');
   credentials.slice(0, 5).forEach(c => {
     console.log(`  Student: ${c.studentName}`);
-    console.log(`  Parent Login: ${c.parentEmail}  |  Password: ${c.password}`);
+    console.log(`  Parent Login: ${c.parentEmail}  |  Password: supplied through DEMO_PASSWORD`);
     console.log('  ---');
   });
 }

@@ -14,6 +14,12 @@ out/
 .env.production
 .env.development.local
 
+# Credentials and sensitive data exports (NEVER commit these)
+*.credentials.csv
+*.credentials.json
+parent_credentials.csv
+*credentials*.csv
+
 # Logs
 logs/
 *.log

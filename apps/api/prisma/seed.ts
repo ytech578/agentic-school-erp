@@ -48,7 +48,26 @@ async function main() {
   });
   console.log(`✅ Academic Year: ${academicYear.name}`);
 
-  const passwordHash = await bcrypt.hash('Admin@1234', 12);
+  // ─── Environment Guard: Demo Data Separation ─────────────────────────────
+  const isProduction = process.env.NODE_ENV === 'production';
+  const shouldSeedDemoData = process.env.SEED_DEMO_DATA === 'true';
+
+  if (isProduction && !shouldSeedDemoData) {
+    console.log('⚠️  Production environment detected and SEED_DEMO_DATA is not set to "true".');
+    console.log('   Skipping creation of demo users and sample data.');
+    return;
+  }
+
+  // ─── Demo Password Configuration ─────────────────────────────────────────
+  const demoPassword = process.env.DEMO_PASSWORD;
+  if (!demoPassword) {
+    throw new Error(
+      'DEMO_PASSWORD environment variable is required to seed user accounts. ' +
+      'Please provide DEMO_PASSWORD in your environment or .env file.'
+    );
+  }
+
+  const passwordHash = await bcrypt.hash(demoPassword, 12);
 
   // ─── Super Admin ─────────────────────────────────────────────────────────
   const superAdmin = await prisma.user.upsert({
@@ -353,7 +372,8 @@ async function main() {
 
   console.log('\n🎉 Seed completed successfully!\n');
   console.log('─'.repeat(50));
-  console.log('Demo Credentials (all use password: Admin@1234)');
+  console.log('Demo Credentials:');
+  console.log('Password     : supplied through DEMO_PASSWORD');
   console.log('─'.repeat(50));
   console.log('Super Admin  : superadmin@schoolerp.com');
   console.log('School Admin : admin@sunriseschool.edu.in');

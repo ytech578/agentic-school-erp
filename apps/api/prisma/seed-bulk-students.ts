@@ -1,9 +1,7 @@
 import { PrismaClient, UserRole, UserStatus, BloodGroup, Gender, EnrollmentStatus } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
-
-// Precomputed bcrypt hash for "Student@123" to save hours of processing time (cost 12)
-const PRECOMPUTED_HASH = '$2a$12$NqB.Qp./HwT0Jp.e2rA4uOo2xJpM3.yR7K9R2G.X7y0G7V9.X7y0G';
 
 const firstNames = ['Aarav', 'Vihaan', 'Aditya', 'Sai', 'Arjun', 'Siddharth', 'Rohan', 'Dhruv', 'Kabir', 'Vivaan', 'Ananya', 'Diya', 'Suhana', 'Priya', 'Kavya', 'Riya', 'Neha', 'Aisha', 'Tanvi', 'Sara'];
 const lastNames = ['Sharma', 'Patel', 'Kumar', 'Singh', 'Gupta', 'Verma', 'Reddy', 'Rao', 'Nair', 'Pillai', 'Joshi', 'Mehta', 'Chauhan', 'Shah', 'Yadav'];
@@ -14,6 +12,27 @@ function getRandomElement(arr: any[]) {
 
 async function main() {
   console.log('🌱 Bulk seeding 25 students per class...');
+
+  // ─── Environment Guard & Demo Password ─────────────────────────────────
+  const isProduction = process.env.NODE_ENV === 'production';
+  const shouldSeedDemoData = process.env.SEED_DEMO_DATA === 'true';
+
+  if (isProduction && !shouldSeedDemoData) {
+    console.log('⚠️  Production environment detected and SEED_DEMO_DATA is not set to "true".');
+    console.log('   Skipping bulk student demo seeding.');
+    return;
+  }
+
+  const demoPassword = process.env.DEMO_PASSWORD;
+  if (!demoPassword) {
+    throw new Error(
+      'DEMO_PASSWORD environment variable is required to seed bulk students. ' +
+      'Please provide DEMO_PASSWORD in your environment or .env file.'
+    );
+  }
+
+  // Precompute hash once for all generated students
+  const passwordHash = await bcrypt.hash(demoPassword, 10);
 
   const school = await prisma.school.findFirst({ where: { code: 'DEMO001' } });
   if (!school) throw new Error('Demo school not found. Run standard seed first.');
@@ -57,7 +76,7 @@ async function main() {
         id: userId,
         schoolId: school.id,
         email: email,
-        passwordHash: PRECOMPUTED_HASH,
+        passwordHash,
         role: UserRole.STUDENT,
         status: UserStatus.ACTIVE,
         firstName: fName,

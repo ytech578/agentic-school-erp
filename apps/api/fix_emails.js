@@ -3,6 +3,18 @@ const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
 
 async function main() {
+  if (process.env.NODE_ENV === 'production' && process.env.SEED_DEMO_DATA !== 'true') {
+    console.log('Skipping email fix in production (SEED_DEMO_DATA is not set to "true").');
+    return;
+  }
+
+  const demoPassword = process.env.DEMO_PASSWORD;
+  if (!demoPassword) {
+    throw new Error('DEMO_PASSWORD environment variable is required to run fix_emails.js');
+  }
+
+  const hashedPassword = await bcrypt.hash(demoPassword, 12);
+
   const students = await prisma.user.findMany({
     where: { role: 'STUDENT' },
   });
@@ -25,8 +37,7 @@ async function main() {
         counter++;
       }
       
-      const plainPassword = `${cleanFirst}123`;
-      const hashedPassword = await bcrypt.hash(plainPassword, 12);
+
       
       await prisma.user.update({
         where: { id: student.id },
@@ -35,7 +46,7 @@ async function main() {
           passwordHash: hashedPassword
         }
       });
-      console.log(`Updated ${student.email} -> ${newEmail} (Password: ${plainPassword})`);
+      console.log(`Updated ${student.email} -> ${newEmail} (Password: supplied through DEMO_PASSWORD)`);
       updatedCount++;
     }
   }

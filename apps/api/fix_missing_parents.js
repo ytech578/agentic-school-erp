@@ -12,6 +12,18 @@ const path = require('path');
 const prisma = new PrismaClient();
 
 async function main() {
+  if (process.env.NODE_ENV === 'production' && process.env.SEED_DEMO_DATA !== 'true') {
+    console.log('Skipping demo parent fix in production (SEED_DEMO_DATA is not set to "true").');
+    return;
+  }
+
+  const demoPassword = process.env.DEMO_PASSWORD;
+  if (!demoPassword) {
+    throw new Error('DEMO_PASSWORD environment variable is required to run fix_missing_parents.js');
+  }
+
+  const passwordHash = await bcrypt.hash(demoPassword, 10);
+
   console.log('🔍 Finding students still missing parent accounts...\n');
 
   const school = await prisma.school.findFirst({ where: { code: 'DEMO001' } });
@@ -44,8 +56,6 @@ async function main() {
       const admSuffix = (student.admissionNumber || student.id.slice(-6)).replace(/[^a-z0-9]/gi, '').toLowerCase();
 
       const parentEmail = `parent.${studentFirstName}${studentLastName}.${admSuffix}@sunriseschool.edu.in`;
-      const plainPassword = `${studentFirstName}@parent123`;
-      const passwordHash = await bcrypt.hash(plainPassword, 10);
 
       const parentUser = await prisma.user.create({
         data: {
@@ -77,7 +87,6 @@ async function main() {
         studentName: `${student.user.firstName} ${student.user.lastName}`,
         studentEmail: student.user.email,
         parentEmail,
-        password: plainPassword,
       });
 
       console.log(`  ✅ ${student.user.firstName} ${student.user.lastName} → ${parentEmail}`);
@@ -91,14 +100,15 @@ async function main() {
   console.log(`\n✅ Fixed! Created: ${created} | Errors: ${errors}`);
 
   // Append to the existing credentials CSV
-  const csvPath = path.join(__dirname, 'parent_credentials.csv');
+  const csvPath = path.join(__dirname, 'parent.credentials.csv');
   const appendRows = credentials.map(c =>
-    `"${c.studentName}","${c.studentEmail}","${c.parentEmail}","${c.password}","Parent"`
+    `"${c.studentName}","${c.studentEmail}","${c.parentEmail}","Parent"`
   ).join('\n');
   
   if (credentials.length > 0) {
     fs.appendFileSync(csvPath, '\n' + appendRows, 'utf-8');
     console.log(`\n📄 Appended ${created} rows to: ${csvPath}`);
+    console.log(`   → Passwords are configured through DEMO_PASSWORD.`);
   }
 }
 

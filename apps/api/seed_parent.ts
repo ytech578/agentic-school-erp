@@ -1,9 +1,19 @@
-﻿import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function seed() {
+  if (process.env.NODE_ENV === 'production' && process.env.SEED_DEMO_DATA !== 'true') {
+    console.log('Skipping demo parent seed in production (SEED_DEMO_DATA is not set to "true").');
+    return;
+  }
+
+  const demoPassword = process.env.DEMO_PASSWORD;
+  if (!demoPassword) {
+    throw new Error('DEMO_PASSWORD environment variable is required to seed parent accounts.');
+  }
+
   const school = await prisma.school.findFirst();
   if (!school) return console.log('No school found');
 
@@ -16,7 +26,7 @@ async function seed() {
 
   if (!student) return console.log('No student with dues found');
 
-  const hashedPassword = await bcrypt.hash('password123', 10);
+  const hashedPassword = await bcrypt.hash(demoPassword, 10);
 
   const parentUser = await prisma.user.create({
     data: {
@@ -42,7 +52,7 @@ async function seed() {
     }
   });
 
-  console.log('Created parent account: parent@school.com / password123 linked to student: ' + student.user.firstName);
+  console.log('Created parent account: parent@school.com (Password: supplied through DEMO_PASSWORD) linked to student: ' + student.user.firstName);
 }
 
 seed().catch(console.error).finally(() => prisma.$disconnect());
