@@ -18,7 +18,7 @@ export class JwtRefreshStrategy extends PassportStrategy(
       // Extract refresh token from HttpOnly cookie
       jwtFromRequest: (req: Request) => req.cookies?.['refresh_token'],
       ignoreExpiration: true, // We manually check session expiry
-      secretOrKey: config.get<string>('jwt.refreshSecret') || 'secret',
+      secretOrKey: config.getOrThrow<string>('jwt.refreshSecret'),
       passReqToCallback: true,
     } as any);
   }

@@ -295,7 +295,7 @@ export class AuthService {
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
-        secret: this.config.get<string>('jwt.accessSecret') || 'secret',
+        secret: this.config.getOrThrow<string>('jwt.accessSecret'),
         expiresIn: this.config.get<string>('jwt.accessExpiresIn', '15m') as any,
       }),
       // Refresh token is a random secure token stored as hash
