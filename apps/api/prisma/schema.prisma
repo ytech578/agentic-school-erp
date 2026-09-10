@@ -320,6 +320,7 @@ model User {
 model UserSession {
   id             String          @id @default(cuid())
   userId         String
+  // SHA-256 hash of the refresh token. Raw token is never persisted.
   refreshToken   String          @unique
   deviceInfo     String?
   ipAddress      String?

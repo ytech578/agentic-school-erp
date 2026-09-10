@@ -4,6 +4,7 @@ import { Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { PrismaService } from '../../../core/database/prisma.service';
+import { hashRefreshToken } from '../utils/refresh-token.util';
 
 @Injectable()
 export class JwtRefreshStrategy extends PassportStrategy(
@@ -24,13 +25,16 @@ export class JwtRefreshStrategy extends PassportStrategy(
   }
 
   async validate(req: Request, payload: any) {
-    const refreshToken = req.cookies?.['refresh_token'];
-    if (!refreshToken) {
+    const cookies = req.cookies as Record<string, unknown> | undefined;
+    const refreshToken = cookies?.['refresh_token'];
+    if (typeof refreshToken !== 'string' || !refreshToken) {
       throw new UnauthorizedException('No refresh token provided');
     }
 
+    const tokenHash = hashRefreshToken(refreshToken);
+
     const session = await this.prisma.userSession.findUnique({
-      where: { refreshToken },
+      where: { refreshToken: tokenHash },
     });
 
     if (

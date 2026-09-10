@@ -14,6 +14,7 @@ import { UsersService } from '../users/users.service';
 import { EmailService } from '../../services/email/email.service';
 import { ROLE_PERMISSIONS, UserRole } from '@school-erp/shared';
 import type { LoginInput, ResetPasswordInput } from '@school-erp/shared';
+import { hashRefreshToken } from './utils/refresh-token.util';
 
 @Injectable()
 export class AuthService {
@@ -112,8 +113,9 @@ export class AuthService {
   // ─── Logout ───────────────────────────────────────────────────────────────
 
   async logout(refreshToken: string, userId: string): Promise<void> {
+    const tokenHash = hashRefreshToken(refreshToken);
     await this.prisma.userSession.updateMany({
-      where: { refreshToken, userId },
+      where: { refreshToken: tokenHash, userId },
       data: { status: 'REVOKED' },
     });
     await this.createAuditLog(userId, null, 'LOGOUT', null);
@@ -122,8 +124,9 @@ export class AuthService {
   // ─── Refresh Token ────────────────────────────────────────────────────────
 
   async refreshTokens(refreshToken: string, ipAddress: string) {
+    const tokenHash = hashRefreshToken(refreshToken);
     const session = await this.prisma.userSession.findUnique({
-      where: { refreshToken },
+      where: { refreshToken: tokenHash },
       include: {
         user: {
           select: {
@@ -158,10 +161,12 @@ export class AuthService {
       user.schoolId,
     );
 
+    const newTokenHash = hashRefreshToken(tokens.refreshToken);
+
     await this.prisma.userSession.update({
       where: { id: session.id },
       data: {
-        refreshToken: tokens.refreshToken,
+        refreshToken: newTokenHash,
         expiresAt: new Date(
           Date.now() +
             this.config.get<number>(
@@ -319,10 +324,12 @@ export class AuthService {
         ),
     );
 
+    const tokenHash = hashRefreshToken(refreshToken);
+
     return this.prisma.userSession.create({
       data: {
         userId,
-        refreshToken,
+        refreshToken: tokenHash,
         ipAddress,
         deviceInfo: this.parseDeviceInfo(userAgent),
         userAgent,
