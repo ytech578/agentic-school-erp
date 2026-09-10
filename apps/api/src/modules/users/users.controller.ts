@@ -34,13 +34,17 @@ export class UsersController {
     @Query('status') status?: string,
     @Query('search') search?: string,
   ) {
-    return this.usersService.findAll(req.user.schoolId, {
-      page: page ? +page : 1,
-      limit: limit ? +limit : 20,
-      role,
-      status,
-      search,
-    });
+    return this.usersService.findAll(
+      req.user.schoolId,
+      {
+        page: page ? +page : 1,
+        limit: limit ? +limit : 20,
+        role,
+        status,
+        search,
+      },
+      req.user,
+    );
   }
 
   @Get('me')
@@ -98,7 +102,11 @@ export class UsersController {
 
   @Patch(':id/status')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN')
-  updateStatus(@Request() req: any, @Param('id') id: string, @Body() body: { status: string }) {
+  updateStatus(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: { status: string },
+  ) {
     return this.usersService.updateStatus(id, body.status, req.user);
   }
 

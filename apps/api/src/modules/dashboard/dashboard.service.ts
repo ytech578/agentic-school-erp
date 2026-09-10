@@ -78,12 +78,20 @@ export class DashboardService {
   }
 
   // ─── SCHOOL ADMIN DASHBOARD (Campus Operations & Finance) ─────────────────
-  async getSchoolAdminDashboard(schoolId: string) {
-    const validSchoolId = requireSchoolId(schoolId);
+  async getSchoolAdminDashboard(schoolId?: string | null, isGlobal = false) {
+    const validSchoolId =
+      isGlobal && !schoolId
+        ? undefined
+        : requireSchoolId(schoolId, 'School admin dashboard');
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
     const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+
+    const schoolFilter = validSchoolId ? { schoolId: validSchoolId } : {};
+    const attendanceFilter = validSchoolId
+      ? { section: { class: { schoolId: validSchoolId } } }
+      : {};
 
     const [
       totalStudents,
@@ -100,38 +108,38 @@ export class DashboardService {
       applicationCount,
       recentEnrollments,
     ] = await Promise.all([
-      this.prisma.user.count({ where: { schoolId: validSchoolId, role: 'STUDENT', status: 'ACTIVE' } }),
-      this.prisma.user.count({ where: { schoolId: validSchoolId, role: { in: ['TEACHER', 'SCHOOL_ADMIN', 'PRINCIPAL'] }, status: 'ACTIVE' } }),
-      this.prisma.class.count({ where: { schoolId: validSchoolId } }),
+      this.prisma.user.count({ where: { ...schoolFilter, role: 'STUDENT', status: 'ACTIVE' } }),
+      this.prisma.user.count({ where: { ...schoolFilter, role: { in: ['TEACHER', 'SCHOOL_ADMIN', 'PRINCIPAL'] }, status: 'ACTIVE' } }),
+      this.prisma.class.count({ where: schoolFilter }),
       this.prisma.feePayment.aggregate({
-        where: { schoolId: validSchoolId, paymentDate: { gte: startOfMonth }, paymentStatus: 'PAID' },
+        where: { ...schoolFilter, paymentDate: { gte: startOfMonth }, paymentStatus: 'PAID' },
         _sum: { paidAmount: true },
       }),
       this.prisma.feePayment.aggregate({
-        where: { schoolId: validSchoolId, paymentStatus: { in: ['PENDING', 'OVERDUE', 'PARTIAL'] } },
+        where: { ...schoolFilter, paymentStatus: { in: ['PENDING', 'OVERDUE', 'PARTIAL'] } },
         _sum: { outstandingAmount: true },
       }),
       this.prisma.staffAttendance.count({
-        where: { schoolId: validSchoolId, date: { gte: todayStart, lte: todayEnd }, status: 'PRESENT' },
+        where: { ...schoolFilter, date: { gte: todayStart, lte: todayEnd }, status: 'PRESENT' },
       }),
       this.prisma.leaveRequest.count({
-        where: { schoolId: validSchoolId, status: 'APPROVED', startDate: { lte: todayEnd }, endDate: { gte: todayStart } },
+        where: { ...schoolFilter, status: 'APPROVED', startDate: { lte: todayEnd }, endDate: { gte: todayStart } },
       }),
       this.prisma.staffAttendance.count({
-        where: { schoolId: validSchoolId, date: { gte: todayStart, lte: todayEnd }, status: 'ABSENT' },
+        where: { ...schoolFilter, date: { gte: todayStart, lte: todayEnd }, status: 'ABSENT' },
       }),
       this.prisma.attendanceRecord.findMany({
         where: {
-          section: { class: { schoolId: validSchoolId } },
+          ...attendanceFilter,
           date: { gte: todayStart, lte: todayEnd },
         },
         select: { status: true },
       }),
-      this.prisma.leaveRequest.count({ where: { schoolId: validSchoolId, status: 'PENDING' } }),
-      this.prisma.admissionEnquiry.count({ where: { schoolId: validSchoolId } }),
-      this.prisma.admissionApplication.count({ where: { schoolId: validSchoolId } }),
+      this.prisma.leaveRequest.count({ where: { ...schoolFilter, status: 'PENDING' } }),
+      this.prisma.admissionEnquiry.count({ where: schoolFilter }),
+      this.prisma.admissionApplication.count({ where: schoolFilter }),
       this.prisma.user.findMany({
-        where: { schoolId: validSchoolId, role: 'STUDENT' },
+        where: { ...schoolFilter, role: 'STUDENT' },
         select: { id: true, firstName: true, lastName: true, email: true, createdAt: true },
         orderBy: { createdAt: 'desc' },
         take: 5,
@@ -656,9 +664,8 @@ export class DashboardService {
   }
 
   // ─── LEGACY COMPATIBILITY: GET DASHBOARD STATS ────────────────────────────
-  async getDashboardStats(schoolId: string) {
-    const validSchoolId = requireSchoolId(schoolId);
-    const adminData = await this.getSchoolAdminDashboard(validSchoolId);
+  async getDashboardStats(schoolId?: string | null, isGlobal = false) {
+    const adminData = await this.getSchoolAdminDashboard(schoolId, isGlobal);
     return {
       stats: [
         { title: 'Total Students', value: adminData.kpis.totalStudents.toString(), icon: 'GraduationCap', color: 'var(--info)' },

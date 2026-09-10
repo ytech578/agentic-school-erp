@@ -14,6 +14,9 @@ import { StudentsService } from '../../modules/students/students.service';
 import { FeesService } from '../../modules/fees/fees.service';
 import { AssignmentsService } from '../../modules/assignments/assignments.service';
 import { ExamsService } from '../../modules/exams/exams.service';
+import { DashboardController } from '../../modules/dashboard/dashboard.controller';
+import { DashboardService } from '../../modules/dashboard/dashboard.service';
+import { UserRole } from '@school-erp/shared';
 
 describe('Multi-Tenant Systematic Data Isolation (Change #4)', () => {
   const SCHOOL_1 = 'school_alpha_111';
@@ -355,6 +358,185 @@ describe('Multi-Tenant Systematic Data Isolation (Change #4)', () => {
       ).rejects.toThrow(NotFoundException);
 
       expect(mockPrisma.reportCard.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // SUPER_ADMIN Global-Access Path & Dashboard Business Semantics
+  // ────────────────────────────────────────────────────────────────────────────
+  describe('SUPER_ADMIN Global-Access Path & Dashboard Business Semantics', () => {
+    let dashboardController: DashboardController;
+    let dashboardService: DashboardService;
+    let mockPrisma: any;
+
+    const superAdminReq = {
+      user: {
+        id: 'super_admin_user',
+        role: 'SUPER_ADMIN' as UserRole,
+        schoolId: null,
+      },
+    };
+
+    const schoolAdminReq = {
+      user: {
+        id: 'school_admin_user',
+        role: 'SCHOOL_ADMIN' as UserRole,
+        schoolId: SCHOOL_1,
+      },
+    };
+
+    const schoolAdminNoSchoolReq = {
+      user: {
+        id: 'school_admin_bad',
+        role: 'SCHOOL_ADMIN' as UserRole,
+        schoolId: null,
+      },
+    };
+
+    beforeEach(() => {
+      mockPrisma = {
+        school: {
+          count: jest.fn().mockResolvedValue(5),
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+        user: {
+          count: jest.fn().mockResolvedValue(100),
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+        class: {
+          count: jest.fn().mockResolvedValue(12),
+        },
+        feePayment: {
+          aggregate: jest.fn().mockResolvedValue({
+            _sum: { paidAmount: 500000, outstandingAmount: 50000 },
+          }),
+        },
+        staffAttendance: {
+          count: jest.fn().mockResolvedValue(20),
+        },
+        leaveRequest: {
+          count: jest.fn().mockResolvedValue(2),
+        },
+        attendanceRecord: {
+          findMany: jest.fn().mockResolvedValue([{ status: 'PRESENT' }]),
+        },
+        admissionEnquiry: {
+          count: jest.fn().mockResolvedValue(10),
+        },
+        admissionApplication: {
+          count: jest.fn().mockResolvedValue(5),
+        },
+        activityLog: {
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+      };
+      dashboardService = new DashboardService(mockPrisma);
+      dashboardController = new DashboardController(dashboardService);
+    });
+
+    it('SUPER_ADMIN can access global fleet dashboard (GET /dashboard/super-admin)', async () => {
+      const result = await dashboardController.getSuperAdminDashboard();
+      expect(result).toHaveProperty('fleet');
+      expect(result).toHaveProperty('systemHealth');
+    });
+
+    it('SUPER_ADMIN receives legitimate global stats (GET /dashboard/stats)', async () => {
+      const result = await dashboardController.getStats(superAdminReq);
+      expect(result).toHaveProperty('stats');
+      expect(result.stats.length).toBeGreaterThan(0);
+      expect(mockPrisma.user.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.not.objectContaining({ schoolId: expect.anything() }),
+        }),
+      );
+    });
+
+    it('SUPER_ADMIN receives fleet-wide campus operations (GET /dashboard/school-admin)', async () => {
+      const result =
+        await dashboardController.getSchoolAdminDashboard(superAdminReq);
+      expect(result).toHaveProperty('kpis');
+      expect(mockPrisma.class.count).toHaveBeenCalledWith({ where: {} });
+    });
+
+    it('SUPER_ADMIN without schoolId is rejected from inherently school-scoped GET /dashboard/principal', async () => {
+      await expect(
+        dashboardController.getPrincipalDashboard(superAdminReq),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('SUPER_ADMIN without schoolId is rejected from inherently school-scoped GET /dashboard/teacher', async () => {
+      await expect(
+        dashboardController.getTeacherDashboard(superAdminReq),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('SUPER_ADMIN without schoolId is rejected from inherently school-scoped GET /dashboard/student', async () => {
+      await expect(
+        dashboardController.getStudentDashboard(superAdminReq),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('SUPER_ADMIN without schoolId is rejected from inherently school-scoped GET /dashboard/parent', async () => {
+      await expect(
+        dashboardController.getParentDashboard(superAdminReq),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('SUPER_ADMIN without schoolId is rejected from inherently school-scoped GET /dashboard/parent-detail', async () => {
+      await expect(
+        dashboardController.getParentDetail(superAdminReq),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('School-scoped user without schoolId fails closed on GET /dashboard/stats', async () => {
+      await expect(
+        dashboardController.getStats(schoolAdminNoSchoolReq),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('School-scoped user with valid schoolId accesses their scoped GET /dashboard/school-admin', async () => {
+      const result =
+        await dashboardController.getSchoolAdminDashboard(schoolAdminReq);
+      expect(result).toHaveProperty('kpis');
+      expect(mockPrisma.class.count).toHaveBeenCalledWith({
+        where: { schoolId: SCHOOL_1 },
+      });
+    });
+
+    it('SUPER_ADMIN can list all users globally without schoolId filter', async () => {
+      const usersService = new UsersService(mockPrisma);
+      mockPrisma.user.findMany.mockResolvedValue([]);
+      mockPrisma.user.count.mockResolvedValue(0);
+
+      await usersService.findAll(
+        null as any,
+        { page: 1, limit: 10 },
+        superAdminReq.user,
+      );
+
+      expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.not.objectContaining({ schoolId: expect.anything() }),
+        }),
+      );
+    });
+
+    it('School-scoped user listing users is strictly scoped to their schoolId', async () => {
+      const usersService = new UsersService(mockPrisma);
+      mockPrisma.user.findMany.mockResolvedValue([]);
+      mockPrisma.user.count.mockResolvedValue(0);
+
+      await usersService.findAll(
+        SCHOOL_1,
+        { page: 1, limit: 10 },
+        schoolAdminReq.user,
+      );
+
+      expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ schoolId: SCHOOL_1 }),
+        }),
+      );
     });
   });
 });
