@@ -12,6 +12,7 @@ import {
   EnrollStudentSubjectsDto,
 } from './dto/curriculum.dto';
 import { OfferingSource, SubjectClassification, SubjectSelectionType } from '@prisma/client';
+import { requireSchoolId } from '../../core/tenant/tenant.util';
 
 @Injectable()
 export class CurriculumService {
@@ -89,8 +90,9 @@ export class CurriculumService {
   // SCHOOL ONBOARDING & "LOAD RECOMMENDED CURRICULUM"
   // -------------------------------------------------------------
   async initializeSchoolCurriculum(schoolId: string, dto: InitializeCurriculumDto) {
+    const validSchoolId = requireSchoolId(schoolId);
     const school = await this.prisma.school.findUnique({
-      where: { id: schoolId },
+      where: { id: validSchoolId },
       include: {
         academicYears: {
           where: { isActive: true },
@@ -100,7 +102,7 @@ export class CurriculumService {
     });
 
     if (!school) {
-      throw new NotFoundException(`School with ID "${schoolId}" not found`);
+      throw new NotFoundException(`School with ID "${validSchoolId}" not found`);
     }
 
     const curriculum = await this.prisma.curriculum.findUnique({
@@ -250,13 +252,14 @@ export class CurriculumService {
   // SCHOOL SUBJECT OFFERINGS (Management)
   // -------------------------------------------------------------
   async getSchoolOfferings(schoolId: string, academicYearId?: string) {
-    const where: any = { schoolId };
+    const validSchoolId = requireSchoolId(schoolId);
+    const where: any = { schoolId: validSchoolId };
 
     if (academicYearId) {
       where.academicYearId = academicYearId;
     } else {
       const activeYear = await this.prisma.academicYear.findFirst({
-        where: { schoolId, isActive: true },
+        where: { schoolId: validSchoolId, isActive: true },
       });
       if (activeYear) {
         where.academicYearId = activeYear.id;
@@ -280,15 +283,16 @@ export class CurriculumService {
   }
 
   async createSchoolOffering(schoolId: string, dto: CreateSchoolOfferingDto) {
+    const validSchoolId = requireSchoolId(schoolId);
     const activeYear = await this.prisma.academicYear.findFirst({
-      where: { schoolId, isActive: true },
+      where: { schoolId: validSchoolId, isActive: true },
     });
     if (!activeYear) {
       throw new BadRequestException('No active Academic Year found for this school');
     }
 
     const school = await this.prisma.school.findUnique({
-      where: { id: schoolId },
+      where: { id: validSchoolId },
     });
     if (!school?.activeCurriculumId) {
       throw new BadRequestException('School does not have an active curriculum configured');
@@ -325,12 +329,12 @@ export class CurriculumService {
     // Bridge with legacy Subject table
     const subjectName = dto.customName || (await this.prisma.globalSubject.findUnique({ where: { id: globalSubjectId } }))?.name || 'Subject';
     let legacySubject = await this.prisma.subject.findFirst({
-      where: { schoolId, name: subjectName },
+      where: { schoolId: validSchoolId, name: subjectName },
     });
     if (!legacySubject) {
       legacySubject = await this.prisma.subject.create({
         data: {
-          schoolId,
+          schoolId: validSchoolId,
           name: subjectName,
           code: dto.customCode,
           isElective: dto.selectionType === SubjectSelectionType.ELECTIVE,
@@ -341,7 +345,7 @@ export class CurriculumService {
 
     return this.prisma.schoolSubjectOffering.create({
       data: {
-        schoolId,
+        schoolId: validSchoolId,
         curriculumId: school.activeCurriculumId,
         academicYearId: activeYear.id,
         curriculumSubjectId: dto.curriculumSubjectId || null,
@@ -372,8 +376,9 @@ export class CurriculumService {
   }
 
   async updateSchoolOffering(schoolId: string, id: string, dto: UpdateSchoolOfferingDto) {
+    const validSchoolId = requireSchoolId(schoolId);
     const offering = await this.prisma.schoolSubjectOffering.findFirst({
-      where: { id, schoolId },
+      where: { id, schoolId: validSchoolId },
     });
 
     if (!offering) {
@@ -381,7 +386,7 @@ export class CurriculumService {
     }
 
     return this.prisma.schoolSubjectOffering.update({
-      where: { id },
+      where: { id: offering.id },
       data: {
         ...dto,
       },
@@ -394,8 +399,9 @@ export class CurriculumService {
   }
 
   async deleteSchoolOffering(schoolId: string, id: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const offering = await this.prisma.schoolSubjectOffering.findFirst({
-      where: { id, schoolId },
+      where: { id, schoolId: validSchoolId },
     });
 
     if (!offering) {
@@ -404,7 +410,7 @@ export class CurriculumService {
 
     // Soft-deactivate to prevent breaking historical marks, assignments, or report cards!
     return this.prisma.schoolSubjectOffering.update({
-      where: { id },
+      where: { id: offering.id },
       data: { isOffered: false },
     });
   }
@@ -413,8 +419,9 @@ export class CurriculumService {
   // CLASS-WISE OFFERINGS
   // -------------------------------------------------------------
   async getClassOfferings(schoolId: string, classId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const classRecord = await this.prisma.class.findFirst({
-      where: { id: classId, schoolId },
+      where: { id: classId, schoolId: validSchoolId },
     });
 
     if (!classRecord) {
@@ -432,12 +439,12 @@ export class CurriculumService {
     }
 
     const activeYear = await this.prisma.academicYear.findFirst({
-      where: { schoolId, isActive: true },
+      where: { schoolId: validSchoolId, isActive: true },
     });
 
     return this.prisma.schoolSubjectOffering.findMany({
       where: {
-        schoolId,
+        schoolId: validSchoolId,
         academicYearId: activeYear?.id,
         isOffered: true,
         gradeFrom: { lte: gradeLevel },
@@ -457,9 +464,20 @@ export class CurriculumService {
   // -------------------------------------------------------------
   // STUDENT SUBJECT ENROLLMENTS (Electives & Languages)
   // -------------------------------------------------------------
-  async getStudentEnrollments(studentId: string) {
+  async getStudentEnrollments(schoolId: string, studentId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const student = await this.prisma.student.findFirst({
+      where: { id: studentId, schoolId: validSchoolId },
+    });
+    if (!student) {
+      throw new NotFoundException(`Student with ID "${studentId}" not found`);
+    }
+
     return this.prisma.studentSubjectEnrollment.findMany({
-      where: { studentId },
+      where: {
+        studentId,
+        schoolSubjectOffering: { schoolId: validSchoolId },
+      },
       include: {
         schoolSubjectOffering: {
           include: {
@@ -476,8 +494,9 @@ export class CurriculumService {
   }
 
   async enrollStudentSubjects(schoolId: string, studentId: string, dto: EnrollStudentSubjectsDto) {
+    const validSchoolId = requireSchoolId(schoolId);
     const student = await this.prisma.student.findFirst({
-      where: { id: studentId, schoolId },
+      where: { id: studentId, schoolId: validSchoolId },
       include: {
         enrollments: {
           where: { status: 'ACTIVE' },
@@ -497,7 +516,7 @@ export class CurriculumService {
     }
 
     const activeYear = await this.prisma.academicYear.findFirst({
-      where: { schoolId, isActive: true },
+      where: { schoolId: validSchoolId, isActive: true },
     });
     if (!activeYear) {
       throw new BadRequestException('No active Academic Year found');
@@ -507,7 +526,7 @@ export class CurriculumService {
     const offerings = await this.prisma.schoolSubjectOffering.findMany({
       where: {
         id: { in: dto.offeringIds },
-        schoolId,
+        schoolId: validSchoolId,
         isOffered: true,
       },
       include: {
@@ -557,15 +576,16 @@ export class CurriculumService {
       }
     });
 
-    return this.getStudentEnrollments(studentId);
+    return this.getStudentEnrollments(validSchoolId, studentId);
   }
 
   // -------------------------------------------------------------
   // CURRICULUM SUMMARY / STATUS
   // -------------------------------------------------------------
   async getCurriculumSummary(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const school = await this.prisma.school.findUnique({
-      where: { id: schoolId },
+      where: { id: validSchoolId },
       include: {
         board: true,
       },
@@ -587,7 +607,7 @@ export class CurriculumService {
     }
 
     const offerings = await this.prisma.schoolSubjectOffering.findMany({
-      where: { schoolId, isOffered: true },
+      where: { schoolId: validSchoolId, isOffered: true },
       include: {
         globalSubject: true,
         curriculumSubject: true,
@@ -614,7 +634,8 @@ export class CurriculumService {
   // SYNC OFFERINGS TO CLASS SUBJECTS
   // -------------------------------------------------------------
   async syncClassSubjects(schoolId: string, classId: string) {
-    const classOfferings = await this.getClassOfferings(schoolId, classId);
+    const validSchoolId = requireSchoolId(schoolId);
+    const classOfferings = await this.getClassOfferings(validSchoolId, classId);
     let synced = 0;
 
     for (const off of classOfferings) {
@@ -646,8 +667,9 @@ export class CurriculumService {
   // SECTION STUDENTS ENROLLMENTS
   // -------------------------------------------------------------
   async getSectionStudentEnrollments(schoolId: string, sectionId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const section = await this.prisma.section.findFirst({
-      where: { id: sectionId, class: { schoolId } },
+      where: { id: sectionId, class: { schoolId: validSchoolId } },
       include: {
         class: true,
         enrollments: {

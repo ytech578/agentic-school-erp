@@ -33,19 +33,20 @@ export class AssignmentsController {
   @Get(':id/submissions')
   @ApiOperation({ summary: 'Get assignment submissions' })
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
-  getSubmissions(@Param('id') id: string) {
-    return this.service.getSubmissions(id);
+  getSubmissions(@Request() req: any, @Param('id') id: string) {
+    return this.service.getSubmissions(req.user.schoolId, id);
   }
 
   @Post(':id/submissions/:studentId')
   @ApiOperation({ summary: 'Grade or update submission' })
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   submitAssignment(
+    @Request() req: any,
     @Param('id') id: string,
     @Param('studentId') studentId: string,
     @Body() body: any
   ) {
-    return this.service.submitAssignment(id, studentId, body);
+    return this.service.submitAssignment(req.user.schoolId, id, studentId, body);
   }
 
   @Delete(':id')

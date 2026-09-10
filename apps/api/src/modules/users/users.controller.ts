@@ -76,8 +76,12 @@ export class UsersController {
 
   @Get(':id')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  findOne(@Param('id') id: string) {
-    return this.usersService.findById(id);
+  findOne(@Request() req: any, @Param('id') id: string) {
+    return this.usersService.findById(
+      id,
+      req.user?.schoolId,
+      req.user?.role === 'SUPER_ADMIN',
+    );
   }
 
   @Post()

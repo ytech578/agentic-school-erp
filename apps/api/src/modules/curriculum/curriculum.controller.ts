@@ -109,8 +109,8 @@ export class CurriculumController {
   @Get('students/:studentId/enrollments')
   @ApiOperation({ summary: 'Get student enrolled curriculum subjects' })
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'STUDENT', 'PARENT')
-  getStudentEnrollments(@Param('studentId') studentId: string) {
-    return this.service.getStudentEnrollments(studentId);
+  getStudentEnrollments(@Request() req: any, @Param('studentId') studentId: string) {
+    return this.service.getStudentEnrollments(req.user.schoolId, studentId);
   }
 
   @Post('students/:studentId/enrollments')

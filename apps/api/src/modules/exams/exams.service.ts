@@ -4,6 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { requireSchoolId } from '../../core/tenant/tenant.util';
 
 const GRADE_SCALE = [
   { min: 90, grade: 'A+' },
@@ -27,9 +28,16 @@ export class ExamsService {
     schoolId: string,
     providedId?: string,
   ): Promise<string> {
-    if (providedId && !providedId.startsWith('AY')) return providedId;
+    const validSchoolId = requireSchoolId(schoolId);
+    if (providedId) {
+      const year = await this.prisma.academicYear.findFirst({
+        where: { id: providedId, schoolId: validSchoolId },
+      });
+      if (!year) throw new NotFoundException('Academic year not found');
+      return year.id;
+    }
     const activeYear = await this.prisma.academicYear.findFirst({
-      where: { schoolId, isActive: true },
+      where: { schoolId: validSchoolId, isActive: true },
     });
     if (!activeYear)
       throw new BadRequestException('No active academic year found');
@@ -47,13 +55,14 @@ export class ExamsService {
       endDate: string;
     },
   ) {
+    const validSchoolId = requireSchoolId(schoolId);
     const resolvedAcademicYearId = await this.resolveAcademicYearId(
-      schoolId,
+      validSchoolId,
       data.academicYearId,
     );
     return this.prisma.exam.create({
       data: {
-        schoolId,
+        schoolId: validSchoolId,
         academicYearId: resolvedAcademicYearId,
         name: data.name,
         examType: data.examType,
@@ -70,10 +79,11 @@ export class ExamsService {
     examId: string,
     data: { name?: string; examType?: string; startDate?: string; endDate?: string },
   ) {
-    const exam = await this.prisma.exam.findFirst({ where: { id: examId, schoolId } });
+    const validSchoolId = requireSchoolId(schoolId);
+    const exam = await this.prisma.exam.findFirst({ where: { id: examId, schoolId: validSchoolId } });
     if (!exam) throw new NotFoundException('Exam not found');
     return this.prisma.exam.update({
-      where: { id: examId },
+      where: { id: exam.id },
       data: {
         ...(data.name && { name: data.name }),
         ...(data.examType && { examType: data.examType }),
@@ -86,8 +96,9 @@ export class ExamsService {
 
   // ─── Delete Exam ──────────────────────────────────────────────────────────
   async deleteExam(schoolId: string, examId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const exam = await this.prisma.exam.findFirst({
-      where: { id: examId, schoolId },
+      where: { id: examId, schoolId: validSchoolId },
       include: { _count: { select: { reportCards: true } } },
     });
     if (!exam) throw new NotFoundException('Exam not found');
@@ -95,21 +106,20 @@ export class ExamsService {
       throw new BadRequestException('Cannot delete an exam that has report cards. Unpublish first.');
     }
     // Delete subjects first, then exam
-    await this.prisma.examSubject.deleteMany({ where: { examId } });
-    await this.prisma.exam.delete({ where: { id: examId } });
+    await this.prisma.examSubject.deleteMany({ where: { examId: exam.id } });
+    await this.prisma.exam.delete({ where: { id: exam.id } });
     return { message: 'Exam deleted successfully' };
   }
 
-
-
   // ─── List Exams ───────────────────────────────────────────────────────────
   async listExams(schoolId: string, academicYearId?: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const resolvedAcademicYearId = await this.resolveAcademicYearId(
-      schoolId,
+      validSchoolId,
       academicYearId,
     );
     return this.prisma.exam.findMany({
-      where: { schoolId, academicYearId: resolvedAcademicYearId },
+      where: { schoolId: validSchoolId, academicYearId: resolvedAcademicYearId },
       include: {
         _count: { select: { subjects: true, reportCards: true } },
         academicYear: { select: { name: true } },
@@ -120,8 +130,9 @@ export class ExamsService {
 
   // ─── Get Single Exam ──────────────────────────────────────────────────────
   async getExam(schoolId: string, examId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const exam = await this.prisma.exam.findFirst({
-      where: { id: examId, schoolId },
+      where: { id: examId, schoolId: validSchoolId },
       include: {
         academicYear: { select: { name: true } },
         subjects: {
@@ -151,13 +162,27 @@ export class ExamsService {
       duration?: number;
     },
   ) {
+    const validSchoolId = requireSchoolId(schoolId);
     const exam = await this.prisma.exam.findFirst({
-      where: { id: examId, schoolId },
+      where: { id: examId, schoolId: validSchoolId },
     });
     if (!exam) throw new NotFoundException('Exam not found');
+
+    // Validate subject belongs to school
+    const subject = await this.prisma.subject.findFirst({
+      where: { id: data.subjectId, schoolId: validSchoolId },
+    });
+    if (!subject) throw new NotFoundException('Subject not found');
+
+    // Validate class belongs to school
+    const cls = await this.prisma.class.findFirst({
+      where: { id: data.classId, schoolId: validSchoolId },
+    });
+    if (!cls) throw new NotFoundException('Class not found');
+
     return this.prisma.examSubject.create({
       data: {
-        examId,
+        examId: exam.id,
         subjectId: data.subjectId,
         classId: data.classId,
         maxMarks: data.maxMarks,
@@ -181,12 +206,25 @@ export class ExamsService {
     }[],
     enteredById: string,
   ) {
-    const examSubject = await this.prisma.examSubject.findUnique({
-      where: { id: examSubjectId },
+    const validSchoolId = requireSchoolId(schoolId);
+    const examSubject = await this.prisma.examSubject.findFirst({
+      where: { id: examSubjectId, exam: { schoolId: validSchoolId } },
       include: { exam: true },
     });
-    if (!examSubject || examSubject.exam.schoolId !== schoolId) {
+    if (!examSubject) {
       throw new NotFoundException('Exam subject not found');
+    }
+
+    // Validate that all students belong to the school
+    if (marks.length > 0) {
+      const studentIds = marks.map((m) => m.studentId);
+      const students = await this.prisma.student.findMany({
+        where: { id: { in: studentIds }, schoolId: validSchoolId },
+        select: { id: true },
+      });
+      if (students.length !== studentIds.length) {
+        throw new BadRequestException('One or more students do not belong to this school');
+      }
     }
 
     const ops = marks.map((m) => {
@@ -223,11 +261,12 @@ export class ExamsService {
 
   // ─── Get Marks for an Exam Subject ───────────────────────────────────────
   async getMarksForSubject(examSubjectId: string, schoolId: string) {
-    const es = await this.prisma.examSubject.findUnique({
-      where: { id: examSubjectId },
+    const validSchoolId = requireSchoolId(schoolId);
+    const es = await this.prisma.examSubject.findFirst({
+      where: { id: examSubjectId, exam: { schoolId: validSchoolId } },
       include: { exam: true, subject: { select: { name: true } } },
     });
-    if (!es || es.exam.schoolId !== schoolId)
+    if (!es)
       throw new NotFoundException('Exam subject not found');
 
     const marks = await this.prisma.studentMark.findMany({
@@ -259,12 +298,21 @@ export class ExamsService {
     sectionId: string,
     schoolId: string,
   ) {
-    const examSubject = await this.prisma.examSubject.findUnique({
-      where: { id: examSubjectId },
+    const validSchoolId = requireSchoolId(schoolId);
+    const examSubject = await this.prisma.examSubject.findFirst({
+      where: { id: examSubjectId, exam: { schoolId: validSchoolId } },
       include: { exam: true, subject: { select: { name: true } }, marks: true },
     });
-    if (!examSubject || examSubject.exam.schoolId !== schoolId) {
+    if (!examSubject) {
       throw new NotFoundException('Exam subject not found');
+    }
+
+    // Validate section belongs to school
+    const section = await this.prisma.section.findFirst({
+      where: { id: sectionId, class: { schoolId: validSchoolId } },
+    });
+    if (!section) {
+      throw new NotFoundException('Section not found');
     }
 
     const enrollments = await this.prisma.studentEnrollment.findMany({
@@ -295,8 +343,9 @@ export class ExamsService {
 
   // ─── Generate Report Cards ────────────────────────────────────────────────
   async generateReportCards(examId: string, schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const exam = await this.prisma.exam.findFirst({
-      where: { id: examId, schoolId },
+      where: { id: examId, schoolId: validSchoolId },
       include: {
         subjects: {
           include: {
@@ -357,8 +406,9 @@ export class ExamsService {
 
   // ─── Get Class Results ────────────────────────────────────────────────────
   async getClassResults(examId: string, schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const exam = await this.prisma.exam.findFirst({
-      where: { id: examId, schoolId },
+      where: { id: examId, schoolId: validSchoolId },
     });
     if (!exam) throw new NotFoundException('Exam not found');
 
@@ -394,10 +444,16 @@ export class ExamsService {
     studentId: string,
     schoolId: string,
   ) {
+    const validSchoolId = requireSchoolId(schoolId);
     const exam = await this.prisma.exam.findFirst({
-      where: { id: examId, schoolId },
+      where: { id: examId, schoolId: validSchoolId },
     });
     if (!exam) throw new NotFoundException('Exam not found');
+
+    const student = await this.prisma.student.findFirst({
+      where: { id: studentId, schoolId: validSchoolId },
+    });
+    if (!student) throw new NotFoundException('Student not found');
 
     const [reportCard, subjectMarks, studentEnrollments] = await Promise.all([
       this.prisma.reportCard.findUnique({
@@ -481,18 +537,19 @@ export class ExamsService {
 
   // ─── Publish Results ──────────────────────────────────────────────────────
   async publishResults(examId: string, schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const exam = await this.prisma.exam.findFirst({
-      where: { id: examId, schoolId },
+      where: { id: examId, schoolId: validSchoolId },
     });
     if (!exam) throw new NotFoundException('Exam not found');
 
     await Promise.all([
       this.prisma.exam.update({
-        where: { id: examId },
+        where: { id: exam.id },
         data: { isPublished: true, publishedAt: new Date() },
       }),
       this.prisma.reportCard.updateMany({
-        where: { examId },
+        where: { examId: exam.id },
         data: { isPublished: true, publishedAt: new Date() },
       }),
     ]);
@@ -502,16 +559,27 @@ export class ExamsService {
 
   // ─── Get Subjects for a school ────────────────────────────────────────────
   async getSubjects(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     return this.prisma.subject.findMany({
-      where: { schoolId, isActive: true },
+      where: { schoolId: validSchoolId, isActive: true },
       orderBy: { name: 'asc' },
     });
   }
 
   // ─── Get Student Results (all exams) ─────────────────────────────────────
   async getStudentResults(studentId: string, schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const student = await this.prisma.student.findFirst({
+      where: { id: studentId, schoolId: validSchoolId },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+
     const reportCards = await this.prisma.reportCard.findMany({
-      where: { studentId, isPublished: true },
+      where: {
+        studentId,
+        isPublished: true,
+        exam: { schoolId: validSchoolId },
+      },
       include: {
         exam: {
           select: {
@@ -527,7 +595,10 @@ export class ExamsService {
     });
 
     const marks = await this.prisma.studentMark.findMany({
-      where: { studentId },
+      where: {
+        studentId,
+        examSubject: { exam: { schoolId: validSchoolId } },
+      },
       include: {
         examSubject: {
           include: {

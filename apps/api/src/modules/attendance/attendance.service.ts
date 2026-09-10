@@ -1,15 +1,17 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { MarkAttendanceInput } from '@school-erp/shared';
 import { AttendanceStatus, AttendanceMethod } from '@prisma/client';
+import { requireSchoolId } from '../../core/tenant/tenant.util';
 
 @Injectable()
 export class AttendanceService {
   constructor(private prisma: PrismaService) {}
 
   async getClassesAndSections(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     return this.prisma.class.findMany({
-      where: { schoolId },
+      where: { schoolId: validSchoolId },
       orderBy: { numericLevel: 'asc' },
       include: {
         sections: {
@@ -24,6 +26,7 @@ export class AttendanceService {
     sectionId: string,
     date: string,
   ) {
+    const validSchoolId = requireSchoolId(schoolId);
     const targetDate = new Date(date);
 
     // Validate date
@@ -31,9 +34,17 @@ export class AttendanceService {
       throw new BadRequestException('Invalid date format');
     }
 
+    // Validate section belongs to school
+    const section = await this.prisma.section.findFirst({
+      where: { id: sectionId, class: { schoolId: validSchoolId } },
+    });
+    if (!section) {
+      throw new NotFoundException('Section not found');
+    }
+
     const students = await this.prisma.student.findMany({
       where: {
-        schoolId,
+        schoolId: validSchoolId,
         isActive: true,
         enrollments: {
           some: { sectionId, status: 'ACTIVE' },
@@ -68,10 +79,31 @@ export class AttendanceService {
     userId: string,
     data: MarkAttendanceInput,
   ) {
+    const validSchoolId = requireSchoolId(schoolId);
     const targetDate = new Date(data.date);
 
     if (isNaN(targetDate.getTime())) {
       throw new BadRequestException('Invalid date format');
+    }
+
+    // Validate section belongs to school
+    const section = await this.prisma.section.findFirst({
+      where: { id: data.sectionId, class: { schoolId: validSchoolId } },
+    });
+    if (!section) {
+      throw new NotFoundException('Section not found');
+    }
+
+    // Validate all students belong to the school
+    if (data.records && data.records.length > 0) {
+      const studentIds = data.records.map((r) => r.studentId);
+      const students = await this.prisma.student.findMany({
+        where: { id: { in: studentIds }, schoolId: validSchoolId },
+        select: { id: true },
+      });
+      if (students.length !== studentIds.length) {
+        throw new BadRequestException('One or more students do not belong to this school');
+      }
     }
 
     // Process bulk attendance using a transaction
@@ -91,7 +123,7 @@ export class AttendanceService {
             markedById: userId,
           },
           create: {
-            schoolId,
+            schoolId: validSchoolId,
             studentId: record.studentId,
             sectionId: data.sectionId,
             date: targetDate,

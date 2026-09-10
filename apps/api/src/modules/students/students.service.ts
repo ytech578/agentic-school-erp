@@ -7,12 +7,15 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { CreateStudentInput, UpdateStudentInput } from '@school-erp/shared';
 import * as bcrypt from 'bcryptjs';
 import { Prisma, Gender, BloodGroup } from '@prisma/client';
+import { requireSchoolId } from '../../core/tenant/tenant.util';
 
 @Injectable()
 export class StudentsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async createStudent(schoolId: string, data: CreateStudentInput) {
+    const validSchoolId = requireSchoolId(schoolId, 'Create student');
+
     // Check if user email already exists
     const existingUser = await this.prisma.user.findUnique({
       where: { email: data.email },
@@ -26,7 +29,7 @@ export class StudentsService {
     const existingStudent = await this.prisma.student.findUnique({
       where: {
         schoolId_admissionNumber: {
-          schoolId,
+          schoolId: validSchoolId,
           admissionNumber: data.admissionNumber,
         },
       },
@@ -52,7 +55,7 @@ export class StudentsService {
           firstName: data.firstName,
           lastName: data.lastName,
           role: 'STUDENT',
-          schoolId,
+          schoolId: validSchoolId,
           phone: data.phone,
         },
       });
@@ -60,7 +63,7 @@ export class StudentsService {
       // 2. Create Student record
       const student = await tx.student.create({
         data: {
-          schoolId,
+          schoolId: validSchoolId,
           userId: user.id,
           admissionNumber: data.admissionNumber,
           rollNumber: data.rollNumber,
@@ -110,10 +113,11 @@ export class StudentsService {
   }
 
   async getStudents(schoolId: string, page = 1, limit = 10, search?: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'List students');
     const skip = (page - 1) * limit;
 
     const where: Prisma.StudentWhereInput = {
-      ...(schoolId ? { schoolId } : {}),
+      schoolId: validSchoolId,
       ...(search
         ? {
             OR: [
@@ -173,8 +177,9 @@ export class StudentsService {
   }
 
   async getStudentById(schoolId: string, id: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'Get student');
     const student = await this.prisma.student.findFirst({
-      where: { id, ...(schoolId ? { schoolId } : {}) },
+      where: { id, schoolId: validSchoolId },
       include: {
         user: {
           select: {
@@ -197,8 +202,9 @@ export class StudentsService {
   }
 
   async calculateRiskScores(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'Calculate risk scores');
     const students = await this.prisma.student.findMany({
-      where: { ...(schoolId ? { schoolId } : {}), isActive: true },
+      where: { schoolId: validSchoolId, isActive: true },
       include: {
         attendance: true,
         feePayments: true,
@@ -250,8 +256,9 @@ export class StudentsService {
   }
 
   async updateStudent(schoolId: string, id: string, data: UpdateStudentInput) {
-    const student = await this.prisma.student.findUnique({
-      where: { id, schoolId },
+    const validSchoolId = requireSchoolId(schoolId, 'Update student');
+    const student = await this.prisma.student.findFirst({
+      where: { id, schoolId: validSchoolId },
       include: { user: true, guardians: true },
     });
 

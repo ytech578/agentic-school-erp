@@ -6,12 +6,13 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import * as bcrypt from 'bcryptjs';
+import { requireSchoolId, assertSchoolAccess } from '../../core/tenant/tenant.util';
 
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async findById(id: string) {
+  async findById(id: string, schoolId?: string, isGlobal = false) {
     const user = await this.prisma.user.findUnique({
       where: { id },
       select: {
@@ -25,10 +26,14 @@ export class UsersService {
         avatarUrl: true,
         lastLoginAt: true,
         createdAt: true,
+        schoolId: true,
         school: { select: { id: true, name: true, code: true } },
       },
     });
     if (!user) throw new NotFoundException('User not found');
+    if (!isGlobal && schoolId && user.schoolId !== schoolId) {
+      throw new NotFoundException('User not found');
+    }
     return user;
   }
 
@@ -47,11 +52,16 @@ export class UsersService {
       status?: string;
       search?: string;
     },
+    requestingUser?: any,
   ) {
     const { page = 1, limit = 20, role, status, search } = query;
     const skip = (page - 1) * limit;
 
-    const where: any = { schoolId };
+    const isGlobal = requestingUser?.role === 'SUPER_ADMIN';
+    const effectiveSchoolId =
+      isGlobal && !schoolId ? undefined : requireSchoolId(schoolId, 'List users');
+
+    const where: any = effectiveSchoolId ? { schoolId: effectiveSchoolId } : {};
     if (role) where.role = role;
     if (status) where.status = status;
     if (search) {
@@ -103,6 +113,10 @@ export class UsersService {
     },
     requestingUser?: any,
   ) {
+    if (requestingUser?.role !== 'SUPER_ADMIN') {
+      schoolId = requireSchoolId(schoolId, 'Create user');
+    }
+
     if (requestingUser?.role === 'SCHOOL_ADMIN' && (data.role === 'SUPER_ADMIN' || data.role === 'SCHOOL_ADMIN')) {
       throw new ForbiddenException('School Admins cannot create Super Admins or other School Admins');
     }
@@ -171,6 +185,13 @@ export class UsersService {
     },
     requestingUser?: any,
   ) {
+    const targetUser = await this.prisma.user.findUnique({ where: { id } });
+    if (!targetUser) throw new NotFoundException('User not found');
+
+    if (requestingUser?.role !== 'SUPER_ADMIN') {
+      assertSchoolAccess(requestingUser?.schoolId, targetUser.schoolId);
+    }
+
     if (requestingUser?.role === 'SCHOOL_ADMIN' && (data.role === 'SUPER_ADMIN' || data.role === 'SCHOOL_ADMIN')) {
       throw new ForbiddenException('School Admins cannot assign Super Admin or School Admin roles');
     }
@@ -195,6 +216,13 @@ export class UsersService {
   }
 
   async updateStatus(id: string, status: string, requestingUser?: any) {
+    const targetUser = await this.prisma.user.findUnique({ where: { id } });
+    if (!targetUser) throw new NotFoundException('User not found');
+
+    if (requestingUser?.role !== 'SUPER_ADMIN') {
+      assertSchoolAccess(requestingUser?.schoolId, targetUser.schoolId);
+    }
+
     return this.prisma.user.update({
       where: { id },
       data: { status: status as any },
@@ -203,12 +231,26 @@ export class UsersService {
   }
 
   async resetPassword(id: string, newPassword: string, requestingUser?: any) {
+    const targetUser = await this.prisma.user.findUnique({ where: { id } });
+    if (!targetUser) throw new NotFoundException('User not found');
+
+    if (requestingUser?.role !== 'SUPER_ADMIN') {
+      assertSchoolAccess(requestingUser?.schoolId, targetUser.schoolId);
+    }
+
     const passwordHash = await bcrypt.hash(newPassword, 12);
     await this.prisma.user.update({ where: { id }, data: { passwordHash } });
     return { message: 'Password reset successfully' };
   }
 
   async deactivateUser(id: string, requestingUser?: any) {
+    const targetUser = await this.prisma.user.findUnique({ where: { id } });
+    if (!targetUser) throw new NotFoundException('User not found');
+
+    if (requestingUser?.role !== 'SUPER_ADMIN') {
+      assertSchoolAccess(requestingUser?.schoolId, targetUser.schoolId);
+    }
+
     return this.prisma.user.update({
       where: { id },
       data: { status: 'INACTIVE' },

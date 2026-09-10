@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { requireSchoolId } from '../../core/tenant/tenant.util';
 
 @Injectable()
 export class SchoolsService {
@@ -14,16 +15,18 @@ export class SchoolsService {
   }
 
   async findCurrent(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const school = await this.prisma.school.findUnique({
-      where: { id: schoolId },
+      where: { id: validSchoolId },
     });
     if (!school) throw new NotFoundException('School not found');
     return school;
   }
 
   async updateSchool(schoolId: string, data: any) {
+    const validSchoolId = requireSchoolId(schoolId);
     return this.prisma.school.update({
-      where: { id: schoolId },
+      where: { id: validSchoolId },
       data: {
         name: data.name,
         phone: data.phone,
@@ -36,8 +39,9 @@ export class SchoolsService {
   }
 
   async getAcademicYears(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     return this.prisma.academicYear.findMany({
-      where: { schoolId },
+      where: { schoolId: validSchoolId },
       orderBy: { startDate: 'desc' },
     });
   }
@@ -46,10 +50,11 @@ export class SchoolsService {
     schoolId: string,
     data: { name: string; startDate: string; endDate: string },
   ) {
+    const validSchoolId = requireSchoolId(schoolId);
     // Deactivate all other years and set this one as active
     return this.prisma.academicYear.create({
       data: {
-        schoolId,
+        schoolId: validSchoolId,
         name: data.name,
         startDate: new Date(data.startDate),
         endDate: new Date(data.endDate),
@@ -59,13 +64,22 @@ export class SchoolsService {
   }
 
   async setActiveAcademicYear(schoolId: string, yearId: string) {
-    // Deactivate all, then activate selected
+    const validSchoolId = requireSchoolId(schoolId);
+
+    const year = await this.prisma.academicYear.findFirst({
+      where: { id: yearId, schoolId: validSchoolId },
+    });
+    if (!year) {
+      throw new NotFoundException('Academic year not found');
+    }
+
+    // Deactivate all for this school, then activate selected
     await this.prisma.academicYear.updateMany({
-      where: { schoolId },
+      where: { schoolId: validSchoolId },
       data: { isActive: false },
     });
     return this.prisma.academicYear.update({
-      where: { id: yearId },
+      where: { id: year.id },
       data: { isActive: true },
     });
   }

@@ -1,7 +1,8 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateFeeStructureInput, CollectFeeInput } from '@school-erp/shared';
 import { FeePaymentStatus, FeePaymentMode, FeeFrequency } from '@prisma/client';
+import { requireSchoolId } from '../../core/tenant/tenant.util';
 
 @Injectable()
 export class FeesService {
@@ -11,9 +12,18 @@ export class FeesService {
     schoolId: string,
     providedId?: string,
   ): Promise<string> {
-    if (providedId && !providedId.startsWith('AY')) return providedId;
+    const validSchoolId = requireSchoolId(schoolId);
+    if (providedId) {
+      const year = await this.prisma.academicYear.findFirst({
+        where: { id: providedId, schoolId: validSchoolId },
+      });
+      if (!year) {
+        throw new NotFoundException('Academic year not found');
+      }
+      return year.id;
+    }
     const activeYear = await this.prisma.academicYear.findFirst({
-      where: { schoolId, isActive: true },
+      where: { schoolId: validSchoolId, isActive: true },
     });
     if (!activeYear)
       throw new BadRequestException('No active academic year found');
@@ -21,12 +31,9 @@ export class FeesService {
   }
 
   async getFeeHeads(schoolId: string) {
-    if (!schoolId) {
-      const firstSchool = await this.prisma.school.findFirst();
-      if (firstSchool) schoolId = firstSchool.id;
-    }
+    const validSchoolId = requireSchoolId(schoolId);
     return this.prisma.feeHead.findMany({
-      where: { ...(schoolId ? { schoolId } : {}), isActive: true },
+      where: { schoolId: validSchoolId, isActive: true },
       orderBy: { sortOrder: 'asc' },
     });
   }
@@ -35,10 +42,11 @@ export class FeesService {
     schoolId: string,
     data: { name: string; description?: string },
   ) {
-    const maxOrder = await this.prisma.feeHead.count({ where: { schoolId } });
+    const validSchoolId = requireSchoolId(schoolId);
+    const maxOrder = await this.prisma.feeHead.count({ where: { schoolId: validSchoolId } });
     return this.prisma.feeHead.create({
       data: {
-        schoolId,
+        schoolId: validSchoolId,
         name: data.name,
         description: data.description || null,
         isActive: true,
@@ -52,13 +60,22 @@ export class FeesService {
     academicYearId: string,
     classId: string,
   ) {
+    const validSchoolId = requireSchoolId(schoolId);
     const resolvedYearId = await this.resolveAcademicYearId(
-      schoolId,
+      validSchoolId,
       academicYearId,
     );
+    if (classId) {
+      const cls = await this.prisma.class.findFirst({
+        where: { id: classId, schoolId: validSchoolId },
+      });
+      if (!cls) {
+        throw new NotFoundException('Class not found');
+      }
+    }
     return this.prisma.feeStructure.findFirst({
       where: {
-        schoolId,
+        schoolId: validSchoolId,
         academicYearId: resolvedYearId,
         classId,
         isActive: true,
@@ -75,14 +92,35 @@ export class FeesService {
     schoolId: string,
     data: CreateFeeStructureInput,
   ) {
+    const validSchoolId = requireSchoolId(schoolId);
     const resolvedYearId = await this.resolveAcademicYearId(
-      schoolId,
+      validSchoolId,
       data.academicYearId,
     );
+
+    // Validate class belongs to school
+    const cls = await this.prisma.class.findFirst({
+      where: { id: data.classId, schoolId: validSchoolId },
+    });
+    if (!cls) {
+      throw new NotFoundException('Class not found');
+    }
+
+    // Validate fee heads belong to school
+    if (data.items && data.items.length > 0) {
+      const headIds = data.items.map((item: any) => item.feeHeadId);
+      const heads = await this.prisma.feeHead.findMany({
+        where: { id: { in: headIds }, schoolId: validSchoolId },
+      });
+      if (heads.length !== headIds.length) {
+        throw new BadRequestException('One or more fee heads do not belong to this school');
+      }
+    }
+
     // Delete existing structure for this class and year if it exists
     const existing = await this.prisma.feeStructure.findFirst({
       where: {
-        schoolId,
+        schoolId: validSchoolId,
         academicYearId: resolvedYearId,
         classId: data.classId,
       },
@@ -100,7 +138,7 @@ export class FeesService {
     // Create new structure
     return this.prisma.feeStructure.create({
       data: {
-        schoolId,
+        schoolId: validSchoolId,
         academicYearId: resolvedYearId,
         classId: data.classId,
         name: data.name,
@@ -120,13 +158,14 @@ export class FeesService {
   }
 
   async getStudentFeeSummary(schoolId: string, academicYearId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const resolvedYearId = await this.resolveAcademicYearId(
-      schoolId,
+      validSchoolId,
       academicYearId,
     );
     // Fetch all active students with their class and payments for the year
     const students = await this.prisma.student.findMany({
-      where: { schoolId, isActive: true },
+      where: { schoolId: validSchoolId, isActive: true },
       include: {
         user: { select: { firstName: true, lastName: true } },
         enrollments: {
@@ -142,7 +181,7 @@ export class FeesService {
 
     // We also need all fee structures to calculate dues
     const structures = await this.prisma.feeStructure.findMany({
-      where: { schoolId, academicYearId: resolvedYearId, isActive: true },
+      where: { schoolId: validSchoolId, academicYearId: resolvedYearId, isActive: true },
       include: { items: true },
     });
 
@@ -174,19 +213,28 @@ export class FeesService {
   }
 
   async collectFee(schoolId: string, userId: string, data: CollectFeeInput) {
+    const validSchoolId = requireSchoolId(schoolId);
     const resolvedYearId = await this.resolveAcademicYearId(
-      schoolId,
+      validSchoolId,
       data.academicYearId,
     );
     if (data.amountPaid <= 0) {
       throw new BadRequestException('Amount must be greater than zero');
     }
 
+    // Validate student belongs to school
+    const student = await this.prisma.student.findFirst({
+      where: { id: data.studentId, schoolId: validSchoolId },
+    });
+    if (!student) {
+      throw new NotFoundException('Student not found');
+    }
+
     return this.prisma.$transaction(async (tx) => {
       // 1. Create Payment Record
       const payment = await tx.feePayment.create({
         data: {
-          schoolId,
+          schoolId: validSchoolId,
           studentId: data.studentId,
           academicYearId: resolvedYearId,
           totalAmount: data.amountPaid, // In MVP, assume they pay what they want
@@ -216,14 +264,15 @@ export class FeesService {
   }
 
   async getCashFlowAnalytics(schoolId: string, academicYearId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const resolvedYearId = await this.resolveAcademicYearId(
-      schoolId,
+      validSchoolId,
       academicYearId,
     );
 
     const payments = await this.prisma.feePayment.findMany({
       where: {
-        schoolId,
+        schoolId: validSchoolId,
         academicYearId: resolvedYearId,
         paymentStatus: 'PAID',
       },
@@ -249,12 +298,13 @@ export class FeesService {
   }
 
   async predictDefaulters(schoolId: string, academicYearId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     // Re-use summary logic to find outstanding balances
-    const summary = await this.getStudentFeeSummary(schoolId, academicYearId);
+    const summary = await this.getStudentFeeSummary(validSchoolId, academicYearId);
     
     // Get students with actual risk score data to combine
     const studentsWithRisk = await this.prisma.student.findMany({
-      where: { schoolId },
+      where: { schoolId: validSchoolId },
       select: { id: true, riskScore: true, admissionNumber: true }
     });
 
@@ -291,8 +341,12 @@ export class FeesService {
   }
 
   async getParentDues(schoolId: string, userId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const guardians = await this.prisma.guardian.findMany({
-      where: { userId },
+      where: {
+        userId,
+        student: { schoolId: validSchoolId },
+      },
       include: {
         student: {
           include: {
@@ -308,11 +362,13 @@ export class FeesService {
 
     if (!guardians || guardians.length === 0) return [];
 
-    const academicYear = await this.prisma.academicYear.findFirst({ where: { schoolId } });
+    const academicYear = await this.prisma.academicYear.findFirst({
+      where: { schoolId: validSchoolId, isActive: true },
+    }) || await this.prisma.academicYear.findFirst({ where: { schoolId: validSchoolId } });
     if (!academicYear) return [];
 
     const structures = await this.prisma.feeStructure.findMany({
-      where: { schoolId, academicYearId: academicYear.id, isActive: true },
+      where: { schoolId: validSchoolId, academicYearId: academicYear.id, isActive: true },
       include: { items: true },
     });
 
@@ -324,7 +380,11 @@ export class FeesService {
       const totalFee = structure?.items.reduce((sum, item) => sum + Number(item.amount), 0) || 0;
 
       const payments = await this.prisma.feePayment.findMany({
-        where: { studentId: student.id, academicYearId: academicYear.id }
+        where: {
+          schoolId: validSchoolId,
+          studentId: student.id,
+          academicYearId: academicYear.id,
+        },
       });
 
       const totalPaid = payments
@@ -350,12 +410,28 @@ export class FeesService {
   }
 
   async processParentPayment(schoolId: string, userId: string, data: { studentId: string; amount: number; paymentMode: string }) {
-    const academicYear = await this.prisma.academicYear.findFirst({ where: { schoolId } });
-    if (!academicYear) throw new Error('No academic year found');
+    const validSchoolId = requireSchoolId(schoolId);
+
+    // Verify student belongs to school and guardian is linked to student
+    const guardian = await this.prisma.guardian.findFirst({
+      where: {
+        userId,
+        studentId: data.studentId,
+        student: { schoolId: validSchoolId },
+      },
+    });
+    if (!guardian) {
+      throw new NotFoundException('Student not found for this guardian');
+    }
+
+    const academicYear = await this.prisma.academicYear.findFirst({
+      where: { schoolId: validSchoolId, isActive: true },
+    }) || await this.prisma.academicYear.findFirst({ where: { schoolId: validSchoolId } });
+    if (!academicYear) throw new BadRequestException('No academic year found');
 
     const payment = await this.prisma.feePayment.create({
       data: {
-        schoolId,
+        schoolId: validSchoolId,
         studentId: data.studentId,
         academicYearId: academicYear.id,
         totalAmount: data.amount,

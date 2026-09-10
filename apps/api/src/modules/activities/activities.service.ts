@@ -1,12 +1,21 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { requireSchoolId } from '../../core/tenant/tenant.util';
 
 @Injectable()
 export class ActivitiesService {
   constructor(private prisma: PrismaService) {}
 
   async listActivities(schoolId: string, studentId?: string) {
-    const where: any = { schoolId };
+    const validSchoolId = requireSchoolId(schoolId);
+    if (studentId) {
+      const student = await this.prisma.student.findFirst({
+        where: { id: studentId, schoolId: validSchoolId },
+      });
+      if (!student) throw new NotFoundException('Student not found');
+    }
+
+    const where: any = { schoolId: validSchoolId };
     if (studentId) where.studentId = studentId;
 
     return this.prisma.activity.findMany({
@@ -24,9 +33,15 @@ export class ActivitiesService {
   }
 
   async createActivity(schoolId: string, data: any) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const student = await this.prisma.student.findFirst({
+      where: { id: data.studentId, schoolId: validSchoolId },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+
     return this.prisma.activity.create({
       data: {
-        schoolId,
+        schoolId: validSchoolId,
         studentId: data.studentId,
         title: data.title,
         event: data.event,
@@ -38,13 +53,14 @@ export class ActivitiesService {
   }
 
   async deleteActivity(schoolId: string, activityId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const activity = await this.prisma.activity.findFirst({
-      where: { id: activityId, schoolId }
+      where: { id: activityId, schoolId: validSchoolId }
     });
     if (!activity) throw new NotFoundException('Activity not found');
 
     return this.prisma.activity.delete({
-      where: { id: activityId }
+      where: { id: activity.id }
     });
   }
 }

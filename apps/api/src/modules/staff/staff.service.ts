@@ -2,17 +2,38 @@ import {
   Injectable,
   ConflictException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateStaffInput, UpdateStaffInput } from '@school-erp/shared';
 import * as bcrypt from 'bcryptjs';
 import { Prisma, EmploymentType, Gender, BloodGroup } from '@prisma/client';
+import { requireSchoolId } from '../../core/tenant/tenant.util';
 
 @Injectable()
 export class StaffService {
   constructor(private prisma: PrismaService) {}
 
   async createStaff(schoolId: string, data: CreateStaffInput) {
+    const validSchoolId = requireSchoolId(schoolId, 'Create staff');
+
+    if (data.departmentId) {
+      const dept = await this.prisma.department.findFirst({
+        where: { id: data.departmentId, schoolId: validSchoolId },
+      });
+      if (!dept) {
+        throw new BadRequestException('Department does not belong to this school');
+      }
+    }
+
+    if (data.designationId) {
+      const desig = await this.prisma.designation.findFirst({
+        where: { id: data.designationId, schoolId: validSchoolId },
+      });
+      if (!desig) {
+        throw new BadRequestException('Designation does not belong to this school');
+      }
+    }
     // 1. Check if user email already exists
     const existingUser = await this.prisma.user.findUnique({
       where: { email: data.email.toLowerCase() },
@@ -26,7 +47,7 @@ export class StaffService {
     const existingStaff = await this.prisma.staff.findUnique({
       where: {
         schoolId_employeeId: {
-          schoolId,
+          schoolId: validSchoolId,
           employeeId: data.employeeId,
         },
       },
@@ -50,7 +71,7 @@ export class StaffService {
           firstName: data.firstName,
           lastName: data.lastName,
           role: data.role,
-          schoolId,
+          schoolId: validSchoolId,
           phone: data.phone,
           status: 'ACTIVE',
         },
@@ -58,7 +79,7 @@ export class StaffService {
 
       const staff = await tx.staff.create({
         data: {
-          schoolId,
+          schoolId: validSchoolId,
           userId: user.id,
           employeeId: data.employeeId,
           departmentId: data.departmentId,
@@ -87,10 +108,11 @@ export class StaffService {
   }
 
   async getStaffList(schoolId: string, page = 1, limit = 10, search?: string, includeSubjects = false) {
+    const validSchoolId = requireSchoolId(schoolId, 'List staff');
     const skip = (page - 1) * limit;
 
     const where: Prisma.StaffWhereInput = {
-      schoolId,
+      schoolId: validSchoolId,
       ...(search
         ? {
             OR: [
@@ -142,8 +164,9 @@ export class StaffService {
   }
 
   async getStaffById(schoolId: string, id: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'Get staff');
     const staff = await this.prisma.staff.findFirst({
-      where: { id, schoolId },
+      where: { id, schoolId: validSchoolId },
       include: {
         user: {
           select: {
@@ -168,22 +191,44 @@ export class StaffService {
   }
 
   async getDepartments(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'Get departments');
     return this.prisma.department.findMany({
-      where: { schoolId },
+      where: { schoolId: validSchoolId },
       orderBy: { name: 'asc' },
     });
   }
 
   async getDesignations(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'Get designations');
     return this.prisma.designation.findMany({
-      where: { schoolId, isActive: true },
+      where: { schoolId: validSchoolId, isActive: true },
       orderBy: { name: 'asc' },
     });
   }
 
   async updateStaff(schoolId: string, id: string, data: UpdateStaffInput) {
-    const staff = await this.prisma.staff.findUnique({
-      where: { id, schoolId },
+    const validSchoolId = requireSchoolId(schoolId, 'Update staff');
+
+    if (data.departmentId) {
+      const dept = await this.prisma.department.findFirst({
+        where: { id: data.departmentId, schoolId: validSchoolId },
+      });
+      if (!dept) {
+        throw new BadRequestException('Department does not belong to this school');
+      }
+    }
+
+    if (data.designationId) {
+      const desig = await this.prisma.designation.findFirst({
+        where: { id: data.designationId, schoolId: validSchoolId },
+      });
+      if (!desig) {
+        throw new BadRequestException('Designation does not belong to this school');
+      }
+    }
+
+    const staff = await this.prisma.staff.findFirst({
+      where: { id, schoolId: validSchoolId },
       include: { user: true },
     });
 

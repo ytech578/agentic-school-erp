@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { requireSchoolId } from '../../core/tenant/tenant.util';
 
 @Injectable()
 export class HRService {
@@ -15,13 +16,14 @@ export class HRService {
     endDate: string;
     reason: string;
   }) {
+    const validSchoolId = requireSchoolId(data.schoolId);
+
     // Resolve the actual Staff record from the user
     const staffRecord = await this.prisma.staff.findFirst({
-      where: { userId: data.userId, schoolId: data.schoolId },
+      where: { userId: data.userId, schoolId: validSchoolId },
     });
     if (!staffRecord) {
-      // If they're an admin, still create a dummy – just use any staff record
-      throw new Error('No staff profile found for this user. Please contact admin.');
+      throw new NotFoundException('No staff profile found for this user in this school');
     }
 
     const start = new Date(data.startDate);
@@ -30,7 +32,7 @@ export class HRService {
 
     return this.prisma.leaveRequest.create({
       data: {
-        schoolId: data.schoolId,
+        schoolId: validSchoolId,
         staffId: staffRecord.id,
         leaveType: data.leaveType as any,
         startDate: start,
@@ -51,18 +53,25 @@ export class HRService {
     userRole?: string,
     userId?: string
   ) {
-    const where: any = { schoolId };
+    const validSchoolId = requireSchoolId(schoolId);
+    const where: any = { schoolId: validSchoolId };
     
     // If user is a TEACHER, they can ONLY see their own leaves
     if (userRole === 'TEACHER' && userId) {
-      const staff = await this.prisma.staff.findUnique({ where: { userId } });
+      const staff = await this.prisma.staff.findFirst({
+        where: { userId, schoolId: validSchoolId },
+      });
       if (!staff) return []; // No staff record means no leaves
       if (filters.staffId && filters.staffId !== staff.id) {
         throw new ForbiddenException("You can only view your own leave requests");
       }
       where.staffId = staff.id;
     } else if (filters.staffId) {
-      where.staffId = filters.staffId;
+      const staff = await this.prisma.staff.findFirst({
+        where: { id: filters.staffId, schoolId: validSchoolId },
+      });
+      if (!staff) throw new NotFoundException('Staff member not found');
+      where.staffId = staff.id;
     }
 
     if (filters.status) where.status = filters.status;
@@ -82,17 +91,24 @@ export class HRService {
     });
   }
 
-  async reviewLeave(leaveId: string, data: {
-    status: 'APPROVED' | 'REJECTED';
-    reviewNote?: string;
-    reviewedBy: string;
-  }) {
-    const leave = await this.prisma.leaveRequest.findUnique({ where: { id: leaveId } });
+  async reviewLeave(
+    schoolId: string,
+    leaveId: string,
+    data: {
+      status: 'APPROVED' | 'REJECTED';
+      reviewNote?: string;
+      reviewedBy: string;
+    },
+  ) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const leave = await this.prisma.leaveRequest.findFirst({
+      where: { id: leaveId, schoolId: validSchoolId },
+    });
     if (!leave) throw new NotFoundException('Leave request not found');
     if (leave.status !== 'PENDING') throw new ForbiddenException('Leave already reviewed');
 
     return this.prisma.leaveRequest.update({
-      where: { id: leaveId },
+      where: { id: leave.id },
       data: {
         status: data.status,
         reviewNote: data.reviewNote,
@@ -102,9 +118,10 @@ export class HRService {
     });
   }
 
-  async cancelLeave(leaveId: string, userId: string) {
-    const leave = await this.prisma.leaveRequest.findUnique({
-      where: { id: leaveId },
+  async cancelLeave(schoolId: string, leaveId: string, userId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const leave = await this.prisma.leaveRequest.findFirst({
+      where: { id: leaveId, schoolId: validSchoolId },
       include: { staff: true },
     });
     if (!leave) throw new NotFoundException('Leave request not found');
@@ -112,7 +129,7 @@ export class HRService {
     if (leave.status !== 'PENDING') throw new ForbiddenException('Only PENDING leaves can be cancelled');
 
     return this.prisma.leaveRequest.update({
-      where: { id: leaveId },
+      where: { id: leave.id },
       data: { status: 'CANCELLED' },
     });
   }
@@ -120,10 +137,13 @@ export class HRService {
   // ─── Summary stats ───────────────────────────────────────────────────────────
 
   async getLeaveSummary(schoolId: string, userRole?: string, userId?: string) {
-    let where: any = { schoolId };
+    const validSchoolId = requireSchoolId(schoolId);
+    let where: any = { schoolId: validSchoolId };
     
     if (userRole === 'TEACHER' && userId) {
-      const staff = await this.prisma.staff.findUnique({ where: { userId } });
+      const staff = await this.prisma.staff.findFirst({
+        where: { userId, schoolId: validSchoolId },
+      });
       if (!staff) return { pending: 0, approved: 0, rejected: 0, total: 0 };
       where.staffId = staff.id;
     }
@@ -140,11 +160,12 @@ export class HRService {
   // ─── Staff Attendance ─────────────────────────────────────────────────────────
 
   async getStaffAttendanceReport(schoolId: string, date?: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const targetDate = date ? new Date(date) : new Date();
     targetDate.setHours(0, 0, 0, 0);
 
     const allStaff = await this.prisma.staff.findMany({
-      where: { schoolId, isActive: true },
+      where: { schoolId: validSchoolId, isActive: true },
       include: {
         user: { select: { firstName: true, lastName: true, email: true } },
         attendanceRecords: {
@@ -171,8 +192,9 @@ export class HRService {
     schoolId: string,
     data: { staffId: string; date: string; status: 'PRESENT' | 'ABSENT' },
   ) {
+    const validSchoolId = requireSchoolId(schoolId);
     const staff = await this.prisma.staff.findFirst({
-      where: { id: data.staffId, schoolId },
+      where: { id: data.staffId, schoolId: validSchoolId },
     });
     if (!staff) throw new NotFoundException('Staff member not found');
 
@@ -181,7 +203,7 @@ export class HRService {
 
     // Upsert — create or update the attendance record for this date
     const existing = await this.prisma.staffAttendance.findFirst({
-      where: { staffId: data.staffId, date: targetDate },
+      where: { staffId: data.staffId, schoolId: validSchoolId, date: targetDate },
     });
 
     if (existing) {
@@ -194,7 +216,7 @@ export class HRService {
     return this.prisma.staffAttendance.create({
       data: {
         staffId: data.staffId,
-        schoolId,
+        schoolId: validSchoolId,
         date: targetDate,
         status: data.status,
       },

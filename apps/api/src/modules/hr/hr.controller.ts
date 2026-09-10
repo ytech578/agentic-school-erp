@@ -51,7 +51,7 @@ export class HRController {
     @Request() req: any,
     @Body() body: { status: 'APPROVED' | 'REJECTED'; reviewNote?: string },
   ) {
-    return this.service.reviewLeave(id, {
+    return this.service.reviewLeave(req.user.schoolId, id, {
       status: body.status,
       reviewNote: body.reviewNote,
       reviewedBy: req.user.id,
@@ -61,7 +61,7 @@ export class HRController {
   @Put('leaves/:id/cancel')
   @ApiOperation({ summary: 'Cancel a pending leave request' })
   cancelLeave(@Param('id') id: string, @Request() req: any) {
-    return this.service.cancelLeave(id, req.user.id);
+    return this.service.cancelLeave(req.user.schoolId, id, req.user.id);
   }
 
   @Get('leaves/summary')

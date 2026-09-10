@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { requireSchoolId } from '../../core/tenant/tenant.util';
 
 @Injectable()
 export class DashboardService {
@@ -78,6 +79,7 @@ export class DashboardService {
 
   // ─── SCHOOL ADMIN DASHBOARD (Campus Operations & Finance) ─────────────────
   async getSchoolAdminDashboard(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
@@ -98,38 +100,38 @@ export class DashboardService {
       applicationCount,
       recentEnrollments,
     ] = await Promise.all([
-      this.prisma.user.count({ where: { schoolId, role: 'STUDENT', status: 'ACTIVE' } }),
-      this.prisma.user.count({ where: { schoolId, role: { in: ['TEACHER', 'SCHOOL_ADMIN', 'PRINCIPAL'] }, status: 'ACTIVE' } }),
-      this.prisma.class.count({ where: { schoolId } }),
+      this.prisma.user.count({ where: { schoolId: validSchoolId, role: 'STUDENT', status: 'ACTIVE' } }),
+      this.prisma.user.count({ where: { schoolId: validSchoolId, role: { in: ['TEACHER', 'SCHOOL_ADMIN', 'PRINCIPAL'] }, status: 'ACTIVE' } }),
+      this.prisma.class.count({ where: { schoolId: validSchoolId } }),
       this.prisma.feePayment.aggregate({
-        where: { schoolId, paymentDate: { gte: startOfMonth }, paymentStatus: 'PAID' },
+        where: { schoolId: validSchoolId, paymentDate: { gte: startOfMonth }, paymentStatus: 'PAID' },
         _sum: { paidAmount: true },
       }),
       this.prisma.feePayment.aggregate({
-        where: { schoolId, paymentStatus: { in: ['PENDING', 'OVERDUE', 'PARTIAL'] } },
+        where: { schoolId: validSchoolId, paymentStatus: { in: ['PENDING', 'OVERDUE', 'PARTIAL'] } },
         _sum: { outstandingAmount: true },
       }),
       this.prisma.staffAttendance.count({
-        where: { schoolId, date: { gte: todayStart, lte: todayEnd }, status: 'PRESENT' },
+        where: { schoolId: validSchoolId, date: { gte: todayStart, lte: todayEnd }, status: 'PRESENT' },
       }),
       this.prisma.leaveRequest.count({
-        where: { schoolId, status: 'APPROVED', startDate: { lte: todayEnd }, endDate: { gte: todayStart } },
+        where: { schoolId: validSchoolId, status: 'APPROVED', startDate: { lte: todayEnd }, endDate: { gte: todayStart } },
       }),
       this.prisma.staffAttendance.count({
-        where: { schoolId, date: { gte: todayStart, lte: todayEnd }, status: 'ABSENT' },
+        where: { schoolId: validSchoolId, date: { gte: todayStart, lte: todayEnd }, status: 'ABSENT' },
       }),
       this.prisma.attendanceRecord.findMany({
         where: {
-          section: { class: { schoolId } },
+          section: { class: { schoolId: validSchoolId } },
           date: { gte: todayStart, lte: todayEnd },
         },
         select: { status: true },
       }),
-      this.prisma.leaveRequest.count({ where: { schoolId, status: 'PENDING' } }),
-      this.prisma.admissionEnquiry.count({ where: { schoolId } }),
-      this.prisma.admissionApplication.count({ where: { schoolId } }),
+      this.prisma.leaveRequest.count({ where: { schoolId: validSchoolId, status: 'PENDING' } }),
+      this.prisma.admissionEnquiry.count({ where: { schoolId: validSchoolId } }),
+      this.prisma.admissionApplication.count({ where: { schoolId: validSchoolId } }),
       this.prisma.user.findMany({
-        where: { schoolId, role: 'STUDENT' },
+        where: { schoolId: validSchoolId, role: 'STUDENT' },
         select: { id: true, firstName: true, lastName: true, email: true, createdAt: true },
         orderBy: { createdAt: 'desc' },
         take: 5,
@@ -187,6 +189,7 @@ export class DashboardService {
 
   // ─── PRINCIPAL DASHBOARD (Academic Command & Early Warnings) ─────────────
   async getPrincipalDashboard(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
     const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
@@ -202,19 +205,19 @@ export class DashboardService {
       atRiskStudentsList,
       availableStaffPool,
     ] = await Promise.all([
-      this.prisma.student.count({ where: { schoolId } }),
-      this.prisma.staff.count({ where: { schoolId } }),
+      this.prisma.student.count({ where: { schoolId: validSchoolId } }),
+      this.prisma.staff.count({ where: { schoolId: validSchoolId } }),
       this.prisma.staffAttendance.findMany({
-        where: { schoolId, date: { gte: todayStart, lte: todayEnd }, status: 'ABSENT' },
+        where: { schoolId: validSchoolId, date: { gte: todayStart, lte: todayEnd }, status: 'ABSENT' },
         include: { staff: { include: { user: true, teacherAssignments: { include: { subject: true } } } } },
       }) as Promise<any[]>,
       this.prisma.agentAlert.findMany({
-        where: { schoolId, isRead: false },
+        where: { schoolId: validSchoolId, isRead: false },
         orderBy: { createdAt: 'desc' },
         take: 5,
       }),
       this.prisma.class.findMany({
-        where: { schoolId },
+        where: { schoolId: validSchoolId },
         include: {
           sections: {
             include: {
@@ -225,18 +228,18 @@ export class DashboardService {
         take: 8,
       }),
       this.prisma.studentMark.findMany({
-        where: { examSubject: { exam: { schoolId } } },
+        where: { examSubject: { exam: { schoolId: validSchoolId } } },
         select: { marksObtained: true, isAbsent: true, examSubject: { select: { maxMarks: true } } },
         take: 200,
       }),
       this.prisma.leaveRequest.findMany({
-        where: { schoolId, status: 'PENDING' },
+        where: { schoolId: validSchoolId, status: 'PENDING' },
         include: { staff: { include: { user: true } } },
         take: 5,
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.student.findMany({
-        where: { schoolId },
+        where: { schoolId: validSchoolId },
         include: {
           user: true,
           enrollments: {
@@ -250,7 +253,7 @@ export class DashboardService {
         take: 8,
       }),
       this.prisma.staff.findMany({
-        where: { schoolId, isActive: true },
+        where: { schoolId: validSchoolId, isActive: true },
         include: { user: true, teacherAssignments: { include: { subject: true } } },
         take: 10,
       }),
@@ -359,8 +362,9 @@ export class DashboardService {
 
   // ─── TEACHER DASHBOARD (Daily Academic Workspace & CoPilot) ────────────────
   async getTeacherDashboard(userId: string, schoolId: string) {
-    const staff = await this.prisma.staff.findUnique({
-      where: { userId },
+    const validSchoolId = requireSchoolId(schoolId);
+    const staff = await this.prisma.staff.findFirst({
+      where: { userId, schoolId: validSchoolId },
       include: {
         teacherAssignments: {
           include: {
@@ -407,7 +411,7 @@ export class DashboardService {
       ),
       this.prisma.timetableSlot.findMany({
         where: {
-          schoolId,
+          schoolId: validSchoolId,
           staffId: staff.id,
           dayOfWeek,
           isActive: true,
@@ -421,7 +425,7 @@ export class DashboardService {
       }),
       this.prisma.assignment.findMany({
         where: {
-          schoolId,
+          schoolId: validSchoolId,
           staffId: staff.id,
           isActive: true,
         },
@@ -480,8 +484,9 @@ export class DashboardService {
 
   // ─── STUDENT DASHBOARD (Personalized Academic Hub) ─────────────────────────
   async getStudentDashboard(userId: string, schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const student = await this.prisma.student.findFirst({
-      where: { userId, schoolId },
+      where: { userId, schoolId: validSchoolId },
       include: {
         user: true,
         enrollments: {
@@ -555,7 +560,7 @@ export class DashboardService {
     if (section?.id) {
       const slots = await this.prisma.timetableSlot.findMany({
         where: {
-          schoolId,
+          schoolId: validSchoolId,
           sectionId: section.id,
           dayOfWeek,
           isActive: true,
@@ -581,7 +586,7 @@ export class DashboardService {
     if (section?.classId) {
       const rawAssignments = await this.prisma.assignment.findMany({
         where: {
-          schoolId,
+          schoolId: validSchoolId,
           classId: section.classId,
           OR: [{ sectionId: null }, { sectionId: section.id }],
           isActive: true,
@@ -652,7 +657,8 @@ export class DashboardService {
 
   // ─── LEGACY COMPATIBILITY: GET DASHBOARD STATS ────────────────────────────
   async getDashboardStats(schoolId: string) {
-    const adminData = await this.getSchoolAdminDashboard(schoolId);
+    const validSchoolId = requireSchoolId(schoolId);
+    const adminData = await this.getSchoolAdminDashboard(validSchoolId);
     return {
       stats: [
         { title: 'Total Students', value: adminData.kpis.totalStudents.toString(), icon: 'GraduationCap', color: 'var(--info)' },
@@ -666,13 +672,18 @@ export class DashboardService {
 
   // ─── PARENT DASHBOARD & DETAIL ────────────────────────────────────────────
   async getParentDashboard(userId: string, schoolId: string) {
-    const detail = await this.getParentDetail(userId, schoolId);
+    const validSchoolId = requireSchoolId(schoolId);
+    const detail = await this.getParentDetail(userId, validSchoolId);
     return { children: detail.children };
   }
 
   async getParentDetail(userId: string, schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const guardians = await this.prisma.guardian.findMany({
-      where: { userId },
+      where: {
+        userId,
+        student: { schoolId: validSchoolId },
+      },
       include: {
         student: {
           include: {
@@ -745,7 +756,7 @@ export class DashboardService {
         if (section?.id) {
           try {
             const exams = await this.prisma.exam.findMany({
-              where: { schoolId, subjects: { some: { classId: section.class.id } }, startDate: { gte: new Date() } },
+              where: { schoolId: validSchoolId, subjects: { some: { classId: section.class.id } }, startDate: { gte: new Date() } },
               include: { subjects: { include: { subject: true } } },
               orderBy: { startDate: 'asc' },
               take: 10,
@@ -770,7 +781,7 @@ export class DashboardService {
             const dayOfWeek = new Date().getDay();
             const day = dayOfWeek === 0 ? 7 : dayOfWeek;
             const slots = await this.prisma.timetableSlot.findMany({
-              where: { schoolId, sectionId: section.id, dayOfWeek: day },
+              where: { schoolId: validSchoolId, sectionId: section.id, dayOfWeek: day },
               include: { subject: true, staff: { include: { user: true } } },
               orderBy: { periodNumber: 'asc' },
             });

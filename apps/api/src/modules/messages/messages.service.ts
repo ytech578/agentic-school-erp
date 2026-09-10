@@ -1,13 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { requireSchoolId } from '../../core/tenant/tenant.util';
 
 @Injectable()
 export class MessagesService {
   constructor(private prisma: PrismaService) {}
 
   async getInbox(userId: string, schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const messages = await this.prisma.message.findMany({
-      where: { recipientId: userId, schoolId, parentId: null },
+      where: { recipientId: userId, schoolId: validSchoolId, parentId: null },
       include: {
         sender: { select: { id: true, firstName: true, lastName: true, role: true, avatarUrl: true } },
         replies: {
@@ -23,8 +25,9 @@ export class MessagesService {
   }
 
   async getSent(userId: string, schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const rawMessages = await this.prisma.message.findMany({
-      where: { senderId: userId, schoolId, parentId: null },
+      where: { senderId: userId, schoolId: validSchoolId, parentId: null },
       include: {
         replies: { select: { id: true } },
       },
@@ -62,9 +65,29 @@ export class MessagesService {
     body: string;
     parentId?: string;
   }) {
+    const validSchoolId = requireSchoolId(data.schoolId);
+
+    // Validate that recipient belongs to this school
+    const recipient = await this.prisma.user.findFirst({
+      where: { id: data.recipientId, schoolId: validSchoolId },
+    });
+    if (!recipient) {
+      throw new NotFoundException('Recipient not found');
+    }
+
+    // Validate parent message belongs to this school if provided
+    if (data.parentId) {
+      const parent = await this.prisma.message.findFirst({
+        where: { id: data.parentId, schoolId: validSchoolId },
+      });
+      if (!parent) {
+        throw new NotFoundException('Parent message not found');
+      }
+    }
+
     return this.prisma.message.create({
       data: {
-        schoolId: data.schoolId,
+        schoolId: validSchoolId,
         senderId: data.senderId,
         recipientId: data.recipientId,
         subject: data.subject,
@@ -83,7 +106,7 @@ export class MessagesService {
     });
     if (!message) throw new NotFoundException('Message not found');
     return this.prisma.message.update({
-      where: { id: messageId },
+      where: { id: message.id },
       data: { isRead: true, readAt: new Date() },
     });
   }
@@ -107,18 +130,18 @@ export class MessagesService {
       where: { id: messageId },
     });
     if (!message) throw new NotFoundException('Message not found');
-    // Only sender can delete
+    // Only sender or recipient can delete
     if (message.senderId !== userId && message.recipientId !== userId) {
       throw new NotFoundException('Message not found');
     }
-    await this.prisma.message.delete({ where: { id: messageId } });
+    await this.prisma.message.delete({ where: { id: message.id } });
     return { success: true };
   }
 
   async getUsers(schoolId: string, currentUserId: string) {
-    // Return list of users they can message
+    const validSchoolId = requireSchoolId(schoolId);
     return this.prisma.user.findMany({
-      where: { schoolId, id: { not: currentUserId }, status: 'ACTIVE' },
+      where: { schoolId: validSchoolId, id: { not: currentUserId }, status: 'ACTIVE' },
       select: { id: true, firstName: true, lastName: true, role: true, avatarUrl: true },
       orderBy: [{ role: 'asc' }, { firstName: 'asc' }],
     });
@@ -131,7 +154,8 @@ export class MessagesService {
     body: string;
     targetRole?: string;
   }) {
-    const whereClause: any = { schoolId: data.schoolId, id: { not: data.senderId } };
+    const validSchoolId = requireSchoolId(data.schoolId);
+    const whereClause: any = { schoolId: validSchoolId, id: { not: data.senderId } };
     if (data.targetRole) whereClause.role = data.targetRole;
 
     const recipients = await this.prisma.user.findMany({
@@ -140,7 +164,7 @@ export class MessagesService {
     });
 
     const messages = recipients.map((r) => ({
-      schoolId: data.schoolId,
+      schoolId: validSchoolId,
       senderId: data.senderId,
       recipientId: r.id,
       subject: data.subject,
@@ -148,7 +172,6 @@ export class MessagesService {
     }));
 
     await this.prisma.message.createMany({ data: messages });
-    console.log(`Broadcasted to ${messages.length} recipients for school ${data.schoolId} and role ${data.targetRole}`);
     return { success: true, sent: messages.length };
   }
 }
