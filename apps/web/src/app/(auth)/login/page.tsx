@@ -13,11 +13,12 @@ import {
 import { LoginSchema } from "@school-erp/shared/src/schemas/auth.schema";
 import { apiClient } from "@/lib/axios";
 import { useAuthStore } from "@/store/auth.store";
+import { getAuthorizedRedirect } from "@/lib/role-routes";
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const returnUrl = searchParams.get("returnUrl") || "/dashboard";
+  const rawReturnUrl = searchParams.get("returnUrl") || "/dashboard";
   const { setAuth } = useAuthStore();
   
   const [globalError, setGlobalError] = useState<string | null>(null);
@@ -76,7 +77,8 @@ function LoginForm() {
       }
 
       setAuth(user, accessToken);
-      router.push(returnUrl);
+      const destination = getAuthorizedRedirect(rawReturnUrl, user?.role);
+      router.push(destination);
     } catch (error: any) {
       const rawMsg = error.response?.data?.message;
       const status = error.response?.status;

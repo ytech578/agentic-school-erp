@@ -11,6 +11,7 @@ export interface ApiResponse<T> {
   success: boolean;
   statusCode: number;
   data: T;
+  meta?: any;
   message?: string;
   timestamp: string;
 }
@@ -28,18 +29,19 @@ export class TransformInterceptor<T> implements NestInterceptor<
 
     return next.handle().pipe(
       map((data) => {
-        // If the handler returned an object with a `data` and `message` key,
-        // unwrap it; otherwise wrap the data directly.
+        // If the handler returned an object with a `data` key,
+        // unwrap it to prevent double-wrapping while preserving pagination `meta`.
         if (
           data &&
           typeof data === 'object' &&
-          'data' in data &&
-          'message' in data
+          !Array.isArray(data) &&
+          'data' in data
         ) {
           return {
             success: true,
             statusCode: response.statusCode,
             data: data.data,
+            meta: (data as any).meta,
             message: data.message,
             timestamp: new Date().toISOString(),
           };

@@ -222,4 +222,164 @@ export class HRService {
       },
     });
   }
+
+  // ─── Enterprise Organization & Structure ───────────────────────────────────
+
+  async getDepartmentsWithStats(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'Get departments');
+    return this.prisma.department.findMany({
+      where: { schoolId: validSchoolId },
+      include: {
+        _count: {
+          select: { staff: true },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async createDepartment(schoolId: string, data: { name: string; description?: string }) {
+    const validSchoolId = requireSchoolId(schoolId, 'Create department');
+    return this.prisma.department.create({
+      data: {
+        schoolId: validSchoolId,
+        name: data.name,
+        description: data.description,
+      },
+    });
+  }
+
+  async getDesignationsWithStats(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'Get designations');
+    return this.prisma.designation.findMany({
+      where: { schoolId: validSchoolId },
+      include: {
+        _count: {
+          select: { staff: true },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async createDesignation(schoolId: string, data: { name: string }) {
+    const validSchoolId = requireSchoolId(schoolId, 'Create designation');
+    return this.prisma.designation.create({
+      data: {
+        schoolId: validSchoolId,
+        name: data.name,
+        isActive: true,
+      },
+    });
+  }
+
+  // ─── Staff Roster ─────────────────────────────────────────────────────────
+
+  async getStaffRoster(
+    schoolId: string,
+    filters: { departmentId?: string; designationId?: string; search?: string; page?: number; limit?: number } = {},
+  ) {
+    const validSchoolId = requireSchoolId(schoolId, 'Get staff roster');
+    const page = filters.page ? Number(filters.page) : 1;
+    const limit = filters.limit ? Number(filters.limit) : 50;
+    const skip = (page - 1) * limit;
+
+    const where: any = {
+      schoolId: validSchoolId,
+      ...(filters.departmentId ? { departmentId: filters.departmentId } : {}),
+      ...(filters.designationId ? { designationId: filters.designationId } : {}),
+      ...(filters.search
+        ? {
+            OR: [
+              { employeeId: { contains: filters.search, mode: 'insensitive' } },
+              { user: { firstName: { contains: filters.search, mode: 'insensitive' } } },
+              { user: { lastName: { contains: filters.search, mode: 'insensitive' } } },
+              { user: { email: { contains: filters.search, mode: 'insensitive' } } },
+            ],
+          }
+        : {}),
+    };
+
+    const [total, items] = await Promise.all([
+      this.prisma.staff.count({ where }),
+      this.prisma.staff.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phone: true,
+              role: true,
+              avatarUrl: true,
+            },
+          },
+          department: { select: { id: true, name: true } },
+          designation: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  // ─── Leave Policy & Entitlement Balances ───────────────────────────────────
+
+  async getLeaveBalances(schoolId: string, userId?: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'Get leave balances');
+    let staffId: string | undefined;
+    if (userId) {
+      const staff = await this.prisma.staff.findFirst({
+        where: { userId, schoolId: validSchoolId },
+      });
+      if (staff) staffId = staff.id;
+    }
+
+    const currentYear = new Date().getFullYear();
+    const yearStart = new Date(currentYear, 0, 1);
+    const yearEnd = new Date(currentYear, 11, 31, 23, 59, 59);
+
+    const approvedLeaves = staffId
+      ? await this.prisma.leaveRequest.findMany({
+          where: {
+            schoolId: validSchoolId,
+            staffId,
+            status: 'APPROVED',
+            startDate: { gte: yearStart, lte: yearEnd },
+          },
+        })
+      : [];
+
+    const quotas = [
+      { type: 'CASUAL', label: 'Casual Leave', quota: 12 },
+      { type: 'SICK', label: 'Sick Leave', quota: 10 },
+      { type: 'EARNED', label: 'Earned Leave', quota: 15 },
+      { type: 'MATERNITY', label: 'Maternity Leave', quota: 180 },
+      { type: 'PATERNITY', label: 'Paternity Leave', quota: 15 },
+      { type: 'COMPENSATORY', label: 'Compensatory Leave', quota: 5 },
+      { type: 'UNPAID', label: 'Unpaid Leave', quota: 30 },
+    ];
+
+    return quotas.map((q) => {
+      const used = approvedLeaves
+        .filter((l) => l.leaveType === q.type)
+        .reduce((sum, l) => sum + (l.totalDays || 0), 0);
+      return {
+        ...q,
+        used,
+        balance: Math.max(0, q.quota - used),
+      };
+    });
+  }
 }

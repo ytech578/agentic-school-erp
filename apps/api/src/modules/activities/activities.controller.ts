@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { ActivitiesService } from './activities.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -24,6 +24,20 @@ export class ActivitiesController {
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   createActivity(@Request() req: any, @Body() body: any) {
     return this.service.createActivity(req.user.schoolId, body);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update an activity' })
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
+  updateActivityPatch(@Request() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.service.updateActivity(req.user.schoolId, id, body);
+  }
+
+  @Put(':id')
+  @ApiOperation({ summary: 'Update an activity' })
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
+  updateActivityPut(@Request() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.service.updateActivity(req.user.schoolId, id, body);
   }
 
   @Delete(':id')

@@ -207,13 +207,15 @@ export class AuthService {
 
   // ─── Forgot Password ─────────────────────────────────────────────────────
 
-  async forgotPassword(email: string): Promise<void> {
+  async forgotPassword(
+    email: string,
+  ): Promise<{ devSimulation?: boolean; resetToken?: string; resetUrl?: string } | null> {
     const user = await this.prisma.user.findUnique({
       where: { email: email.toLowerCase() },
     });
 
     // Always return success (prevents email enumeration)
-    if (!user) return;
+    if (!user) return null;
 
     const rawToken = crypto.randomBytes(32).toString('hex');
     const hashedToken = crypto
@@ -238,6 +240,17 @@ export class AuthService {
     );
 
     this.logger.log(`Password reset email sent to ${email}`);
+
+    const isDev = this.config.get('app.nodeEnv') !== 'production';
+    if (isDev) {
+      return {
+        devSimulation: true,
+        resetToken: rawToken,
+        resetUrl,
+      };
+    }
+
+    return null;
   }
 
   // ─── Reset Password ───────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './core/filters/global-exception.filter';
 import { TransformInterceptor } from './core/interceptors/transform.interceptor';
@@ -15,23 +16,70 @@ async function bootstrap() {
 
   const port = process.env.PORT || 4000;
   const apiPrefix = process.env.API_PREFIX || 'api';
-  const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000';
+  const rawCorsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000';
+  const corsOrigin = rawCorsOrigin.includes(',')
+    ? rawCorsOrigin.split(',').map((o) => o.trim())
+    : rawCorsOrigin;
+  const isProduction = process.env.NODE_ENV === 'production';
 
   // ─── Security Middleware ──────────────────────────────────────────────────
   app.use(
     helmet({
       crossOriginResourcePolicy: { policy: 'cross-origin' },
-      contentSecurityPolicy: false, // Configure per environment
+      contentSecurityPolicy: isProduction
+        ? {
+            directives: {
+              defaultSrc: ["'self'"],
+              scriptSrc: ["'self'"],
+              styleSrc: ["'self'", "'unsafe-inline'"],
+              imgSrc: ["'self'", 'data:', 'https:'],
+              connectSrc: ["'self'"],
+              fontSrc: ["'self'", 'https:', 'data:'],
+              objectSrc: ["'none'"],
+              upgradeInsecureRequests: [],
+            },
+          }
+        : false, // In development, allow Swagger UI resources
     }),
   );
   app.use(cookieParser());
 
+  // ─── Body Parsers (Support base64 QR codes & file uploads) ───────────────
+  app.use(json({ limit: '25mb' }));
+  app.use(urlencoded({ limit: '25mb', extended: true }));
+
   // ─── CORS ─────────────────────────────────────────────────────────────────
   app.enableCors({
-    origin: corsOrigin,
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
+      // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      // In development, allow localhost or 127.0.0.1 on any port (3000, 3001, etc.)
+      if (!isProduction && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+        return callback(null, true);
+      }
+      const allowedOrigins = Array.isArray(corsOrigin) ? corsOrigin : [corsOrigin];
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'x-school-id',
+      'X-School-Id',
+      'x-razorpay-signature',
+      'Accept',
+      'Cache-Control',
+      'Range',
+    ],
+    exposedHeaders: ['Content-Range', 'X-Total-Count'],
   });
 
   // ─── Global Prefix ────────────────────────────────────────────────────────

@@ -155,15 +155,45 @@ export class DashboardService {
     const presentStudentRecs = studentAttendanceToday.filter((r) => r.status === 'PRESENT' || r.status === 'LATE').length;
     const studentAttendancePct = totalStudentRecs > 0 ? Math.round((presentStudentRecs / totalStudentRecs) * 100) : 94.8;
 
-    // 7-day collection trend for Recharts
+    // Real 7-day collection trend for Recharts
+    const sevenDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+
+    const recentPayments = this.prisma.feePayment?.findMany
+      ? await this.prisma.feePayment.findMany({
+          where: {
+            ...schoolFilter,
+            paymentStatus: 'PAID',
+            paymentDate: { gte: sevenDaysAgo },
+          },
+          select: {
+            paidAmount: true,
+            paymentDate: true,
+          },
+        })
+      : [];
+
+    const paymentsByDate = new Map<string, number>();
+    for (const p of recentPayments) {
+      if (p.paymentDate) {
+        const dStr = p.paymentDate.toISOString().split('T')[0];
+        paymentsByDate.set(dStr, (paymentsByDate.get(dStr) || 0) + Number(p.paidAmount || 0));
+      }
+    }
+
+    const hasRecentPayments = recentPayments.length > 0;
     const trendDays = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
       const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+      const dStr = d.toISOString().split('T')[0];
+      const actualDaily = paymentsByDate.get(dStr) || 0;
       trendDays.push({
         day: dayName,
-        date: d.toISOString().split('T')[0],
-        collection: Math.round(collectedThisMonth > 0 ? (collectedThisMonth / 7) * (0.8 + (i % 3) * 0.15) : (35000 + i * 4000)),
+        date: dStr,
+        collection: hasRecentPayments
+          ? actualDaily
+          : Math.round(collectedThisMonth > 0 ? (collectedThisMonth / 7) * (0.8 + (i % 3) * 0.15) : (35000 + i * 4000)),
       });
     }
 
@@ -347,11 +377,11 @@ export class DashboardService {
         substitutionsNeeded: substitutions.length,
       },
       classComparison: classComparison.length > 0 ? classComparison : [
+        { name: 'Class 6', students: 46, avgScore: 80, attendance: 93 },
+        { name: 'Class 7', students: 50, avgScore: 84, attendance: 95 },
         { name: 'Class 8', students: 48, avgScore: 82, attendance: 95 },
         { name: 'Class 9', students: 52, avgScore: 78, attendance: 92 },
         { name: 'Class 10', students: 60, avgScore: 85, attendance: 96 },
-        { name: 'Class 11', students: 45, avgScore: 74, attendance: 90 },
-        { name: 'Class 12', students: 50, avgScore: 88, attendance: 94 },
       ],
       substitutions,
       pendingLeaves,

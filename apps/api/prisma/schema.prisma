@@ -329,9 +329,6 @@ model UserSession {
   expiresAt      DateTime
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
-  timetableSlots TimetableSlot[]
-  assignments    Assignment[]
-  activities     Activity[]
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1300,8 +1297,6 @@ model TimetableSlot {
   staff         Staff?       @relation(fields: [staffId], references: [id])
   Department    Department?  @relation(fields: [departmentId], references: [id])
   departmentId  String?
-  UserSession   UserSession? @relation(fields: [userSessionId], references: [id])
-  userSessionId String?
 
   @@index([schoolId, academicYearId])
   @@index([sectionId, dayOfWeek])
@@ -1337,8 +1332,6 @@ model Assignment {
   staff        Staff        @relation(fields: [staffId], references: [id])
 
   submissions   AssignmentSubmission[]
-  UserSession   UserSession?           @relation(fields: [userSessionId], references: [id])
-  userSessionId String?
   Department    Department?            @relation(fields: [departmentId], references: [id])
   departmentId  String?
 
@@ -1383,8 +1376,6 @@ model Activity {
 
   school        School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   student       Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  UserSession   UserSession? @relation(fields: [userSessionId], references: [id])
-  userSessionId String?
 
   @@index([schoolId, studentId])
   @@map("activities")

@@ -18,7 +18,7 @@ export class ActivitiesService {
     const where: any = { schoolId: validSchoolId };
     if (studentId) where.studentId = studentId;
 
-    return this.prisma.activity.findMany({
+    const activities = await this.prisma.activity.findMany({
       where,
       include: {
         student: {
@@ -30,6 +30,11 @@ export class ActivitiesService {
       },
       orderBy: { date: 'desc' }
     });
+
+    return activities.map(a => ({
+      ...a,
+      category: a.icon || 'ACADEMIC',
+    }));
   }
 
   async createActivity(schoolId: string, data: any) {
@@ -39,17 +44,54 @@ export class ActivitiesService {
     });
     if (!student) throw new NotFoundException('Student not found');
 
-    return this.prisma.activity.create({
+    const created = await this.prisma.activity.create({
       data: {
         schoolId: validSchoolId,
         studentId: data.studentId,
         title: data.title,
         event: data.event,
         date: new Date(data.date),
-        icon: data.icon || 'award',
+        icon: data.category || data.icon || 'ACADEMIC',
         description: data.description,
       }
     });
+
+    return {
+      ...created,
+      category: created.icon || 'ACADEMIC',
+    };
+  }
+
+  async updateActivity(schoolId: string, activityId: string, data: any) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const activity = await this.prisma.activity.findFirst({
+      where: { id: activityId, schoolId: validSchoolId }
+    });
+    if (!activity) throw new NotFoundException('Activity not found');
+
+    const updateData: any = {};
+    if (data.title) updateData.title = data.title;
+    if (data.event !== undefined) updateData.event = data.event;
+    if (data.date) updateData.date = new Date(data.date);
+    if (data.category || data.icon) updateData.icon = data.category || data.icon;
+    if (data.description !== undefined) updateData.description = data.description;
+    if (data.studentId) {
+      const student = await this.prisma.student.findFirst({
+        where: { id: data.studentId, schoolId: validSchoolId },
+      });
+      if (!student) throw new NotFoundException('Student not found');
+      updateData.studentId = data.studentId;
+    }
+
+    const updated = await this.prisma.activity.update({
+      where: { id: activity.id },
+      data: updateData,
+    });
+
+    return {
+      ...updated,
+      category: updated.icon || 'ACADEMIC',
+    };
   }
 
   async deleteActivity(schoolId: string, activityId: string) {

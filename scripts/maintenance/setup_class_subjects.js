@@ -12,8 +12,6 @@ const CURRICULUM = {
   middle: ['English', 'Hindi', 'Telugu', 'Mathematics', 'General Science', 'Social Studies', 'Computer Science'],
   // Class 9 - 10: High school
   high: ['English', 'Hindi', 'Telugu', 'Mathematics', 'Physical Science', 'Biological Science', 'Social Studies', 'Computer Science'],
-  // Class 11 - 12: Higher secondary
-  senior: ['English', 'Physics', 'Chemistry', 'Mathematics', 'Computer Science', 'Economics'],
 };
 
 async function main() {
@@ -40,10 +38,8 @@ async function main() {
       subjectNames = CURRICULUM.primary;
     } else if (level <= 8) {
       subjectNames = CURRICULUM.middle;
-    } else if (level <= 10) {
-      subjectNames = CURRICULUM.high;
     } else {
-      subjectNames = CURRICULUM.senior;
+      subjectNames = CURRICULUM.high;
     }
 
     for (const subName of subjectNames) {

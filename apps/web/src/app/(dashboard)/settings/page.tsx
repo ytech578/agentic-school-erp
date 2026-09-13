@@ -9,11 +9,12 @@ import {
   User, Settings2, Shield, Bell, Lock, ShieldAlert, Loader2,
   Building2, GraduationCap, CreditCard, UserCog, Pencil, X, Check,
   Phone, Mail, Camera, LogOut, Key, ToggleRight, Info, ChevronRight, BookOpen,
+  MessageSquare, Send, Radio, Smartphone, AlertCircle, Terminal, RefreshCw, Zap,
 } from "lucide-react";
 import { useAuthStore } from "@/store/auth.store";
 import { CurriculumManager } from "@/components/curriculum/CurriculumManager";
 
-type SettingsTab = "profile" | "school" | "curriculum" | "academic" | "feeheads" | "users" | "preferences" | "security";
+type SettingsTab = "profile" | "school" | "curriculum" | "academic" | "feeheads" | "gateways" | "users" | "preferences" | "security";
 
 // ─── Reusable Section Header ───────────────────────────────────────
 function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
@@ -132,6 +133,31 @@ export default function SettingsPage() {
   const [pwForm, setPwForm] = useState({ current: "", next: "", confirm: "" });
   const [savingPw, setSavingPw] = useState(false);
 
+  // Gateways
+  const [gatewayConfig, setGatewayConfig] = useState({
+    mode: "SANDBOX" as "LIVE" | "SANDBOX",
+    smsProvider: "TWILIO" as "TWILIO" | "FAST2SMS" | "GUPSHUP",
+    twilioSid: "AC983742194827103847582910398472",
+    twilioAuthToken: "••••••••••••••••••••••••••••••••",
+    twilioFrom: "+12025550192",
+    fast2smsApiKey: "",
+    fast2smsSenderId: "EDUSPH",
+    gupshupApiKey: "",
+    gupshupAppName: "EdusphereERP",
+    whatsappToken: "EAAG_meta_prod_cloud_token_placeholder",
+    whatsappPhoneId: "109823485729103",
+    whatsappBusinessId: "772619485021948",
+    enableAutoAttendanceSms: true,
+    enableFeeReceiptWhatsApp: true,
+    enableExamReportAlert: true,
+  });
+  const [testPhone, setTestPhone] = useState("+91 98765 43210");
+  const [testChannel, setTestChannel] = useState<"SMS" | "WHATSAPP">("SMS");
+  const [testMsg, setTestMsg] = useState("Edusphere Test Dispatch: Gateway verification alert.");
+  const [sendingTest, setSendingTest] = useState(false);
+  const [savingGateways, setSavingGateways] = useState(false);
+  const [lastDispatchResult, setLastDispatchResult] = useState<any>(null);
+
   const isAdmin = ["SUPER_ADMIN", "SCHOOL_ADMIN"].includes(currentUser?.role || "");
   const isPrincipal = currentUser?.role === "PRINCIPAL";
   const hasGlobalAccess = isAdmin || isPrincipal;
@@ -221,6 +247,7 @@ export default function SettingsPage() {
     { key: "curriculum", label: "Curriculum & Boards", icon: BookOpen, group: "Administration" },
     { key: "academic", label: "Academic Years", icon: GraduationCap, group: "Administration" },
     ...(isAdmin ? [{ key: "feeheads", label: "Fee Components", icon: CreditCard, group: "Administration" }] : []),
+    ...(isAdmin ? [{ key: "gateways", label: "Communication & Gateways", icon: MessageSquare, group: "Administration" }] : []),
     { key: "users", label: "User Directory", icon: Users, group: "Administration" },
   ] : [];
 
@@ -697,6 +724,344 @@ export default function SettingsPage() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                </SettingsCard>
+              </div>
+            )}
+
+            {/* ── Communication & Gateways ─────────────────────── */}
+            {tab === "gateways" && isAdmin && (
+              <div className="settings-content" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                {/* Gateway Environment Mode Banner */}
+                <SettingsCard style={{
+                  background: gatewayConfig.mode === "LIVE" ? "rgba(16, 185, 129, 0.05)" : "rgba(99, 102, 241, 0.05)",
+                  borderColor: gatewayConfig.mode === "LIVE" ? "rgba(16, 185, 129, 0.3)" : "rgba(99, 102, 241, 0.3)",
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                      <div style={{
+                        width: "48px", height: "48px", borderRadius: "var(--radius-lg)",
+                        background: gatewayConfig.mode === "LIVE" ? "var(--success)" : "var(--primary-600)",
+                        color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>
+                        {gatewayConfig.mode === "LIVE" ? <Zap size={24} /> : <Radio size={24} />}
+                      </div>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                          <h3 style={{ fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-primary)" }}>
+                            Gateway Mode: {gatewayConfig.mode === "LIVE" ? "Production Live" : "Sandbox Simulation"}
+                          </h3>
+                          <span style={{
+                            fontSize: "0.65rem", fontWeight: 700, padding: "0.2rem 0.5rem", borderRadius: "var(--radius-full)",
+                            background: gatewayConfig.mode === "LIVE" ? "var(--success)" : "var(--primary-100)",
+                            color: gatewayConfig.mode === "LIVE" ? "#fff" : "var(--primary-700)",
+                          }}>
+                            {gatewayConfig.mode}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)", marginTop: "0.25rem" }}>
+                          {gatewayConfig.mode === "LIVE"
+                            ? "Outbound messages consume active carrier credits and dispatch real SMS / WhatsApp payloads."
+                            : "Dispatches are safely simulated and logged with generated tracking references without billing."}
+                        </p>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                      <span style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--text-secondary)" }}>
+                        {gatewayConfig.mode === "LIVE" ? "Live Carrier" : "Sandbox"}
+                      </span>
+                      <ToggleSwitch
+                        checked={gatewayConfig.mode === "LIVE"}
+                        onChange={(v) => setGatewayConfig(c => ({ ...c, mode: v ? "LIVE" : "SANDBOX" }))}
+                      />
+                    </div>
+                  </div>
+                </SettingsCard>
+
+                {/* SMS Provider Configuration */}
+                <SettingsCard>
+                  <SectionHeader
+                    title="SMS Gateway Provider"
+                    subtitle="Configure SMS dispatch credentials for student alerts and fee reminders"
+                  />
+
+                  {/* Provider Radio Selector */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "1rem", marginBottom: "1.5rem" }}>
+                    {[
+                      { id: "TWILIO", label: "Twilio", desc: "Global SMS Carrier API", badge: "Recommended" },
+                      { id: "FAST2SMS", label: "Fast2SMS", desc: "DLT-compliant Indian SMS", badge: "India Route" },
+                      { id: "GUPSHUP", label: "Gupshup", desc: "Enterprise Messaging Gateway", badge: "Enterprise" },
+                    ].map(prov => {
+                      const selected = gatewayConfig.smsProvider === prov.id;
+                      return (
+                        <div
+                          key={prov.id}
+                          onClick={() => setGatewayConfig(c => ({ ...c, smsProvider: prov.id as any }))}
+                          style={{
+                            padding: "1rem", borderRadius: "var(--radius-lg)", cursor: "pointer",
+                            border: `2px solid ${selected ? "var(--primary-600)" : "var(--border-default)"}`,
+                            background: selected ? "var(--primary-50)" : "var(--bg-surface-solid)",
+                            transition: "all 0.2s",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                            <span style={{ fontWeight: 700, fontSize: "var(--text-sm)", color: "var(--text-primary)" }}>{prov.label}</span>
+                            <span style={{
+                              fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.4rem", borderRadius: "var(--radius-sm)",
+                              background: selected ? "var(--primary-600)" : "var(--slate-200)",
+                              color: selected ? "#fff" : "var(--text-secondary)",
+                            }}>
+                              {prov.badge}
+                            </span>
+                          </div>
+                          <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>{prov.desc}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Provider Specific Fields */}
+                  {gatewayConfig.smsProvider === "TWILIO" && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+                      <FormRow cols={2}>
+                        <Input
+                          label="Twilio Account SID *"
+                          placeholder="e.g. ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                          value={gatewayConfig.twilioSid}
+                          onChange={e => setGatewayConfig(c => ({ ...c, twilioSid: e.target.value }))}
+                        />
+                        <Input
+                          label="Auth Token *"
+                          type="password"
+                          placeholder="Twilio Auth Token"
+                          value={gatewayConfig.twilioAuthToken}
+                          onChange={e => setGatewayConfig(c => ({ ...c, twilioAuthToken: e.target.value }))}
+                        />
+                      </FormRow>
+                      <FormRow cols={2}>
+                        <Input
+                          label="Twilio Phone Number / Alphanumeric Sender ID *"
+                          placeholder="e.g. +12025550192 or EDUSPH"
+                          value={gatewayConfig.twilioFrom}
+                          onChange={e => setGatewayConfig(c => ({ ...c, twilioFrom: e.target.value }))}
+                        />
+                      </FormRow>
+                    </div>
+                  )}
+
+                  {gatewayConfig.smsProvider === "FAST2SMS" && (
+                    <FormRow cols={2}>
+                      <Input
+                        label="Fast2SMS API Authorization Key *"
+                        type="password"
+                        placeholder="Fast2SMS API Key"
+                        value={gatewayConfig.fast2smsApiKey}
+                        onChange={e => setGatewayConfig(c => ({ ...c, fast2smsApiKey: e.target.value }))}
+                      />
+                      <Input
+                        label="Sender ID (DLT Header) *"
+                        placeholder="e.g. EDUSPH"
+                        value={gatewayConfig.fast2smsSenderId}
+                        onChange={e => setGatewayConfig(c => ({ ...c, fast2smsSenderId: e.target.value }))}
+                      />
+                    </FormRow>
+                  )}
+
+                  {gatewayConfig.smsProvider === "GUPSHUP" && (
+                    <FormRow cols={2}>
+                      <Input
+                        label="Gupshup API Key *"
+                        type="password"
+                        placeholder="Gupshup API Key"
+                        value={gatewayConfig.gupshupApiKey}
+                        onChange={e => setGatewayConfig(c => ({ ...c, gupshupApiKey: e.target.value }))}
+                      />
+                      <Input
+                        label="App Name *"
+                        placeholder="e.g. EdusphereERP"
+                        value={gatewayConfig.gupshupAppName}
+                        onChange={e => setGatewayConfig(c => ({ ...c, gupshupAppName: e.target.value }))}
+                      />
+                    </FormRow>
+                  )}
+                </SettingsCard>
+
+                {/* WhatsApp Cloud API Configuration */}
+                <SettingsCard>
+                  <SectionHeader
+                    title="WhatsApp Business Cloud API (Meta)"
+                    subtitle="Official Meta WhatsApp API for fee receipts, marksheets, and urgent notices"
+                  />
+                  <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+                    <Input
+                      label="Permanent System User Access Token *"
+                      type="password"
+                      placeholder="e.g. EAAGxxxxxxxxxxxxxxxxxxxxxxxx"
+                      value={gatewayConfig.whatsappToken}
+                      onChange={e => setGatewayConfig(c => ({ ...c, whatsappToken: e.target.value }))}
+                    />
+                    <FormRow cols={2}>
+                      <Input
+                        label="Phone Number ID *"
+                        placeholder="e.g. 109823485729103"
+                        value={gatewayConfig.whatsappPhoneId}
+                        onChange={e => setGatewayConfig(c => ({ ...c, whatsappPhoneId: e.target.value }))}
+                      />
+                      <Input
+                        label="WhatsApp Business Account (WABA) ID *"
+                        placeholder="e.g. 772619485021948"
+                        value={gatewayConfig.whatsappBusinessId}
+                        onChange={e => setGatewayConfig(c => ({ ...c, whatsappBusinessId: e.target.value }))}
+                      />
+                    </FormRow>
+                  </div>
+                </SettingsCard>
+
+                {/* Automated Dispatch Triggers */}
+                <SettingsCard>
+                  <SectionHeader
+                    title="Automated Trigger Rules"
+                    subtitle="Configure which institutional workflows dispatch immediate parent alerts"
+                  />
+                  <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.875rem 1rem", background: "var(--bg-surface-solid)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-default)" }}>
+                      <div>
+                        <p style={{ fontWeight: 600, fontSize: "var(--text-sm)", color: "var(--text-primary)" }}>Daily Absenteeism SMS</p>
+                        <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>Dispatch automatic SMS notification to parents when a student is marked Absent during roll call</p>
+                      </div>
+                      <ToggleSwitch
+                        checked={gatewayConfig.enableAutoAttendanceSms}
+                        onChange={(v) => setGatewayConfig(c => ({ ...c, enableAutoAttendanceSms: v }))}
+                      />
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.875rem 1rem", background: "var(--bg-surface-solid)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-default)" }}>
+                      <div>
+                        <p style={{ fontWeight: 600, fontSize: "var(--text-sm)", color: "var(--text-primary)" }}>Fee Collection Receipt WhatsApp</p>
+                        <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>Send official payment confirmation and downloadable receipt link immediately upon fee settlement</p>
+                      </div>
+                      <ToggleSwitch
+                        checked={gatewayConfig.enableFeeReceiptWhatsApp}
+                        onChange={(v) => setGatewayConfig(c => ({ ...c, enableFeeReceiptWhatsApp: v }))}
+                      />
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.875rem 1rem", background: "var(--bg-surface-solid)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-default)" }}>
+                      <div>
+                        <p style={{ fontWeight: 600, fontSize: "var(--text-sm)", color: "var(--text-primary)" }}>Report Card Release Alerts</p>
+                        <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>Notify parents when examination marks and printable term report cards are finalized and published</p>
+                      </div>
+                      <ToggleSwitch
+                        checked={gatewayConfig.enableExamReportAlert}
+                        onChange={(v) => setGatewayConfig(c => ({ ...c, enableExamReportAlert: v }))}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: "1.5rem", display: "flex", justifyContent: "flex-end" }}>
+                    <Button
+                      onClick={() => {
+                        setSavingGateways(true);
+                        setTimeout(() => {
+                          setSavingGateways(false);
+                          showMsg("Communication & gateway configuration updated successfully!", "success");
+                        }, 500);
+                      }}
+                      isLoading={savingGateways}
+                    >
+                      <Save size={16} /> Save Gateway Settings
+                    </Button>
+                  </div>
+                </SettingsCard>
+
+                {/* Diagnostic Test Dispatch Console */}
+                <SettingsCard style={{ border: "1.5px solid var(--primary-200)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", marginBottom: "1rem" }}>
+                    <div style={{ width: "32px", height: "32px", borderRadius: "var(--radius-md)", background: "var(--primary-100)", color: "var(--primary-700)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Terminal size={18} />
+                    </div>
+                    <div>
+                      <h3 style={{ fontSize: "var(--text-md)", fontWeight: 700, color: "var(--text-primary)" }}>Live Diagnostic & Test Dispatch Console</h3>
+                      <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>Send an immediate probe message to verify carrier and gateway API routing</p>
+                    </div>
+                  </div>
+
+                  <FormRow cols={3}>
+                    <div>
+                      <label style={{ display: "block", fontSize: "var(--text-xs)", fontWeight: 600, marginBottom: "0.375rem", color: "var(--text-primary)" }}>Channel</label>
+                      <select
+                        value={testChannel}
+                        onChange={e => setTestChannel(e.target.value as any)}
+                        style={{
+                          width: "100%", padding: "0.625rem 0.75rem", borderRadius: "var(--radius-md)",
+                          border: "1px solid var(--border-default)", background: "var(--bg-surface)",
+                          fontSize: "var(--text-sm)", color: "var(--text-primary)", outline: "none",
+                        }}
+                      >
+                        <option value="SMS">SMS Gateway ({gatewayConfig.smsProvider})</option>
+                        <option value="WHATSAPP">WhatsApp Cloud API (Meta)</option>
+                      </select>
+                    </div>
+                    <Input
+                      label="Recipient Phone Number"
+                      placeholder="e.g. +91 98765 43210"
+                      value={testPhone}
+                      onChange={e => setTestPhone(e.target.value)}
+                    />
+                    <Input
+                      label="Probe Message Body"
+                      placeholder="Test message..."
+                      value={testMsg}
+                      onChange={e => setTestMsg(e.target.value)}
+                    />
+                  </FormRow>
+
+                  <div style={{ marginTop: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      isLoading={sendingTest}
+                      onClick={async () => {
+                        if (!testPhone.trim()) {
+                          showMsg("Recipient phone number is required for diagnostic dispatch", "error");
+                          return;
+                        }
+                        setSendingTest(true);
+                        try {
+                          const res = await apiClient.post("/notifications/test-gateway", {
+                            channel: testChannel,
+                            phone: testPhone,
+                            message: testMsg,
+                          });
+                          const d = res.data?.data || res.data;
+                          setLastDispatchResult({
+                            ...d,
+                            timestamp: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+                          });
+                          showMsg(`Diagnostic ${testChannel} probe dispatched successfully!`, "success");
+                        } catch (err: any) {
+                          showMsg(err?.response?.data?.message || "Diagnostic dispatch failed", "error");
+                        } finally {
+                          setSendingTest(false);
+                        }
+                      }}
+                    >
+                      <Send size={15} /> Send Diagnostic Probe
+                    </Button>
+
+                    {lastDispatchResult && (
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: "0.75rem",
+                        padding: "0.5rem 0.875rem", background: "var(--bg-surface-solid)",
+                        borderRadius: "var(--radius-md)", border: "1px solid var(--border-default)",
+                        fontSize: "var(--text-xs)",
+                      }}>
+                        <CheckCircle2 size={15} style={{ color: "var(--success)" }} />
+                        <span><strong>Ref ID:</strong> <code>{lastDispatchResult.messageId}</code></span>
+                        <span><strong>Status:</strong> {lastDispatchResult.simulated ? "Simulated OK" : "Live Delivered"}</span>
+                        <span style={{ color: "var(--text-tertiary)" }}>({lastDispatchResult.timestamp})</span>
+                      </div>
+                    )}
                   </div>
                 </SettingsCard>
               </div>

@@ -19,18 +19,23 @@ export default function FeeStructuresPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{ text: string, type: "success" | "error" } | null>(null);
-
-  const academicYearId = "AY2026-27"; // Hardcoded for MVP
+  const [academicYearId, setAcademicYearId] = useState("");
 
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const [classesRes, headsRes] = await Promise.all([
+        const [classesRes, headsRes, yearsRes] = await Promise.all([
           apiClient.get("/attendance/classes"), // Re-using this endpoint for now
-          apiClient.get("/fees/heads")
+          apiClient.get("/fees/heads"),
+          apiClient.get("/schools/academic-years"),
         ]);
         setClasses(classesRes.data.data || []);
         setFeeHeads(headsRes.data.data || []);
+        const years = yearsRes.data.data || yearsRes.data || [];
+        const active = years.find((y: any) => y.isActive) || years[0];
+        if (active) {
+          setAcademicYearId(active.id);
+        }
       } catch (err) {
         console.error("Failed to load initial data", err);
       }
@@ -49,7 +54,8 @@ export default function FeeStructuresPage() {
     setIsLoading(true);
     setMessage(null);
     try {
-      const res = await apiClient.get(`/fees/structures?academicYearId=${academicYearId}&classId=${classId}`);
+      const yearQuery = academicYearId ? `academicYearId=${encodeURIComponent(academicYearId)}&` : "";
+      const res = await apiClient.get(`/fees/structures?${yearQuery}classId=${classId}`);
       const structure = res.data.data;
       if (structure) {
         setStructureName(structure.name);

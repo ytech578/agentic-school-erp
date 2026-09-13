@@ -130,10 +130,10 @@ export class AuthController {
   @ApiOperation({ summary: 'Send password reset email' })
   async forgotPassword(@Body() body: unknown) {
     const { email } = ForgotPasswordSchema.parse(body);
-    await this.authService.forgotPassword(email);
-    // Always return same message (prevents email enumeration)
+    const result = await this.authService.forgotPassword(email);
+    // Always return standard message; in non-prod result contains devSimulation details
     return {
-      data: null,
+      data: result || null,
       message: 'If the email exists, a password reset link has been sent',
     };
   }
@@ -160,22 +160,34 @@ export class AuthController {
       'jwt.refreshExpiresInMs',
       7 * 24 * 60 * 60 * 1000,
     );
+    const apiPrefix = (this.config.get<string>('app.apiPrefix') || 'api').replace(/^\/+|\/+$/g, '');
+    const cookiePath = `/${apiPrefix}/auth`;
+    const sameSite = isProduction
+      ? (this.config.get<'lax' | 'none' | 'strict'>('app.cookieSameSite') || 'none')
+      : 'lax';
 
     res.cookie('refresh_token', token, {
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'lax',
+      sameSite,
       maxAge,
-      path: '/api/auth', // Only sent to auth endpoints
+      path: cookiePath,
     });
   }
 
   private clearRefreshTokenCookie(res: Response) {
+    const isProduction = this.config.get('app.nodeEnv') === 'production';
+    const apiPrefix = (this.config.get<string>('app.apiPrefix') || 'api').replace(/^\/+|\/+$/g, '');
+    const cookiePath = `/${apiPrefix}/auth`;
+    const sameSite = isProduction
+      ? (this.config.get<'lax' | 'none' | 'strict'>('app.cookieSameSite') || 'none')
+      : 'lax';
+
     res.clearCookie('refresh_token', {
       httpOnly: true,
-      secure: this.config.get('app.nodeEnv') === 'production',
-      sameSite: 'lax',
-      path: '/api/auth',
+      secure: isProduction,
+      sameSite,
+      path: cookiePath,
     });
   }
 }

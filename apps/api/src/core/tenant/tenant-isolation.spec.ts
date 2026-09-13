@@ -410,6 +410,7 @@ describe('Multi-Tenant Systematic Data Isolation (Change #4)', () => {
           aggregate: jest.fn().mockResolvedValue({
             _sum: { paidAmount: 500000, outstandingAmount: 50000 },
           }),
+          findMany: jest.fn().mockResolvedValue([]),
         },
         staffAttendance: {
           count: jest.fn().mockResolvedValue(20),

@@ -5,11 +5,12 @@ import { apiClient } from "@/lib/axios";
 import { DataTable, Column } from "@/components/ui/DataTable";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { Search, IndianRupee } from "lucide-react";
+import { Search, IndianRupee, QrCode } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { AlertTriangle } from "lucide-react";
 import { formatCurrencyINR as formatCurrency } from "@/lib/formatters";
+import { useAuthStore } from "@/store/auth.store";
 
 export default function FeesDashboardPage() {
   const [students, setStudents] = useState<any[]>([]);
@@ -17,26 +18,60 @@ export default function FeesDashboardPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [cashFlow, setCashFlow] = useState<any[]>([]);
   const [defaulters, setDefaulters] = useState<any[]>([]);
+  const [academicYears, setAcademicYears] = useState<any[]>([]);
+  const [selectedYearId, setSelectedYearId] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const user = useAuthStore((state) => state.user);
 
   useEffect(() => {
-    fetchStudents();
+    if (user?.role === "PARENT") {
+      router.replace("/parent-fees");
+      return;
+    } else if (user?.role && !["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"].includes(user.role)) {
+      router.replace("/dashboard");
+      return;
+    }
+  }, [user, router]);
+
+  // Load academic years on mount
+  useEffect(() => {
+    const loadAcademicYears = async () => {
+      try {
+        const res = await apiClient.get("/schools/academic-years");
+        const years = res.data?.data || res.data || [];
+        setAcademicYears(years);
+        const active = years.find((y: any) => y.isActive) || years[0];
+        if (active) {
+          setSelectedYearId(active.id);
+        }
+      } catch (err) {
+        console.error("Failed to load academic years", err);
+      }
+    };
+    loadAcademicYears();
   }, []);
 
-  const fetchStudents = async () => {
+  useEffect(() => {
+    fetchStudents(selectedYearId);
+  }, [selectedYearId]);
+
+  const fetchStudents = async (yearId?: string) => {
     setIsLoading(true);
+    setError(null);
     try {
-      // Hardcoded academic year for MVP
+      const queryParam = yearId ? `?academicYearId=${encodeURIComponent(yearId)}` : "";
       const [studentsRes, cashRes, defRes] = await Promise.all([
-        apiClient.get("/fees/students?academicYearId=AY2026-27"),
-        apiClient.get("/fees/analytics?academicYearId=AY2026-27"),
-        apiClient.get("/fees/defaulters?academicYearId=AY2026-27"),
+        apiClient.get(`/fees/students${queryParam}`),
+        apiClient.get(`/fees/analytics${queryParam}`),
+        apiClient.get(`/fees/defaulters${queryParam}`),
       ]);
-      setStudents(studentsRes.data.data || []);
-      setCashFlow(cashRes.data.data || cashRes.data || []);
-      setDefaulters(defRes.data.data || defRes.data || []);
-    } catch (err) {
+      setStudents(studentsRes.data?.data || studentsRes.data || []);
+      setCashFlow(cashRes.data?.data || cashRes.data || []);
+      setDefaulters(defRes.data?.data || defRes.data || []);
+    } catch (err: any) {
       console.error("Failed to fetch students fee summary", err);
+      setError(err?.response?.data?.message || "Failed to fetch fee collection summary. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -44,10 +79,10 @@ export default function FeesDashboardPage() {
 
   const filteredStudents = students.filter(
     (s) =>
-      s.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.admissionNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.class.toLowerCase().includes(searchTerm.toLowerCase())
+      (s.firstName || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.lastName || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.admissionNumber || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.class || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const columns: Column<any>[] = [
@@ -138,12 +173,57 @@ export default function FeesDashboardPage() {
             Monitor outstanding dues and collect fee payments
           </p>
         </div>
-        <div style={{ display: "flex", gap: "1rem" }}>
+        <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
+          {academicYears.length > 0 && (
+            <select
+              value={selectedYearId}
+              onChange={(e) => setSelectedYearId(e.target.value)}
+              className="input"
+              style={{
+                padding: "0.5rem 0.75rem",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--border)",
+                background: "var(--background)",
+                color: "var(--text-primary)",
+                fontSize: "0.875rem",
+              }}
+            >
+              {academicYears.map((ay: any) => (
+                <option key={ay.id} value={ay.id}>
+                  {ay.name} {ay.isActive ? "(Active)" : ""}
+                </option>
+              ))}
+            </select>
+          )}
           <Button variant="secondary" onClick={() => router.push("/fees/structures")}>
             Manage Structures
           </Button>
+          <Button variant="outline" onClick={() => router.push("/fees/settings")}>
+            <QrCode size={16} style={{ marginRight: "0.35rem" }} />
+            Payment Gateway & QR
+          </Button>
         </div>
       </div>
+
+      {error && (
+        <div
+          style={{
+            padding: "1rem 1.25rem",
+            backgroundColor: "rgba(239, 68, 68, 0.1)",
+            border: "1px solid rgba(239, 68, 68, 0.3)",
+            color: "var(--danger, #ef4444)",
+            borderRadius: "var(--radius-md)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span>{error}</span>
+          <Button variant="secondary" size="sm" onClick={() => fetchStudents(selectedYearId)}>
+            Retry
+          </Button>
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
         <div className="card" style={{ padding: "1.5rem", borderLeft: "4px solid var(--success)" }}>

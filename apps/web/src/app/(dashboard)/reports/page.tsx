@@ -11,6 +11,33 @@ import {
 
 type ReportTab = "overview" | "attendance" | "fees" | "exams";
 
+// ─── CSV Exporter Utility ──────────────────────────────────────────────────
+
+export function downloadCSV(filename: string, headers: string[], rows: (string | number)[][]) {
+  const escapeCell = (cell: string | number) => {
+    const str = String(cell ?? "");
+    if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
+  const csvContent = [
+    headers.map(escapeCell).join(","),
+    ...rows.map(row => row.map(escapeCell).join(",")),
+  ].join("\r\n");
+
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", filename.endsWith(".csv") ? filename : `${filename}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 // ─── Overview Tab ─────────────────────────────────────────────────────────
 
 function OverviewTab() {
@@ -31,6 +58,18 @@ function OverviewTab() {
 
   const totalOutstanding = outstanding.reduce((s, r) => s + Number(r.outstanding || 0), 0);
 
+  const handleExportOutstanding = () => {
+    const headers = ["Student Name", "Class", "Amount Due (INR)", "Days Overdue", "Status"];
+    const rows = outstanding.map(r => [
+      r.studentName,
+      r.className,
+      Number(r.outstanding || 0),
+      r.daysOverdue || 0,
+      r.status || "PENDING",
+    ]);
+    downloadCSV(`Outstanding_Dues_Overview_${new Date().toISOString().split("T")[0]}.csv`, headers, rows);
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1rem" }}>
@@ -44,6 +83,18 @@ function OverviewTab() {
       <div style={{ background: "var(--bg-surface)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-light)", overflow: "hidden" }}>
         <div style={{ padding: "1rem 1.5rem", borderBottom: "1px solid var(--border-light)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <h3 style={{ fontWeight: 600, fontSize: "0.9375rem" }}>⚠️ Top Outstanding Dues</h3>
+          {outstanding.length > 0 && (
+            <button
+              onClick={handleExportOutstanding}
+              style={{
+                display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.875rem",
+                background: "transparent", color: "var(--primary-600)", border: "1px solid var(--border-default)",
+                borderRadius: "var(--radius-md)", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600,
+              }}
+            >
+              <Download size={13} /> Export CSV
+            </button>
+          )}
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
@@ -173,6 +224,30 @@ function AttendanceTab({ classes }: { classes: any[] }) {
             <button onClick={fetchRegister} disabled={!classId || !sectionId || loading} style={{ padding: "0.625rem 1.25rem", background: "var(--primary-500)", color: "white", border: "none", borderRadius: "var(--radius-md)", cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.875rem" }}>
               <RefreshCw size={14} /> Load Register
             </button>
+            {register && (
+              <button
+                onClick={() => {
+                  const dayHeaders = register.days.map((d: number) => `Day ${d}`);
+                  const headers = ["Roll No", "Student Name", ...dayHeaders, "Present", "Absent", "Attendance %"];
+                  const rows = register.students.map((s: any) => [
+                    s.rollNumber || "",
+                    s.name,
+                    ...register.days.map((d: number) => s.days[d.toString()] || "—"),
+                    s.present,
+                    s.absent,
+                    `${s.percentage}%`,
+                  ]);
+                  downloadCSV(`Attendance_Register_Month_${month}_${year}.csv`, headers, rows);
+                }}
+                style={{
+                  padding: "0.625rem 1.25rem", background: "transparent", color: "var(--text-primary)",
+                  border: "1px solid var(--border-default)", borderRadius: "var(--radius-md)", cursor: "pointer",
+                  fontWeight: 600, display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.875rem",
+                }}
+              >
+                <Download size={14} /> Export CSV
+              </button>
+            )}
           </div>
           {register && (
             <div style={{ background: "var(--bg-surface)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-light)", overflow: "auto" }}>
@@ -226,8 +301,30 @@ function AttendanceTab({ classes }: { classes: any[] }) {
 
       {view === "low" && (
         <div style={{ background: "var(--bg-surface)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-light)", overflow: "hidden" }}>
-          <div style={{ padding: "1rem 1.5rem", borderBottom: "1px solid var(--border-light)" }}>
+          <div style={{ padding: "1rem 1.5rem", borderBottom: "1px solid var(--border-light)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h3 style={{ fontWeight: 600 }}>Students Below 75% Attendance</h3>
+            {lowAtt.length > 0 && (
+              <button
+                onClick={() => {
+                  const headers = ["Student Name", "Class", "Present Days", "Total Days", "Attendance %"];
+                  const rows = lowAtt.map(s => [
+                    s.name,
+                    s.className,
+                    s.presentDays,
+                    s.totalDays,
+                    `${s.percentage}%`,
+                  ]);
+                  downloadCSV(`Low_Attendance_Below_75_${new Date().toISOString().split("T")[0]}.csv`, headers, rows);
+                }}
+                style={{
+                  display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.875rem",
+                  background: "transparent", color: "var(--primary-600)", border: "1px solid var(--border-default)",
+                  borderRadius: "var(--radius-md)", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600,
+                }}
+              >
+                <Download size={13} /> Export CSV
+              </button>
+            )}
           </div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
             <thead>
@@ -320,6 +417,27 @@ function FeesTab() {
             <button onClick={fetchCollection} disabled={loading} style={{ padding: "0.625rem 1.25rem", background: "var(--primary-500)", color: "white", border: "none", borderRadius: "var(--radius-md)", cursor: "pointer", fontWeight: 600, fontSize: "0.875rem" }}>
               Generate Report
             </button>
+            {summary && (
+              <button
+                onClick={() => {
+                  const headers = ["Fee Head / Component", "Amount Collected (INR)", "Share (%)"];
+                  const rows = Object.entries(summary.byFeeHead || {}).map(([head, amt]: any) => [
+                    head,
+                    Number(amt),
+                    `${((amt / (summary.totalCollected || 1)) * 100).toFixed(1)}%`,
+                  ]);
+                  rows.push(["TOTAL REVENUE", Number(summary.totalCollected || 0), "100%"]);
+                  downloadCSV(`Fee_Collection_Report_${from}_to_${to}.csv`, headers, rows);
+                }}
+                style={{
+                  display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.625rem 1.25rem",
+                  background: "transparent", color: "var(--text-primary)", border: "1px solid var(--border-default)",
+                  borderRadius: "var(--radius-md)", cursor: "pointer", fontWeight: 600, fontSize: "0.875rem",
+                }}
+              >
+                <Download size={14} /> Export CSV
+              </button>
+            )}
           </div>
           {summary && (
             <>
@@ -356,11 +474,37 @@ function FeesTab() {
 
       {view === "outstanding" && (
         <div style={{ background: "var(--bg-surface)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-light)", overflow: "hidden" }}>
-          <div style={{ padding: "1rem 1.5rem", borderBottom: "1px solid var(--border-light)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ padding: "1rem 1.5rem", borderBottom: "1px solid var(--border-light)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
             <h3 style={{ fontWeight: 600 }}>Outstanding Fee Dues</h3>
-            <span style={{ fontWeight: 700, color: "#dc2626", fontSize: "1.125rem" }}>
-              Total: ₹{outstanding.reduce((s, r) => s + Number(r.outstanding || 0), 0).toLocaleString()}
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+              <span style={{ fontWeight: 700, color: "#dc2626", fontSize: "1.125rem" }}>
+                Total: ₹{outstanding.reduce((s, r) => s + Number(r.outstanding || 0), 0).toLocaleString()}
+              </span>
+              {outstanding.length > 0 && (
+                <button
+                  onClick={() => {
+                    const headers = ["Student Name", "Class", "Total Amount (INR)", "Paid Amount (INR)", "Due Amount (INR)", "Days Overdue", "Status"];
+                    const rows = outstanding.map(r => [
+                      r.studentName,
+                      r.className,
+                      Number(r.totalAmount || 0),
+                      Number(r.paidAmount || 0),
+                      Number(r.outstanding || 0),
+                      r.daysOverdue || 0,
+                      r.status,
+                    ]);
+                    downloadCSV(`Fee_Outstanding_Dues_${new Date().toISOString().split("T")[0]}.csv`, headers, rows);
+                  }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.875rem",
+                    background: "transparent", color: "var(--primary-600)", border: "1px solid var(--border-default)",
+                    borderRadius: "var(--radius-md)", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600,
+                  }}
+                >
+                  <Download size={13} /> Export CSV
+                </button>
+              )}
+            </div>
           </div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
             <thead>
@@ -459,8 +603,32 @@ function ExamsTab() {
           </div>
 
           <div style={{ background: "var(--bg-surface)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-light)", overflow: "hidden" }}>
-            <div style={{ padding: "1rem 1.5rem", borderBottom: "1px solid var(--border-light)" }}>
+            <div style={{ padding: "1rem 1.5rem", borderBottom: "1px solid var(--border-light)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <h3 style={{ fontWeight: 600 }}>{report.exam.name} — Student Results</h3>
+              {report.students?.length > 0 && (
+                <button
+                  onClick={() => {
+                    const headers = ["Rank", "Student Name", "Roll No.", "Total Marks", "Max Marks", "Percentage", "Grade"];
+                    const rows = (report.students || []).map((s: any) => [
+                      s.rank,
+                      s.name,
+                      s.rollNumber || "—",
+                      s.total,
+                      s.maxTotal,
+                      `${s.percentage}%`,
+                      s.grade,
+                    ]);
+                    downloadCSV(`${report.exam.name.replace(/\s+/g, "_")}_Results.csv`, headers, rows);
+                  }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.875rem",
+                    background: "transparent", color: "var(--primary-600)", border: "1px solid var(--border-default)",
+                    borderRadius: "var(--radius-md)", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600,
+                  }}
+                >
+                  <Download size={13} /> Export Results CSV
+                </button>
+              )}
             </div>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
               <thead>
@@ -531,8 +699,35 @@ export default function ReportsPage() {
           <h1 style={{ fontSize: "var(--text-2xl)", fontWeight: 700, marginBottom: "0.25rem" }}>Reports & Analytics</h1>
           <p style={{ color: "var(--text-secondary)", fontSize: "var(--text-sm)" }}>Comprehensive insights across attendance, fees, and examinations</p>
         </div>
-        <button style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.625rem 1.25rem", background: "var(--primary-500)", color: "white", border: "none", borderRadius: "var(--radius-md)", cursor: "pointer", fontWeight: 600, fontSize: "0.875rem" }}>
-          <Download size={16} /> Export
+        <button
+          onClick={() => {
+            // Contextual quick download depending on active tab
+            if (tab === "overview" || tab === "fees") {
+              apiClient.get("/reports/fees/outstanding").then(res => {
+                const list = res.data?.data || res.data || [];
+                const headers = ["Student Name", "Class", "Amount Due (INR)", "Days Overdue", "Status"];
+                const rows = list.map((r: any) => [r.studentName, r.className, r.outstanding, r.daysOverdue, r.status]);
+                downloadCSV(`Institutional_Outstanding_Fees_${new Date().toISOString().split("T")[0]}.csv`, headers, rows);
+              });
+            } else if (tab === "attendance") {
+              apiClient.get("/reports/attendance/low?threshold=75").then(res => {
+                const list = res.data?.data || res.data || [];
+                const headers = ["Student Name", "Class", "Present Days", "Total Days", "Attendance %"];
+                const rows = list.map((s: any) => [s.name, s.className, s.presentDays, s.totalDays, `${s.percentage}%`]);
+                downloadCSV(`Low_Attendance_Register_${new Date().toISOString().split("T")[0]}.csv`, headers, rows);
+              });
+            } else {
+              apiClient.get("/exams").then(res => {
+                const list = res.data?.data || res.data || [];
+                const headers = ["Exam Name", "Type", "Start Date", "End Date", "Published"];
+                const rows = list.map((e: any) => [e.name, e.examType, e.startDate, e.endDate, e.isPublished ? "Yes" : "No"]);
+                downloadCSV(`Examinations_Schedule_${new Date().toISOString().split("T")[0]}.csv`, headers, rows);
+              });
+            }
+          }}
+          style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.625rem 1.25rem", background: "var(--primary-500)", color: "white", border: "none", borderRadius: "var(--radius-md)", cursor: "pointer", fontWeight: 600, fontSize: "0.875rem" }}
+        >
+          <Download size={16} /> Quick Export CSV
         </button>
       </div>
 

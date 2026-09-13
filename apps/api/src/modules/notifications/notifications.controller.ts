@@ -2,13 +2,19 @@ import {
   Controller,
   Get,
   Patch,
+  Post,
+  Body,
   Query,
   Param,
   UseGuards,
   Request,
+  Sse,
+  MessageEvent,
 } from '@nestjs/common';
+import { Observable } from 'rxjs';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
+import { SmsWhatsAppService } from './sms-whatsapp.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('Notifications')
@@ -16,7 +22,16 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @UseGuards(JwtAuthGuard)
 @Controller('notifications')
 export class NotificationsController {
-  constructor(private service: NotificationsService) {}
+  constructor(
+    private service: NotificationsService,
+    private smsWhatsAppService: SmsWhatsAppService,
+  ) {}
+
+  @Sse('stream')
+  @ApiOperation({ summary: 'Stream real-time notification events for current user' })
+  streamNotifications(@Request() req: any): Observable<MessageEvent> {
+    return this.service.getEventStream(req.user.id, req.user.schoolId);
+  }
 
   @Get()
   @ApiOperation({ summary: 'Get notifications for current user' })
@@ -53,5 +68,23 @@ export class NotificationsController {
   @ApiOperation({ summary: 'Mark all notifications as read' })
   async markAllRead(@Request() req: any) {
     return this.service.markAllRead(req.user.id, req.user.schoolId);
+  }
+
+  @Post('test-gateway')
+  @ApiOperation({ summary: 'Send test SMS or WhatsApp dispatch' })
+  async testGateway(
+    @Body() dto: { channel: 'SMS' | 'WHATSAPP'; phone: string; message?: string },
+  ) {
+    if (dto.channel === 'WHATSAPP') {
+      return this.smsWhatsAppService.sendWhatsApp(
+        dto.phone,
+        'attendance_alert',
+        { student_name: 'Test Student', status: 'Present', date: new Date().toISOString().split('T')[0] },
+      );
+    }
+    return this.smsWhatsAppService.sendSMS(
+      dto.phone,
+      dto.message || 'Edusphere Test Dispatch: Gateway verification successful.',
+    );
   }
 }

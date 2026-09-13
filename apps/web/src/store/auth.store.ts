@@ -46,12 +46,21 @@ export const useAuthStore = create<AuthState>()(
           user: state.user ? { ...state.user, ...updates } : null,
         })),
 
-      logout: () =>
+      logout: () => {
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.removeItem('selected_school_id');
+            sessionStorage.clear();
+          } catch {
+            // Ignore storage restrictions
+          }
+        }
         set({
           user: null,
           accessToken: null,
           isAuthenticated: false,
-        }),
+        });
+      },
     }),
     {
       name: 'ai-school-erp-auth',

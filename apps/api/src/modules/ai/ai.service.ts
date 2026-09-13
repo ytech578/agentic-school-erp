@@ -1,11 +1,77 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AuditAction } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
+import { requireSchoolId } from '../../core/tenant/tenant.util';
+import { generateNextSequence } from '../../core/database/sequence.util';
 import {
   GoogleGenerativeAI,
   HarmCategory,
   HarmBlockThreshold,
+  SchemaType,
+  FunctionDeclarationsTool,
 } from '@google/generative-ai';
+
+const AI_TOOLS: FunctionDeclarationsTool[] = [
+  {
+    functionDeclarations: [
+      {
+        name: 'approve_leave',
+        description: 'Approve a pending staff leave request when requested by a school administrator.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            staffName: {
+              type: SchemaType.STRING,
+              description: 'The name of the staff member whose leave request is to be approved.',
+            },
+          },
+          required: ['staffName'],
+        },
+      },
+      {
+        name: 'create_assignment',
+        description: 'Create and assign a new homework or class assignment.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            className: {
+              type: SchemaType.STRING,
+              description: 'Class name or grade (e.g. "Class 10-A")',
+            },
+            topic: {
+              type: SchemaType.STRING,
+              description: 'Topic or title of the assignment',
+            },
+            dueDate: {
+              type: SchemaType.STRING,
+              description: 'Optional due date in ISO format YYYY-MM-DD',
+            },
+          },
+          required: ['className', 'topic'],
+        },
+      },
+      {
+        name: 'send_announcement',
+        description: 'Broadcast a school-wide announcement or urgent circular to all active users.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            title: {
+              type: SchemaType.STRING,
+              description: 'Headline or title of the circular or announcement',
+            },
+            message: {
+              type: SchemaType.STRING,
+              description: 'Body text or content of the announcement',
+            },
+          },
+          required: ['title'],
+        },
+      },
+    ],
+  },
+];
 
 @Injectable()
 export class AIService {
@@ -24,6 +90,7 @@ export class AIService {
       this.genAI = new GoogleGenerativeAI(apiKey);
       this.model = this.genAI.getGenerativeModel({
         model: this.config.get<string>('ai.geminiModel', 'gemini-3.5-flash-lite'),
+        tools: AI_TOOLS,
         safetySettings: [
           {
             category: HarmCategory.HARM_CATEGORY_HARASSMENT,
@@ -110,6 +177,10 @@ Rules:
     conversationId?: string;
     message: string;
   }): Promise<{ conversationId: string; reply: string; tokens?: number; pendingAction?: any }> {
+    // Sanitize user message against raw action injection
+    const rawMessage = data.message || '';
+    const sanitizedUserMessage = rawMessage.replace(/\[ACTION:[^\]]*\]/gi, '').trim();
+
     // Get or create conversation
     let conversation = data.conversationId
       ? await this.prisma.aIConversation.findFirst({
@@ -124,18 +195,18 @@ Rules:
           schoolId: data.schoolId,
           userId: data.userId,
           sessionId: `session_${Date.now()}`,
-          title: data.message.slice(0, 50),
+          title: (sanitizedUserMessage || rawMessage).slice(0, 50),
         },
         include: { messages: true },
       });
     }
 
-    // Save user message
+    // Save sanitized user message
     await this.prisma.aIMessage.create({
       data: {
         conversationId: conversation.id,
         role: 'user',
-        content: data.message,
+        content: sanitizedUserMessage || rawMessage,
       },
     });
 
@@ -145,13 +216,13 @@ Rules:
 
     if (!this.model) {
       // Fallback mock response when no API key
-      reply = this.getMockResponse(data.message);
+      reply = this.getMockResponse(sanitizedUserMessage || rawMessage);
     } else {
       try {
         const systemPrompt = await this.buildSystemPrompt(data.user);
         const history = (conversation.messages ?? []).map((m: any) => ({
           role: m.role === 'user' ? 'user' : 'model',
-          parts: [{ text: m.content }],
+          parts: [{ text: (m.content || '').replace(/\[ACTION:[^\]]*\]/gi, '') }],
         }));
 
         const chat = this.model.startChat({
@@ -169,65 +240,149 @@ Rules:
           ],
         });
 
-        const result = await chat.sendMessage(data.message);
+        const result = await chat.sendMessage(sanitizedUserMessage || rawMessage);
         const response = await result.response;
-        reply = response.text();
+        try {
+          reply = response.text();
+        } catch {
+          reply = 'Action processed.';
+        }
         tokens = response.usageMetadata?.totalTokenCount;
 
-        // ─── IMPROVEMENT 1: Parse action tags from AI response ───────────
-        const approveLeaveMatch = reply.match(/\[ACTION:APPROVE_LEAVE:([^\]]+)\]/);
-        const createAssignmentMatch = reply.match(/\[ACTION:CREATE_ASSIGNMENT:([^\]]+):([^\]]+)\]/);
-        const sendAnnouncementMatch = reply.match(/\[ACTION:SEND_ANNOUNCEMENT:([^\]]+)\]/);
+        const userRole = data.user?.role || 'STUDENT';
+        const isAdmin = ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'].includes(userRole);
+        const isTeacher = userRole === 'TEACHER';
 
-        if (approveLeaveMatch) {
-          const staffName = approveLeaveMatch[1]?.trim();
-          let leave = null;
-          if (staffName && staffName.toLowerCase() !== 'any' && staffName.toLowerCase() !== 'pending') {
-            leave = await this.prisma.leaveRequest.findFirst({
-              where: {
-                schoolId: data.schoolId,
-                status: 'PENDING',
-                staff: {
-                  user: {
-                    OR: [
-                      { firstName: { contains: staffName, mode: 'insensitive' } },
-                      { lastName: { contains: staffName, mode: 'insensitive' } },
-                    ],
+        // ─── Native Gemini Function Calling / Tool Calling (FIX-03) ────────
+        const functionCalls = typeof response.functionCalls === 'function' ? response.functionCalls() : [];
+        if (functionCalls && functionCalls.length > 0) {
+          const call = functionCalls[0];
+          if (call.name === 'approve_leave' && isAdmin) {
+            const rawStaffName = (call.args as any)?.staffName?.trim();
+            if (rawStaffName) {
+              let leave = await this.prisma.leaveRequest.findFirst({
+                where: {
+                  schoolId: data.schoolId,
+                  status: 'PENDING',
+                  staff: {
+                    user: {
+                      OR: [
+                        { firstName: { contains: rawStaffName, mode: 'insensitive' } },
+                        { lastName: { contains: rawStaffName, mode: 'insensitive' } },
+                      ],
+                    },
                   },
                 },
-              },
-              include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
-            });
+                include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
+              });
+              if (!leave) {
+                leave = await this.prisma.leaveRequest.findFirst({
+                  where: { schoolId: data.schoolId, status: 'PENDING' },
+                  include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
+                });
+              }
+              if (leave) {
+                pendingAction = {
+                  type: 'APPROVE_LEAVE',
+                  label: `Approve leave for ${leave.staff.user.firstName} ${leave.staff.user.lastName}`,
+                  data: { leaveId: leave.id },
+                };
+              }
+            }
+          } else if (call.name === 'create_assignment' && (isAdmin || isTeacher)) {
+            const { className: rawClassName, topic: rawTopic, dueDate } = (call.args as any) || {};
+            if (rawClassName && rawTopic) {
+              pendingAction = {
+                type: 'CREATE_ASSIGNMENT',
+                label: `Create assignment on topic "${rawTopic}" for ${rawClassName}`,
+                data: { className: rawClassName, topic: rawTopic, dueDate },
+              };
+            }
+          } else if (call.name === 'send_announcement' && isAdmin) {
+            const { title: rawTitle, message: rawMsg } = (call.args as any) || {};
+            if (rawTitle) {
+              pendingAction = {
+                type: 'SEND_ANNOUNCEMENT',
+                label: `Send announcement: "${rawTitle}"`,
+                data: { title: rawTitle, message: rawMsg },
+              };
+            }
           }
-          if (!leave) {
-            leave = await this.prisma.leaveRequest.findFirst({
-              where: { schoolId: data.schoolId, status: 'PENDING' },
-              include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
-            });
+        }
+
+        // Fallback: Parse action tags from AI response with RBAC and schema checks
+        if (!pendingAction && reply) {
+          const approveLeaveMatch = reply.match(/\[ACTION:APPROVE_LEAVE:([^\]]+)\]/);
+          const createAssignmentMatch = reply.match(/\[ACTION:CREATE_ASSIGNMENT:([^\]]+):([^\]]+)\]/);
+          const sendAnnouncementMatch = reply.match(/\[ACTION:SEND_ANNOUNCEMENT:([^\]]+)\]/);
+
+        // APPROVE_LEAVE: Only admins can trigger leave approval
+        if (approveLeaveMatch && isAdmin) {
+          const rawStaffName = approveLeaveMatch[1]?.trim();
+          if (rawStaffName && /^[a-zA-Z0-9\s.\-_']{1,50}$/.test(rawStaffName)) {
+            let leave = null;
+            if (rawStaffName.toLowerCase() !== 'any' && rawStaffName.toLowerCase() !== 'pending') {
+              leave = await this.prisma.leaveRequest.findFirst({
+                where: {
+                  schoolId: data.schoolId,
+                  status: 'PENDING',
+                  staff: {
+                    user: {
+                      OR: [
+                        { firstName: { contains: rawStaffName, mode: 'insensitive' } },
+                        { lastName: { contains: rawStaffName, mode: 'insensitive' } },
+                      ],
+                    },
+                  },
+                },
+                include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
+              });
+            }
+            if (!leave) {
+              leave = await this.prisma.leaveRequest.findFirst({
+                where: { schoolId: data.schoolId, status: 'PENDING' },
+                include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
+              });
+            }
+            if (leave) {
+              pendingAction = {
+                type: 'APPROVE_LEAVE',
+                label: `Approve leave for ${leave.staff.user.firstName} ${leave.staff.user.lastName}`,
+                data: { leaveId: leave.id },
+              };
+            }
           }
-          if (leave) {
+        } else if (createAssignmentMatch && (isAdmin || isTeacher)) {
+          const rawClassName = createAssignmentMatch[1]?.trim();
+          const rawTopic = createAssignmentMatch[2]?.trim();
+          if (
+            rawClassName &&
+            rawTopic &&
+            /^[a-zA-Z0-9\s\-_()]{1,50}$/.test(rawClassName) &&
+            rawTopic.length >= 2 &&
+            rawTopic.length <= 150 &&
+            !/[<>{}]/.test(rawTopic)
+          ) {
             pendingAction = {
-              type: 'APPROVE_LEAVE',
-              label: `Approve leave for ${leave.staff.user.firstName} ${leave.staff.user.lastName}`,
-              data: { leaveId: leave.id },
+              type: 'CREATE_ASSIGNMENT',
+              label: `Create assignment on topic "${rawTopic}" for ${rawClassName}`,
+              data: { className: rawClassName, topic: rawTopic },
             };
           }
-          reply = reply.replace(/\[ACTION:APPROVE_LEAVE:[^\]]+\]/, '').trim();
-        } else if (createAssignmentMatch) {
-          pendingAction = {
-            type: 'CREATE_ASSIGNMENT',
-            label: `Create assignment on topic "${createAssignmentMatch[2]}" for ${createAssignmentMatch[1]}`,
-            data: { className: createAssignmentMatch[1], topic: createAssignmentMatch[2] },
-          };
-          reply = reply.replace(/\[ACTION:CREATE_ASSIGNMENT:[^\]]+\]/, '').trim();
-        } else if (sendAnnouncementMatch) {
-          pendingAction = {
-            type: 'SEND_ANNOUNCEMENT',
-            label: `Send announcement: "${sendAnnouncementMatch[1]}"`,
-            data: { title: sendAnnouncementMatch[1] },
-          };
-          reply = reply.replace(/\[ACTION:SEND_ANNOUNCEMENT:[^\]]+\]/, '').trim();
+        } else if (sendAnnouncementMatch && isAdmin) {
+          const rawTitle = sendAnnouncementMatch[1]?.trim();
+          if (rawTitle && rawTitle.length >= 2 && rawTitle.length <= 150 && !/[<>{}]/.test(rawTitle)) {
+            pendingAction = {
+              type: 'SEND_ANNOUNCEMENT',
+              label: `Send announcement: "${rawTitle}"`,
+              data: { title: rawTitle },
+            };
+          }
         }
+      }
+
+      // Strip ALL action tags from the user-facing reply
+      reply = reply ? reply.replace(/\[ACTION:[^\]]+\]/g, '').trim() : '';
 
       } catch (err: any) {
         this.logger.error('Gemini API error', err?.message);
@@ -259,62 +414,127 @@ Rules:
     if (!data.conversationId) {
       await this.prisma.aIConversation.update({
         where: { id: conversation.id },
-        data: { title: data.message.slice(0, 60) },
+        data: { title: (sanitizedUserMessage || rawMessage).slice(0, 60) },
       });
     }
 
     return { conversationId: conversation.id, reply, tokens, pendingAction };
   }
 
-  // ─── IMPROVEMENT 1: Execute confirmed AI actions ─────────────────────────
-  async executeAIAction(schoolId: string, userId: string, action: { type: string; data: any }) {
+  // ─── IMPROVEMENT 1: Execute confirmed AI actions with Audit Logging ──────
+  async executeAIAction(schoolId: string, userId: string, action: { type: string; data: any }, userRole?: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'Execute AI action');
+
+    // Verify user role permissions
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, schoolId: validSchoolId },
+      select: { id: true, role: true, firstName: true, lastName: true },
+    });
+    if (!user) {
+      throw new ForbiddenException('User not authorized or tenant mismatch.');
+    }
+
+    const effectiveRole = userRole || user.role;
+    const isAdmin = ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'].includes(effectiveRole);
+
     switch (action.type) {
       case 'APPROVE_LEAVE': {
+        if (!isAdmin) {
+          throw new ForbiddenException('Only administrators can approve leave requests.');
+        }
         let leaveId = action.data?.leaveId;
         if (!leaveId) {
           const firstPending = await this.prisma.leaveRequest.findFirst({
-            where: { schoolId, status: 'PENDING' },
+            where: { schoolId: validSchoolId, status: 'PENDING' },
           });
           if (firstPending) leaveId = firstPending.id;
         }
         if (!leaveId) return { success: false, message: 'No pending leave request found to approve.' };
+        const leave = await this.prisma.leaveRequest.findFirst({
+          where: { id: leaveId, schoolId: validSchoolId },
+          include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
+        });
+        if (!leave) return { success: false, message: 'Leave request not found or unauthorized.' };
         await this.prisma.leaveRequest.update({
-          where: { id: leaveId },
+          where: { id: leave.id },
           data: { status: 'APPROVED', reviewNote: '[Approved via AI Assistant]', reviewedAt: new Date(), reviewedBy: userId },
         });
+
+        // Audit log entry
+        await this.prisma.activityLog.create({
+          data: {
+            schoolId: validSchoolId,
+            userId,
+            action: AuditAction.UPDATE,
+            module: 'AI_AGENT',
+            resourceId: leave.id,
+            resourceType: 'LeaveRequest',
+            description: `Approved leave request for staff ${leave.staff?.user?.firstName || ''} ${leave.staff?.user?.lastName || ''}`.trim(),
+            after: { leaveId: leave.id, status: 'APPROVED', reviewedBy: userId },
+          },
+        }).catch((err) => this.logger.warn(`Failed to write activity log: ${err.message}`));
+
         return { success: true, message: 'Leave request approved successfully.' };
       }
       case 'CREATE_ASSIGNMENT': {
+        if (!isAdmin && effectiveRole !== 'TEACHER') {
+          throw new ForbiddenException('Only teachers and administrators can create assignments.');
+        }
         const { className, topic, dueDate } = action.data || {};
-        if (!topic) return { success: false, message: 'Assignment topic is required.' };
-        let cls = className ? await this.prisma.class.findFirst({ where: { schoolId, name: { contains: className, mode: 'insensitive' } } }) : null;
-        if (!cls) cls = await this.prisma.class.findFirst({ where: { schoolId } });
-        let academicYear = await this.prisma.academicYear.findFirst({ where: { schoolId, isActive: true } });
-        if (!academicYear) academicYear = await this.prisma.academicYear.findFirst({ where: { schoolId } });
-        let teacher = await this.prisma.staff.findFirst({ where: { schoolId, isActive: true } });
-        if (!teacher) teacher = await this.prisma.staff.findFirst({ where: { schoolId } });
-        let subject = await this.prisma.subject.findFirst({ where: { schoolId } });
+        if (!topic || typeof topic !== 'string' || topic.trim().length === 0) {
+          return { success: false, message: 'Assignment topic is required.' };
+        }
+        const cleanTopic = topic.trim().slice(0, 150);
+        let cls = className ? await this.prisma.class.findFirst({ where: { schoolId: validSchoolId, name: { contains: className.trim(), mode: 'insensitive' } } }) : null;
+        if (!cls) cls = await this.prisma.class.findFirst({ where: { schoolId: validSchoolId } });
+        let academicYear = await this.prisma.academicYear.findFirst({ where: { schoolId: validSchoolId, isActive: true } });
+        if (!academicYear) academicYear = await this.prisma.academicYear.findFirst({ where: { schoolId: validSchoolId } });
+        let teacher = await this.prisma.staff.findFirst({ where: { schoolId: validSchoolId, isActive: true } });
+        if (!teacher) teacher = await this.prisma.staff.findFirst({ where: { schoolId: validSchoolId } });
+        let subject = await this.prisma.subject.findFirst({ where: { schoolId: validSchoolId } });
         if (!cls || !academicYear || !teacher || !subject) return { success: false, message: 'Could not resolve required class, academic year, staff, or subject.' };
-        await this.prisma.assignment.create({
+        
+        const assignment = await this.prisma.assignment.create({
           data: {
-            schoolId,
+            schoolId: validSchoolId,
             classId: cls.id,
             staffId: teacher.id,
             subjectId: subject.id,
             academicYearId: academicYear.id,
-            title: topic,
-            description: `Assignment created by AI Assistant on topic: ${topic}`,
+            title: cleanTopic,
+            description: `Assignment created by AI Assistant on topic: ${cleanTopic}`,
             dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
             maxMarks: 10,
           },
         });
-        return { success: true, message: `Assignment "${topic}" created successfully for Class ${cls.name}.` };
+
+        // Audit log entry
+        await this.prisma.activityLog.create({
+          data: {
+            schoolId: validSchoolId,
+            userId,
+            action: AuditAction.CREATE,
+            module: 'AI_AGENT',
+            resourceId: assignment.id,
+            resourceType: 'Assignment',
+            description: `Created assignment "${cleanTopic}" for Class ${cls.name}`,
+            after: { assignmentId: assignment.id, title: cleanTopic, classId: cls.id },
+          },
+        }).catch((err) => this.logger.warn(`Failed to write activity log: ${err.message}`));
+
+        return { success: true, message: `Assignment "${cleanTopic}" created successfully for Class ${cls.name}.` };
       }
       case 'SEND_ANNOUNCEMENT': {
+        if (!isAdmin) {
+          throw new ForbiddenException('Only administrators can send announcements.');
+        }
         const { title, message } = action.data || {};
-        if (!title) return { success: false, message: 'Announcement title is required.' };
+        if (!title || typeof title !== 'string' || title.trim().length === 0) {
+          return { success: false, message: 'Announcement title is required.' };
+        }
+        const cleanTitle = title.trim().slice(0, 150);
         const users = await this.prisma.user.findMany({
-          where: { schoolId, status: 'ACTIVE' },
+          where: { schoolId: validSchoolId, status: 'ACTIVE' },
           select: { id: true },
         });
         const BATCH_SIZE = 50;
@@ -324,16 +544,31 @@ Rules:
           if (batch.length > 0) {
             await this.prisma.message.createMany({
               data: batch.map(u => ({
-                schoolId,
+                schoolId: validSchoolId,
                 senderId: userId,
                 recipientId: u.id,
-                subject: title,
-                body: message || title,
+                subject: cleanTitle,
+                body: message || cleanTitle,
               })),
             });
             sent += batch.length;
           }
         }
+
+        // Audit log entry
+        await this.prisma.activityLog.create({
+          data: {
+            schoolId: validSchoolId,
+            userId,
+            action: AuditAction.CREATE,
+            module: 'AI_AGENT',
+            resourceId: null,
+            resourceType: 'Message',
+            description: `Broadcasted announcement "${cleanTitle}" to ${sent} users`,
+            after: { title: cleanTitle, recipientCount: sent, senderId: userId },
+          },
+        }).catch((err) => this.logger.warn(`Failed to write activity log: ${err.message}`));
+
         return { success: true, message: `Announcement sent to ${sent} users.` };
       }
       default:
@@ -489,7 +724,7 @@ Rules:
 
     // ── Agent 3: Finance — Class-Specific Fee estimate ────────────────────
     try {
-      // Extract class number from application.classApplied (e.g. "11th (MPC)" -> "11", "Class 10" -> "10")
+      // Extract class number from application.classApplied (e.g. "Class 10" -> "10")
       const classMatch = application.classApplied.match(/\d+/);
       const classNumber = classMatch ? classMatch[0] : null;
 
@@ -520,7 +755,7 @@ Rules:
         });
       }
 
-      // Fallback: match by fee structure name (e.g. "Class 11 Annual Fee 2026")
+      // Fallback: match by fee structure name (e.g. "Class 10 Annual Fee 2026")
       if (!feeStructure && classNumber) {
         feeStructure = await this.prisma.feeStructure.findFirst({
           where: {
@@ -839,7 +1074,7 @@ Return ONLY the single INTENT string without quotes or extra text.`;
             const extractPrompt = `Extract admission application details from this user command: "${prompt}".
 Return ONLY a valid JSON object with these keys:
 - "studentName": string (e.g. "Ankith")
-- "classApplied": string (e.g. "11th (MPC)")
+- "classApplied": string (e.g. "Class 10")
 - "parentName": string (e.g. "Rahul Kumar")
 - "parentPhone": string (e.g. "9948287654" or "N/A")
 - "parentEmail": string (or null)
@@ -866,14 +1101,14 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
         if (!candidateName) {
           return {
             intent: 'CREATE_ADMISSION',
-            textResponse: `### 📋 Quick Admission Registration\n\nTo register an admission application via natural language, please provide the applicant's name and details:\n\n> Example: *"Admit student Priya Patel for Grade 11 MPC, father Suresh Patel, phone 9876543210"*\n\nAlternatively, click the **New Admission** button in the header chips above to launch the quick registration form.`,
+            textResponse: `### 📋 Quick Admission Registration\n\nTo register an admission application via natural language, please provide the applicant's name and details:\n\n> Example: *"Admit student Priya Patel for Grade 10 Section A, father Suresh Patel, phone 9876543210"*\n\nAlternatively, click the **New Admission** button in the header chips above to launch the quick registration form.`,
             chartData: null,
             actionExecuted: null,
           };
         }
 
         const studentName = candidateName;
-        const classApplied = (!isPlaceholder(extracted?.classApplied) ? extracted?.classApplied : null) || (classMatch ? `Class ${classMatch[1]}` : 'Class 11');
+        const classApplied = (!isPlaceholder(extracted?.classApplied) ? extracted?.classApplied : null) || (classMatch ? `Class ${classMatch[1]}` : 'Class 10');
         const parentName = (!isPlaceholder(extracted?.parentName) ? extracted?.parentName : null) || (parentMatch ? parentMatch[1] : 'Parent / Guardian');
         const parentPhone = (!isPlaceholder(extracted?.parentPhone) ? extracted?.parentPhone : null) || (phoneMatch ? phoneMatch[0] : 'N/A');
         const gender = extracted?.gender === 'FEMALE' ? 'FEMALE' : 'MALE';
@@ -899,7 +1134,7 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
           });
         }
 
-        const appNo = `ADM-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+        const appNo = await generateNextSequence(this.prisma, schoolId, 'APP', new Date().getFullYear());
 
         const createdApp = await this.prisma.admissionApplication.create({
           data: {
@@ -1232,8 +1467,9 @@ User request: "${prompt}"`;
 
   // ─── Feature 1: Fee Defaulter Follow-Up ─────────────────────────────────
   async generateFeeDefaulterPreview(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const defaulters = await this.prisma.feePayment.findMany({
-      where: { schoolId, paymentStatus: { in: ['PENDING', 'OVERDUE'] } },
+      where: { schoolId: validSchoolId, paymentStatus: { in: ['PENDING', 'OVERDUE'] } },
       include: {
         student: {
           include: {
@@ -1273,12 +1509,13 @@ User request: "${prompt}"`;
 
   // ─── Feature 2: Consecutive Absence Alert ─────────────────────────────────
   async generateAbsenceAlertPreview(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const threeDaysAgo = new Date();
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
     threeDaysAgo.setHours(0, 0, 0, 0);
 
     const absentRecords = await this.prisma.attendanceRecord.findMany({
-      where: { schoolId, status: 'ABSENT', date: { gte: threeDaysAgo } },
+      where: { schoolId: validSchoolId, status: 'ABSENT', date: { gte: threeDaysAgo } },
       include: {
         student: {
           include: {
@@ -1327,11 +1564,12 @@ User request: "${prompt}"`;
 
   // ─── Feature 3: Timetable Cover Suggestion ────────────────────────────────
   async generateTimetableCoverPreview(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const today = new Date();
     const dayOfWeek = today.getDay() === 0 ? 7 : today.getDay();
 
     const approvedLeaves = await this.prisma.leaveRequest.findMany({
-      where: { schoolId, status: 'APPROVED', startDate: { lte: today }, endDate: { gte: today } },
+      where: { schoolId: validSchoolId, status: 'APPROVED', startDate: { lte: today }, endDate: { gte: today } },
       include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
     });
 
@@ -1339,13 +1577,13 @@ User request: "${prompt}"`;
       const absentStaffName = `${leave.staff.user.firstName} ${leave.staff.user.lastName}`;
 
       const affectedSlots = await this.prisma.timetableSlot.findMany({
-        where: { schoolId, staffId: leave.staffId, dayOfWeek, isActive: true },
+        where: { schoolId: validSchoolId, staffId: leave.staffId, dayOfWeek, isActive: true },
         include: { class: true },
       });
 
       // Find potential substitutes (same subject, different staff)
       const substitutes = await this.prisma.staff.findMany({
-        where: { schoolId, isActive: true, id: { not: leave.staffId } },
+        where: { schoolId: validSchoolId, isActive: true, id: { not: leave.staffId } },
         include: { user: { select: { firstName: true, lastName: true } } },
         take: 3,
       });
@@ -1369,12 +1607,13 @@ User request: "${prompt}"`;
 
   // ─── Feature 4: Attendance Warning Letter ─────────────────────────────────
   async generateAttendanceWarningPreview(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     thirtyDaysAgo.setHours(0, 0, 0, 0);
 
     const records = await this.prisma.attendanceRecord.findMany({
-      where: { schoolId, date: { gte: thirtyDaysAgo } },
+      where: { schoolId: validSchoolId, date: { gte: thirtyDaysAgo } },
       select: { studentId: true, status: true },
     });
 
@@ -1388,8 +1627,8 @@ User request: "${prompt}"`;
     const lowAttendance = Object.values(studentStats).filter(s => s.total > 0 && (s.present / s.total) < 0.75);
 
     const items = await Promise.all(lowAttendance.slice(0, 30).map(async (s) => {
-      const student = await this.prisma.student.findUnique({
-        where: { id: s.studentId },
+      const student = await this.prisma.student.findFirst({
+        where: { id: s.studentId, schoolId: validSchoolId },
         include: {
           user: { select: { firstName: true, lastName: true } },
           guardians: { select: { id: true, firstName: true, lastName: true } }
@@ -1416,8 +1655,9 @@ User request: "${prompt}"`;
 
   // ─── Feature 5: Leave AI Recommendation ──────────────────────────────────
   async generateLeaveAIRecommendationPreview(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const pendingLeaves = await this.prisma.leaveRequest.findMany({
-      where: { schoolId, status: 'PENDING' },
+      where: { schoolId: validSchoolId, status: 'PENDING' },
       include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
     });
 
@@ -1427,7 +1667,7 @@ User request: "${prompt}"`;
       const dayOfWeek = startDate.getDay() === 0 ? 7 : startDate.getDay();
 
       const conflicts = await this.prisma.timetableSlot.count({
-        where: { schoolId, staffId: leave.staffId, dayOfWeek, isActive: true },
+        where: { schoolId: validSchoolId, staffId: leave.staffId, dayOfWeek, isActive: true },
       });
 
       let recommendation = 'APPROVE';
@@ -1465,8 +1705,9 @@ User request: "${prompt}"`;
 
   // ─── Feature 6: Report Card Publish Check ─────────────────────────────────
   async generateReportCardPublishPreview(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const exams = await this.prisma.exam.findMany({
-      where: { schoolId },
+      where: { schoolId: validSchoolId },
       include: {
         subjects: true,
       },
@@ -1500,15 +1741,16 @@ User request: "${prompt}"`;
 
   // ─── Feature 7: Daily Digest ─────────────────────────────────────────────
   async generateDailyDigestPreview(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const [totalStudents, presentToday, pendingFees, pendingLeaves, totalStaff] = await Promise.all([
-      this.prisma.student.count({ where: { schoolId, isActive: true } }),
-      this.prisma.attendanceRecord.count({ where: { schoolId, date: { gte: today }, status: 'PRESENT' } }),
-      this.prisma.feePayment.count({ where: { schoolId, paymentStatus: { in: ['PENDING', 'OVERDUE'] } } }),
-      this.prisma.leaveRequest.count({ where: { schoolId, status: 'PENDING' } }),
-      this.prisma.staff.count({ where: { schoolId, isActive: true } }),
+      this.prisma.student.count({ where: { schoolId: validSchoolId, isActive: true } }),
+      this.prisma.attendanceRecord.count({ where: { schoolId: validSchoolId, date: { gte: today }, status: 'PRESENT' } }),
+      this.prisma.feePayment.count({ where: { schoolId: validSchoolId, paymentStatus: { in: ['PENDING', 'OVERDUE'] } } }),
+      this.prisma.leaveRequest.count({ where: { schoolId: validSchoolId, status: 'PENDING' } }),
+      this.prisma.staff.count({ where: { schoolId: validSchoolId, isActive: true } }),
     ]);
 
     const attendancePct = totalStudents > 0 ? Math.round((presentToday / totalStudents) * 100) : 0;
@@ -1528,20 +1770,31 @@ User request: "${prompt}"`;
 
   // ─── Execute Automation Task ────────────────────────────────────────────
   async executeAutomationTask(schoolId: string, userId: string, taskType: string, payload: any) {
+    const validSchoolId = requireSchoolId(schoolId);
     let actionsCount = 0;
 
     if (taskType === 'FEE_DEFAULTER' || taskType === 'ABSENCE_ALERT' || taskType === 'ATTENDANCE_WARNING') {
+      const recipientIds = (payload.items || []).map((item: any) => item.recipientId).filter(Boolean);
+      // Validate recipients exist in the tenant
+      const validUsers = await this.prisma.user.findMany({
+        where: { id: { in: recipientIds }, schoolId: validSchoolId },
+        select: { id: true },
+      });
+      const validUserIdSet = new Set(validUsers.map((u) => u.id));
+
       // Batched messaging to avoid failures on large datasets
       const BATCH_SIZE = 50;
       for (let i = 0; i < payload.items.length; i += BATCH_SIZE) {
         const batch = payload.items.slice(i, i + BATCH_SIZE);
-        const messages = batch.map((item: any) => ({
-          schoolId,
-          senderId: userId,
-          recipientId: item.recipientId,
-          subject: payload.subject || taskType.replace(/_/g, ' '),
-          body: item.draftMessage,
-        }));
+        const messages = batch
+          .filter((item: any) => validUserIdSet.has(item.recipientId))
+          .map((item: any) => ({
+            schoolId: validSchoolId,
+            senderId: userId,
+            recipientId: item.recipientId,
+            subject: payload.subject || taskType.replace(/_/g, ' '),
+            body: item.draftMessage,
+          }));
         if (messages.length > 0) {
           await this.prisma.message.createMany({ data: messages });
           actionsCount += messages.length;
@@ -1550,40 +1803,56 @@ User request: "${prompt}"`;
     }
 
     else if (taskType === 'TIMETABLE_COVER') {
-      for (const item of payload.items) {
-        if (item.suggestedSubstituteId) {
-          for (const slot of item.slots) {
-            await this.prisma.timetableSlot.update({
-              where: { id: slot.id },
+      for (const item of (payload.items || [])) {
+        if (item.suggestedSubstituteId && Array.isArray(item.slots) && item.slots.length > 0) {
+          // Verify substitute staff belongs to this tenant
+          const substituteStaff = await this.prisma.staff.findFirst({
+            where: { id: item.suggestedSubstituteId, schoolId: validSchoolId },
+          });
+
+          if (substituteStaff) {
+            const slotIds = item.slots.map((s: any) => s.id).filter(Boolean);
+            const result = await this.prisma.timetableSlot.updateMany({
+              where: { id: { in: slotIds }, schoolId: validSchoolId },
               data: { staffId: item.suggestedSubstituteId },
             });
-            actionsCount++;
+            actionsCount += result.count;
           }
         }
       }
     }
 
     else if (taskType === 'LEAVE_RECOMMENDATION') {
-      for (const item of payload.items) {
-        await this.prisma.leaveRequest.update({
-          where: { id: item.id },
-          data: { reviewNote: `[AI Recommendation: ${item.recommendation}] ${item.reasoning}` },
+      for (const item of (payload.items || [])) {
+        const leave = await this.prisma.leaveRequest.findFirst({
+          where: { id: item.id, schoolId: validSchoolId },
         });
-        actionsCount++;
+        if (leave) {
+          await this.prisma.leaveRequest.update({
+            where: { id: item.id },
+            data: { reviewNote: `[AI Recommendation: ${item.recommendation}] ${item.reasoning}` },
+          });
+          actionsCount++;
+        }
       }
     }
 
     else if (taskType === 'REPORT_CARD_PUBLISH') {
       // Notify students and parents for ready exams
-      const readyExams = payload.items.filter((i: any) => i.isComplete);
+      const readyExams = (payload.items || []).filter((i: any) => i.isComplete);
       for (const exam of readyExams) {
+        const examRecord = await this.prisma.exam.findFirst({
+          where: { id: exam.id, schoolId: validSchoolId },
+        });
+        if (!examRecord) continue;
+
         const students = await this.prisma.student.findMany({
-          where: { schoolId, isActive: true },
+          where: { schoolId: validSchoolId, isActive: true },
           include: { user: { select: { id: true } } },
           take: 100,
         });
         const messages = students.map((s: any) => ({
-          schoolId,
+          schoolId: validSchoolId,
           senderId: userId,
           recipientId: s.user.id,
           subject: `Results Ready: ${exam.examName}`,
@@ -1598,12 +1867,12 @@ User request: "${prompt}"`;
 
     else if (taskType === 'DAILY_DIGEST') {
       const principal = await this.prisma.user.findFirst({
-        where: { schoolId, role: { in: ['PRINCIPAL', 'SCHOOL_ADMIN'] }, status: 'ACTIVE' },
+        where: { schoolId: validSchoolId, role: { in: ['PRINCIPAL', 'SCHOOL_ADMIN'] }, status: 'ACTIVE' },
       });
-      if (principal && payload.items[0]) {
+      if (principal && payload.items?.[0]) {
         await this.prisma.message.create({
           data: {
-            schoolId,
+            schoolId: validSchoolId,
             senderId: userId,
             recipientId: principal.id,
             subject: `Daily School Digest — ${new Date().toDateString()}`,
@@ -1614,6 +1883,21 @@ User request: "${prompt}"`;
       }
     }
 
+    if (actionsCount > 0) {
+      await this.prisma.activityLog.create({
+        data: {
+          schoolId: validSchoolId,
+          userId,
+          action: AuditAction.UPDATE,
+          module: 'AI_AUTOMATION',
+          resourceType: taskType,
+          description: `Executed AI Automation task ${taskType} (${actionsCount} operations applied)`,
+          after: { taskType, actionsCount },
+        },
+      }).catch((err) => this.logger.warn(`Failed to write automation activity log: ${err.message}`));
+    }
+
     return { success: true, actionsCount, taskType };
   }
 }
+

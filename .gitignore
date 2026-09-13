@@ -60,3 +60,6 @@ nginx/ssl/
 *.pem
 *.key
 *.crt
+
+# Scratch / temporary scripts
+scratch/

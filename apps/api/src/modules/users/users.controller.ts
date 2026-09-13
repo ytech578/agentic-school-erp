@@ -78,6 +78,13 @@ export class UsersController {
     return this.usersService.updateProfile(req.user.id, safeData);
   }
 
+  @Get('stats')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  @ApiOperation({ summary: 'Get global user stats and role breakdown' })
+  getStats(@Request() req: any) {
+    return this.usersService.getStats(req.user.schoolId, req.user);
+  }
+
   @Get(':id')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   findOne(@Request() req: any, @Param('id') id: string) {

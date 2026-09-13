@@ -17,19 +17,21 @@ import { MarkAttendanceSchema } from '@school-erp/shared';
 import { ZodValidationPipe } from '../../core/pipes/zod-validation.pipe';
 
 @ApiTags('Attendance')
-@ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('attendance')
 export class AttendanceController {
   constructor(private service: AttendanceService) {}
 
   @Get('classes')
+  @ApiBearerAuth('JWT-auth')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   async getClasses(@Request() req: any) {
     return this.service.getClassesAndSections(req.user.schoolId);
   }
 
   @Get('students')
+  @ApiBearerAuth('JWT-auth')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   async getStudents(
     @Request() req: any,
@@ -44,13 +46,37 @@ export class AttendanceController {
   }
 
   @Post('mark')
+  @ApiBearerAuth('JWT-auth')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   @UsePipes(new ZodValidationPipe(MarkAttendanceSchema as any))
   async markAttendance(@Request() req: any, @Body() parsedData: any) {
     return this.service.markAttendance(
       req.user.schoolId,
       req.user.id,
+      req.user.role,
       parsedData,
     );
+  }
+
+  @Post('hardware-punch')
+  async hardwarePunch(
+    @Body()
+    body: {
+      deviceId: string;
+      cardId: string;
+      timestamp?: string;
+      scanType?: 'IN' | 'OUT' | 'PUNCH';
+      schoolId?: string;
+    },
+    @Request() req: any,
+  ) {
+    return this.service.handleHardwarePunch({
+      deviceId: body.deviceId,
+      cardId: body.cardId,
+      timestamp: body.timestamp,
+      scanType: body.scanType,
+      schoolId: body.schoolId || req.user?.schoolId,
+    });
   }
 }

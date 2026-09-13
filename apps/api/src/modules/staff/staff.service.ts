@@ -308,4 +308,49 @@ export class StaffService {
       };
     });
   }
+
+  async updateStaffStatus(
+    schoolId: string,
+    staffId: string,
+    data: {
+      isActive: boolean;
+      resignDate?: string;
+      reason?: string;
+    },
+  ) {
+    const validSchoolId = requireSchoolId(schoolId, 'Update staff status');
+
+    const staff = await this.prisma.staff.findFirst({
+      where: { id: staffId, schoolId: validSchoolId },
+      include: { user: true },
+    });
+
+    if (!staff) {
+      throw new NotFoundException('Staff member not found');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updatedStaff = await tx.staff.update({
+        where: { id: staff.id },
+        data: {
+          isActive: data.isActive,
+          resignDate: !data.isActive ? (data.resignDate ? new Date(data.resignDate) : new Date()) : null,
+        },
+      });
+
+      await tx.user.update({
+        where: { id: staff.userId },
+        data: { status: data.isActive ? 'ACTIVE' : 'INACTIVE' },
+      });
+
+      return {
+        id: updatedStaff.id,
+        isActive: updatedStaff.isActive,
+        resignDate: updatedStaff.resignDate,
+        message: data.isActive
+          ? 'Staff member account reactivated'
+          : 'Staff member marked as deactivated/resigned',
+      };
+    });
+  }
 }

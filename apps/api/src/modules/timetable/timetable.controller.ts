@@ -51,13 +51,10 @@ export class TimetableController {
     @Param('staffId') staffId: string,
     @Query('academicYearId') academicYearId?: string,
   ) {
-    // Basic authorization check: if TEACHER, can only view own timetable unless otherwise permitted
-    if (req.user.role === 'TEACHER' && req.user.staffId !== staffId) {
-      // Allowing teachers to see others for collaboration is fine, but can restrict if needed.
-    }
+    const targetStaffId = staffId === 'me' && req.user.staffId ? req.user.staffId : staffId;
     return this.timetableService.getTeacherTimetable(
       req.user.schoolId,
-      staffId,
+      targetStaffId,
       academicYearId,
     );
   }

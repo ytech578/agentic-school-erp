@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Body,
   Param,
   Query,
@@ -35,6 +36,8 @@ export class StudentsController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('search') search?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('classId') classId?: string,
   ) {
     const schoolId = req.user.schoolId;
     return this.studentsService.getStudents(
@@ -42,6 +45,8 @@ export class StudentsController {
       page ? parseInt(page) : 1,
       limit ? parseInt(limit) : 10,
       search,
+      sectionId,
+      classId,
     );
   }
 
@@ -68,5 +73,40 @@ export class StudentsController {
     const parsedBody = UpdateStudentSchema.parse(body);
     const schoolId = req.user.schoolId;
     return this.studentsService.updateStudent(schoolId, id, parsedBody);
+  }
+
+  @Post('batch-promote')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  async batchPromote(
+    @Request() req: any,
+    @Body()
+    body: {
+      fromSectionId: string;
+      toSectionId?: string;
+      studentIds: string[];
+      academicYearId: string;
+      remarks?: string;
+      status?: 'PROMOTED' | 'GRADUATED';
+    },
+  ) {
+    const schoolId = req.user.schoolId;
+    const userId = req.user.id;
+    return this.studentsService.promoteStudents(schoolId, userId, body);
+  }
+
+  @Patch(':id/status')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  async updateStudentStatus(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      isActive: boolean;
+      status?: 'ACTIVE' | 'TRANSFERRED' | 'DROPPED' | 'GRADUATED';
+      reason?: string;
+    },
+  ) {
+    const schoolId = req.user.schoolId;
+    return this.studentsService.updateStudentStatus(schoolId, id, body);
   }
 }

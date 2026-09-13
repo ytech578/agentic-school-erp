@@ -4,10 +4,12 @@ import React, { useState, useEffect, useMemo } from "react";
 import {
   Plus, Award, Trash2, Search, Pencil, X, Trophy, Mic2,
   Palette, FlaskConical, Users, BookOpen, Filter, Star,
-  TrendingUp, Calendar as CalendarIcon
+  TrendingUp, Calendar as CalendarIcon, CheckCircle2
 } from "lucide-react";
 import { apiClient } from "@/lib/axios";
 import { Button } from "@/components/ui/Button";
+import { StatCard } from "@/components/ui/StatCard";
+import { formatDate } from "@/lib/formatters";
 
 // ─── Categories ───────────────────────────────────────────────────────────
 
@@ -23,31 +25,124 @@ const CATEGORIES = [
 
 const getCat = (id: string) => CATEGORIES.find(c => c.id === id) || CATEGORIES[6];
 
-function fmtDate(d: string | Date) {
-  return new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
-}
-
 // ─── Form Modal ───────────────────────────────────────────────────────────
 
 function ActivityModal({
-  mode, activity, students, onClose, onSaved,
+  mode,
+  activity,
+  students,
+  classes = [],
+  onClose,
+  onSaved,
 }: {
   mode: "create" | "edit";
   activity?: any;
   students: any[];
+  classes?: any[];
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const getEnrollment = (s: any) => {
+    if (!s) return null;
+    const enrs = s.enrollments || (s.enrollment ? [s.enrollment] : []);
+    if (!Array.isArray(enrs) || enrs.length === 0) return null;
+    return enrs.find((e: any) => e.status === "ACTIVE") || enrs[0] || null;
+  };
+
+  const allStudentsList = useMemo(() => {
+    return Array.isArray(students) ? students : (students as any)?.items || [];
+  }, [students]);
+
+  const initialStudentId = activity?.studentId || activity?.student?.id || "";
+  const existingStudent = allStudentsList.find((s: any) => s.id === initialStudentId) || activity?.student;
+  const existingEnrollment = getEnrollment(existingStudent);
+  const initialClassId = existingEnrollment?.section?.classId || existingEnrollment?.section?.class?.id || "";
+  const initialSectionId = existingEnrollment?.sectionId || existingEnrollment?.section?.id || "";
+
   const [form, setForm] = useState({
-    studentId: activity?.studentId || activity?.student?.id || "",
+    studentId:   initialStudentId,
     title:       activity?.title || "",
     event:       activity?.event || "",
     category:    activity?.category || "ACADEMIC",
     date:        activity?.date ? new Date(activity.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
     description: activity?.description || "",
   });
+
+  const [selectedClassId, setSelectedClassId] = useState<string>(initialClassId);
+  const [selectedSectionId, setSelectedSectionId] = useState<string>(initialSectionId);
+  const [studentSearch, setStudentSearch] = useState<string>("");
+  const [localClasses, setLocalClasses] = useState<any[]>(classes);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (classes && classes.length > 0) {
+      setLocalClasses(classes);
+    } else {
+      apiClient.get("/classes").then(res => {
+        setLocalClasses(res.data?.data || res.data || []);
+      }).catch(console.error);
+    }
+  }, [classes]);
+
+  useEffect(() => {
+    if (activity) {
+      const sId = activity.studentId || activity.student?.id || "";
+      const stu = allStudentsList.find((s: any) => s.id === sId) || activity.student;
+      const enr = getEnrollment(stu);
+      if (enr) {
+        setSelectedClassId(enr.section?.classId || enr.section?.class?.id || "");
+        setSelectedSectionId(enr.sectionId || enr.section?.id || "");
+      }
+    }
+  }, [activity, allStudentsList]);
+
+  const handleClassChange = (classId: string) => {
+    setSelectedClassId(classId);
+    setSelectedSectionId("");
+    setStudentSearch("");
+    setForm(prev => ({ ...prev, studentId: "" }));
+  };
+
+  const handleSectionChange = (sectionId: string) => {
+    setSelectedSectionId(sectionId);
+    setStudentSearch("");
+    setForm(prev => ({ ...prev, studentId: "" }));
+  };
+
+  const selectedClass = localClasses.find((c: any) => c.id === selectedClassId);
+  const availableSections: any[] = selectedClass?.sections || [];
+
+  const filteredStudents = useMemo(() => {
+    if (!selectedClassId) return [];
+
+    return allStudentsList.filter((s: any) => {
+      const enr = getEnrollment(s);
+      if (!enr) return false;
+      const sClassId = enr.section?.classId || enr.section?.class?.id;
+      const sSectionId = enr.sectionId || enr.section?.id;
+
+      if (sClassId !== selectedClassId) return false;
+      if (selectedSectionId && sSectionId !== selectedSectionId) return false;
+
+      if (studentSearch.trim()) {
+        const q = studentSearch.toLowerCase();
+        const fullName = `${s.user?.firstName || ""} ${s.user?.lastName || ""}`.toLowerCase();
+        const adm = (s.admissionNumber || "").toLowerCase();
+        const roll = String(s.rollNumber || "").toLowerCase();
+        if (!fullName.includes(q) && !adm.includes(q) && !roll.includes(q)) {
+          return false;
+        }
+      }
+      return true;
+    }).sort((a: any, b: any) => {
+      const nameA = `${a.user?.firstName || ""} ${a.user?.lastName || ""}`.trim();
+      const nameB = `${b.user?.firstName || ""} ${b.user?.lastName || ""}`.trim();
+      return nameA.localeCompare(nameB);
+    });
+  }, [allStudentsList, selectedClassId, selectedSectionId, studentSearch]);
+
+  const selectedStudentObj = allStudentsList.find((s: any) => s.id === form.studentId);
 
   const inputStyle: React.CSSProperties = {
     width: "100%", padding: "0.625rem 0.875rem",
@@ -63,8 +158,16 @@ function ActivityModal({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.studentId || !form.title || !form.event) {
-      setError("Student, title and event are required.");
+    if (!selectedClassId) {
+      setError("Please select a Class.");
+      return;
+    }
+    if (!form.studentId) {
+      setError("Please select a student from the selected Class and Section.");
+      return;
+    }
+    if (!form.title.trim() || !form.event.trim()) {
+      setError("Achievement Title and Event Name are required.");
       return;
     }
     setSaving(true); setError("");
@@ -88,7 +191,7 @@ function ActivityModal({
       onClick={onClose}
     >
       <div
-        style={{ background: "var(--bg-surface-solid)", borderRadius: "var(--radius-xl)", border: "1px solid var(--border-default)", boxShadow: "var(--modal-shadow)", maxWidth: "32rem", width: "100%", maxHeight: "90vh", overflowY: "auto", animation: "zoomIn 0.2s ease-out" }}
+        style={{ background: "var(--bg-surface-solid)", borderRadius: "var(--radius-xl)", border: "1px solid var(--border-default)", boxShadow: "var(--modal-shadow)", maxWidth: "34rem", width: "100%", maxHeight: "90vh", overflowY: "auto", animation: "zoomIn 0.2s ease-out" }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -100,20 +203,125 @@ function ActivityModal({
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-tertiary)" }}><X size={20} /></button>
         </div>
 
-        <form onSubmit={handleSave} style={{ padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+        <form onSubmit={handleSave} style={{ padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.1rem" }}>
           {error && (
             <div style={{ background: "#fef2f2", color: "#991b1b", padding: "0.75rem", borderRadius: "var(--radius-md)", fontSize: "0.875rem" }}>{error}</div>
           )}
 
-          {/* Student */}
-          <div>
-            <label style={labelStyle}>Student *</label>
-            <select required style={inputStyle} value={form.studentId} onChange={e => setForm({ ...form, studentId: e.target.value })}>
-              <option value="">Select Student...</option>
-              {students.map(s => (
-                <option key={s.id} value={s.id}>{s.user?.firstName} {s.user?.lastName}</option>
-              ))}
-            </select>
+          {/* Step 1 & 2: Class and Section Cascading Selector */}
+          <div style={{ background: "var(--bg-elevated)", padding: "1rem", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-default)", display: "flex", flexDirection: "column", gap: "0.875rem" }}>
+            <div style={{ fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--brand-primary)" }}>
+              Student Location & Identity
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "0.75rem" }}>
+              <div>
+                <label style={labelStyle}>Class *</label>
+                <select
+                  required
+                  style={inputStyle}
+                  value={selectedClassId}
+                  onChange={e => handleClassChange(e.target.value)}
+                >
+                  <option value="">Select Class...</option>
+                  {localClasses.map((c: any) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={labelStyle}>Section</label>
+                <select
+                  style={{
+                    ...inputStyle,
+                    opacity: !selectedClassId ? 0.6 : 1,
+                    cursor: !selectedClassId ? "not-allowed" : "pointer",
+                  }}
+                  disabled={!selectedClassId}
+                  value={selectedSectionId}
+                  onChange={e => handleSectionChange(e.target.value)}
+                >
+                  <option value="">
+                    {!selectedClassId ? "Select Class first" : "All Sections"}
+                  </option>
+                  {availableSections.map((sec: any) => (
+                    <option key={sec.id} value={sec.id}>
+                      Section {sec.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Step 3: Student Selector */}
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
+                <label style={{ ...labelStyle, marginBottom: 0 }}>Student *</label>
+                {selectedClassId && (
+                  <span style={{ fontSize: "0.75rem", color: "var(--brand-primary)", fontWeight: 600 }}>
+                    {filteredStudents.length} student{filteredStudents.length !== 1 ? "s" : ""} found
+                  </span>
+                )}
+              </div>
+
+              {/* In-section live search input if more than 5 students */}
+              {selectedClassId && (
+                <div style={{ position: "relative", marginBottom: "0.5rem" }}>
+                  <Search size={13} style={{ position: "absolute", left: "0.65rem", top: "50%", transform: "translateY(-50%)", color: "var(--text-tertiary)" }} />
+                  <input
+                    type="text"
+                    placeholder="Search by name, roll, or admission no..."
+                    value={studentSearch}
+                    onChange={e => setStudentSearch(e.target.value)}
+                    style={{
+                      ...inputStyle,
+                      paddingLeft: "2rem",
+                      paddingTop: "0.4rem",
+                      paddingBottom: "0.4rem",
+                      fontSize: "0.8125rem",
+                    }}
+                  />
+                </div>
+              )}
+
+              <select
+                required
+                style={{
+                  ...inputStyle,
+                  opacity: !selectedClassId ? 0.6 : 1,
+                  cursor: !selectedClassId ? "not-allowed" : "pointer",
+                }}
+                disabled={!selectedClassId}
+                value={form.studentId}
+                onChange={e => setForm({ ...form, studentId: e.target.value })}
+              >
+                <option value="">
+                  {!selectedClassId
+                    ? "Select Class & Section first..."
+                    : filteredStudents.length === 0
+                    ? "No students match selection"
+                    : `-- Select Student (${filteredStudents.length} available) --`}
+                </option>
+                {filteredStudents.map((s: any) => (
+                  <option key={s.id} value={s.id}>
+                    {s.user?.firstName} {s.user?.lastName} {s.rollNumber ? `• Roll: ${s.rollNumber}` : ""} {s.admissionNumber ? `(${s.admissionNumber})` : ""}
+                  </option>
+                ))}
+              </select>
+
+              {/* Confirmation Indicator */}
+              {selectedStudentObj && (
+                <div style={{ marginTop: "0.5rem", padding: "0.4rem 0.65rem", borderRadius: "var(--radius-sm)", background: "rgba(16, 185, 129, 0.1)", border: "1px solid rgba(16, 185, 129, 0.25)", display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem", color: "#065f46" }}>
+                  <CheckCircle2 size={14} color="#10b981" />
+                  <span>
+                    Selected: <strong>{selectedStudentObj.user?.firstName} {selectedStudentObj.user?.lastName}</strong> {selectedStudentObj.admissionNumber ? `(${selectedStudentObj.admissionNumber})` : ""}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Category */}
@@ -191,6 +399,7 @@ export default function ActivitiesAdminPage() {
   const [loading, setLoading] = useState(true);
   const [activities, setActivities] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
+  const [classes, setClasses] = useState<any[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editActivity, setEditActivity] = useState<any>(null);
   const [search, setSearch] = useState("");
@@ -201,12 +410,16 @@ export default function ActivitiesAdminPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [actRes, stuRes] = await Promise.all([
+      const [actRes, stuRes, clsRes] = await Promise.all([
         apiClient.get("/activities"),
-        apiClient.get("/students"),
+        apiClient.get("/students", { params: { limit: 1000 } }),
+        apiClient.get("/classes"),
       ]);
       setActivities(actRes.data.data || actRes.data || []);
-      setStudents(stuRes.data.data || stuRes.data || []);
+      const stuList = stuRes.data?.data?.items || stuRes.data?.items || (Array.isArray(stuRes.data?.data) ? stuRes.data.data : []);
+      setStudents(stuList);
+      const clsList = clsRes.data?.data || clsRes.data || [];
+      setClasses(clsList);
     } catch (err) { console.error(err); } finally { setLoading(false); }
   };
 
@@ -226,7 +439,8 @@ export default function ActivitiesAdminPage() {
       list = list.filter(a =>
         a.title?.toLowerCase().includes(q) ||
         a.event?.toLowerCase().includes(q) ||
-        `${a.student?.user?.firstName} ${a.student?.user?.lastName}`.toLowerCase().includes(q)
+        `${a.student?.user?.firstName} ${a.student?.user?.lastName}`.toLowerCase().includes(q) ||
+        a.student?.enrollments?.[0]?.section?.class?.name?.toLowerCase().includes(q)
       );
     }
     return list;
@@ -264,23 +478,11 @@ export default function ActivitiesAdminPage() {
       </div>
 
       {/* Stats Bar */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1rem" }}>
-        {[
-          { label: "Total Activities", value: activities.length, icon: Award, color: "var(--brand-primary)", bg: "rgba(99,102,241,0.1)" },
-          { label: "This Month", value: thisMonth, icon: CalendarIcon, color: "#10b981", bg: "rgba(16,185,129,0.1)" },
-          { label: "Top Category", value: activities.length > 0 ? topCat.label : "—", icon: TrendingUp, color: "#f59e0b", bg: "rgba(245,158,11,0.1)" },
-          { label: "Students Recognized", value: new Set(activities.map(a => a.studentId)).size, icon: Star, color: "#8b5cf6", bg: "rgba(139,92,246,0.1)" },
-        ].map(({ label, value, icon: Icon, color, bg }) => (
-          <div key={label} style={{ background: "var(--bg-surface)", borderRadius: "var(--radius-lg)", padding: "1.25rem", border: "1px solid var(--border-default)", display: "flex", gap: "0.875rem", alignItems: "center", borderLeft: `3px solid ${color}` }}>
-            <div style={{ padding: "0.65rem", borderRadius: "var(--radius-md)", background: bg }}>
-              <Icon size={20} color={color} />
-            </div>
-            <div>
-              <p style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginBottom: "0.15rem" }}>{label}</p>
-              <p style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--text-primary)", lineHeight: 1 }}>{value}</p>
-            </div>
-          </div>
-        ))}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1rem" }}>
+        <StatCard label="Total Activities" value={activities.length} icon={Award} color="var(--brand-primary)" />
+        <StatCard label="This Month" value={thisMonth} icon={CalendarIcon} color="#10b981" />
+        <StatCard label="Top Category" value={activities.length > 0 ? topCat.label : "—"} icon={TrendingUp} color="#f59e0b" />
+        <StatCard label="Students Recognized" value={new Set(activities.map((a: any) => a.studentId)).size} icon={Star} color="#8b5cf6" />
       </div>
 
       {/* Category Breakdown Pills */}
@@ -362,13 +564,18 @@ export default function ActivitiesAdminPage() {
                     <span style={{ fontWeight: 700, fontSize: "0.9375rem", color: "var(--text-primary)" }}>
                       {a.student?.user?.firstName} {a.student?.user?.lastName}
                     </span>
+                    {a.student?.enrollments?.[0]?.section?.class?.name && (
+                      <span style={{ padding: "0.15rem 0.5rem", borderRadius: "var(--radius-full)", fontSize: "0.7rem", fontWeight: 600, background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}>
+                        {a.student.enrollments[0].section.class.name} - {a.student.enrollments[0].section.name}
+                      </span>
+                    )}
                     <span style={{ padding: "0.15rem 0.5rem", borderRadius: "var(--radius-full)", fontSize: "0.7rem", fontWeight: 700, background: cat.bg, color: cat.color }}>
                       {cat.label}
                     </span>
                   </div>
                   <p style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.875rem", marginBottom: "0.15rem" }}>{a.title}</p>
                   <p style={{ fontSize: "0.8125rem", color: "var(--text-secondary)" }}>
-                    {a.event} • {fmtDate(a.date)}
+                    {a.event} • {formatDate(a.date)}
                   </p>
                   {a.description && (
                     <p style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "0.25rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "480px" }}>
@@ -409,6 +616,7 @@ export default function ActivitiesAdminPage() {
         <ActivityModal
           mode="create"
           students={students}
+          classes={classes}
           onClose={() => setShowModal(false)}
           onSaved={() => { setShowModal(false); fetchData(); }}
         />
@@ -418,6 +626,7 @@ export default function ActivitiesAdminPage() {
           mode="edit"
           activity={editActivity}
           students={students}
+          classes={classes}
           onClose={() => setEditActivity(null)}
           onSaved={() => { setEditActivity(null); fetchData(); }}
         />

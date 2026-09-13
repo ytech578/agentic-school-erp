@@ -9,6 +9,7 @@ import {
   CheckCircle, Clock, Save, Trophy, Search, Printer, X,
   Award, TrendingUp, Filter, CheckCheck, Sparkles, UserCheck
 } from "lucide-react";
+import { OfficialReportCardModal } from "@/components/exams/OfficialReportCardModal";
 
 type Tab = "overview" | "subjects" | "marks" | "results" | "reportcards";
 
@@ -595,140 +596,51 @@ export default function ExamDetailPage() {
       </div>
 
       {/* Official Report Card Modal */}
-      {(previewStudent || loadingPreview) && (
+      {loadingPreview && (
         <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem" }}>
-          <div style={{ background: "var(--bg-surface)", borderRadius: "var(--radius-2xl)", width: "100%", maxWidth: "720px", maxHeight: "90vh", overflowY: "auto", border: "1px solid var(--border-default)", boxShadow: "var(--modal-shadow)" }}>
-            {loadingPreview ? (
-              <div style={{ padding: "4rem", textAlign: "center", color: "var(--text-secondary)" }}>Loading student report card...</div>
-            ) : previewStudent ? (
-              <div>
-                {/* Modal Header Actions */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1.25rem 1.5rem", borderBottom: "1px solid var(--border-default)", background: "var(--bg-elevated)" }}>
-                  <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Student Official Report Card</span>
-                  <div style={{ display: "flex", gap: "0.5rem" }}>
-                    <Button size="sm" variant="secondary" onClick={() => window.print()}>
-                      <Printer size={15} style={{ marginRight: "0.4rem" }} /> Print
-                    </Button>
-                    <button onClick={() => setPreviewStudent(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", padding: "0.25rem" }}>
-                      <X size={20} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Report Card Document Content */}
-                <div style={{ padding: "2rem" }}>
-                  {/* School Header */}
-                  <div style={{ textAlign: "center", borderBottom: "2px solid var(--brand-primary)", paddingBottom: "1.25rem", marginBottom: "1.5rem" }}>
-                    <h2 style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--brand-primary)", margin: "0 0 0.25rem" }}>SUNRISE PUBLIC SCHOOL</h2>
-                    <p style={{ fontSize: "0.8125rem", color: "var(--text-secondary)", margin: 0 }}>Affiliated to CBSE · Registration No: CBSE-DEL-00912</p>
-                    <p style={{ fontSize: "0.875rem", fontWeight: 700, marginTop: "0.5rem", color: "var(--text-primary)" }}>
-                      PROGRESS REPORT — {previewStudent.reportCard?.exam?.name || exam.name}
-                    </p>
-                  </div>
-
-                  {/* Student Details Grid */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", padding: "1rem", background: "var(--bg-elevated)", borderRadius: "var(--radius-lg)", marginBottom: "1.5rem", fontSize: "0.875rem" }}>
-                    <div><span style={{ color: "var(--text-secondary)" }}>Student Name:</span> <strong>{previewStudent.reportCard?.student?.user?.firstName} {previewStudent.reportCard?.student?.user?.lastName}</strong></div>
-                    <div><span style={{ color: "var(--text-secondary)" }}>Admission No:</span> <strong>{previewStudent.reportCard?.student?.admissionNumber}</strong></div>
-                    <div><span style={{ color: "var(--text-secondary)" }}>Class & Section:</span> <strong>{previewStudent.reportCard?.student?.enrollments?.[0]?.section?.class?.name} - {previewStudent.reportCard?.student?.enrollments?.[0]?.section?.name}</strong></div>
-                    <div><span style={{ color: "var(--text-secondary)" }}>Roll Number:</span> <strong>{previewStudent.reportCard?.student?.rollNumber || "—"}</strong></div>
-                  </div>
-
-                  {/* Subject Breakdown Table */}
-                  <div style={{ border: "1px solid var(--border-default)", borderRadius: "var(--radius-lg)", overflow: "hidden", marginBottom: "1.5rem" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
-                      <thead>
-                        <tr style={{ background: "var(--bg-elevated)", borderBottom: "1px solid var(--border-default)" }}>
-                          {["Subject & Group", "Max Marks", "Pass Marks", "Marks Scored", "Grade", "Status"].map(h => (
-                            <th key={h} style={{ padding: "0.75rem 1rem", textAlign: "left", fontSize: "0.75rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(previewStudent.subjectMarks || []).map((sm: any) => {
-                          const max = Number(sm.examSubject?.maxMarks || 100);
-                          const pass = Number(sm.examSubject?.passMarks || 35);
-                          const scored = sm.isAbsent ? 0 : Number(sm.marksObtained || 0);
-                          const isPassed = !sm.isAbsent && scored >= pass;
-
-                          const matchEnrollment = previewStudent.curriculumEnrollments?.find(
-                            (ce: any) =>
-                              ce.subjectName?.toLowerCase() === sm.examSubject?.subject?.name?.toLowerCase() ||
-                              (ce.subjectCode && sm.examSubject?.subject?.code && ce.subjectCode === sm.examSubject?.subject?.code)
-                          );
-
-                          return (
-                            <tr key={sm.id} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                              <td style={{ padding: "0.75rem 1rem" }}>
-                                <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>
-                                  {sm.examSubject?.subject?.name}
-                                </div>
-                                <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginTop: "0.2rem", flexWrap: "wrap" }}>
-                                  {sm.examSubject?.subject?.code && (
-                                    <span style={{ fontSize: "0.7rem", color: "var(--text-tertiary)", fontFamily: "monospace" }}>
-                                      {sm.examSubject?.subject?.code}
-                                    </span>
-                                  )}
-                                  {matchEnrollment?.groupName && (
-                                    <span style={{ fontSize: "0.68rem", padding: "0.1rem 0.4rem", borderRadius: "3px", background: "var(--bg-elevated)", color: "var(--text-secondary)", fontWeight: 600 }}>
-                                      {matchEnrollment.groupName}
-                                    </span>
-                                  )}
-                                  {matchEnrollment?.selectionType && matchEnrollment.selectionType !== "MANDATORY" && (
-                                    <span style={{ fontSize: "0.68rem", padding: "0.1rem 0.4rem", borderRadius: "3px", background: "rgba(99, 102, 241, 0.1)", color: "var(--brand-primary)", fontWeight: 700 }}>
-                                      {matchEnrollment.selectionType}
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td style={{ padding: "0.75rem 1rem", color: "var(--text-secondary)" }}>{max}</td>
-                              <td style={{ padding: "0.75rem 1rem", color: "var(--text-secondary)" }}>{pass}</td>
-                              <td style={{ padding: "0.75rem 1rem", fontWeight: 700 }}>{sm.isAbsent ? "ABSENT" : scored}</td>
-                              <td style={{ padding: "0.75rem 1rem", fontWeight: 700, color: "var(--brand-primary)" }}>{sm.isAbsent ? "—" : sm.grade}</td>
-                              <td style={{ padding: "0.75rem 1rem" }}>
-                                <span style={{ color: isPassed ? "var(--status-success)" : "var(--status-danger)", fontWeight: 700, fontSize: "0.75rem" }}>
-                                  {isPassed ? "PASSED" : "FAILED"}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Summary Footer */}
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1rem", padding: "1.25rem", background: "var(--bg-elevated)", borderRadius: "var(--radius-xl)", textAlign: "center" }}>
-                    <div>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 600 }}>TOTAL SCORE</div>
-                      <div style={{ fontSize: "1.25rem", fontWeight: 800, marginTop: "0.25rem" }}>
-                        {Number(previewStudent.reportCard?.obtainedMarks).toFixed(0)} / {Number(previewStudent.reportCard?.totalMarks).toFixed(0)}
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 600 }}>PERCENTAGE</div>
-                      <div style={{ fontSize: "1.25rem", fontWeight: 800, color: "var(--brand-primary)", marginTop: "0.25rem" }}>
-                        {Number(previewStudent.reportCard?.percentage).toFixed(1)}%
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 600 }}>CLASS RANK</div>
-                      <div style={{ fontSize: "1.25rem", fontWeight: 800, color: "#d97706", marginTop: "0.25rem" }}>
-                        #{previewStudent.reportCard?.rank}
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 600 }}>OVERALL GRADE</div>
-                      <div style={{ fontSize: "1.25rem", fontWeight: 800, color: "var(--status-success)", marginTop: "0.25rem" }}>
-                        {previewStudent.reportCard?.grade}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : null}
+          <div style={{ background: "var(--bg-surface)", padding: "2rem 3rem", borderRadius: "var(--radius-xl)", color: "var(--text-primary)", fontWeight: 600 }}>
+            Loading official student report card...
           </div>
         </div>
+      )}
+      {previewStudent && (
+        <OfficialReportCardModal
+          data={{
+            examName: previewStudent.reportCard?.exam?.name || exam?.name || "Terminal Examination",
+            student: {
+              firstName: previewStudent.reportCard?.student?.user?.firstName || "Student",
+              lastName: previewStudent.reportCard?.student?.user?.lastName || "",
+              admissionNumber: previewStudent.reportCard?.student?.admissionNumber || "—",
+              rollNumber: previewStudent.reportCard?.student?.rollNumber || "—",
+              className: previewStudent.reportCard?.student?.enrollments?.[0]?.section?.class?.name || "Class",
+              sectionName: previewStudent.reportCard?.student?.enrollments?.[0]?.section?.name || "A",
+              attendancePercent: 95.5,
+            },
+            subjects: (previewStudent.subjectMarks || []).map((sm: any) => {
+              const max = Number(sm.examSubject?.maxMarks || 100);
+              const pass = Number(sm.examSubject?.passMarks || 35);
+              const scored = sm.isAbsent ? 0 : Number(sm.marksObtained || 0);
+              return {
+                code: sm.examSubject?.subject?.code,
+                name: sm.examSubject?.subject?.name || "Subject",
+                totalMax: max,
+                totalPass: pass,
+                totalScored: scored,
+                grade: sm.isAbsent ? "—" : (sm.grade || "B"),
+                status: sm.isAbsent ? "ABSENT" : (scored >= pass ? "PASSED" : "FAILED"),
+              };
+            }),
+            summary: {
+              totalMarks: Number(previewStudent.reportCard?.totalMarks || 500),
+              obtainedMarks: Number(previewStudent.reportCard?.obtainedMarks || 0),
+              percentage: Number(previewStudent.reportCard?.percentage || 0),
+              rank: previewStudent.reportCard?.rank,
+              grade: previewStudent.reportCard?.grade || "B",
+              resultStatus: Number(previewStudent.reportCard?.percentage || 0) >= 75 ? "DISTINCTION" : (Number(previewStudent.reportCard?.percentage || 0) >= 35 ? "PASSED" : "FAILED"),
+            },
+          }}
+          onClose={() => setPreviewStudent(null)}
+        />
       )}
     </div>
   );

@@ -12,10 +12,12 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { AIService } from './ai.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../core/guards/roles.guard';
+import { Roles } from '../../core/decorators/roles.decorator';
 
 @ApiTags('AI')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('ai')
 export class AIController {
   constructor(private service: AIService) {}
@@ -33,12 +35,14 @@ export class AIController {
   }
 
   @Post('action/execute')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Execute a confirmed AI action' })
   async executeAction(@Request() req: any, @Body() body: { type: string; data: any }) {
-    return this.service.executeAIAction(req.user.schoolId, req.user.id, body);
+    return this.service.executeAIAction(req.user.schoolId, req.user.id, body, req.user.role);
   }
 
   @Post('alerts/run-monitoring')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Trigger proactive monitoring' })
   async runMonitoring(@Request() req: any) {
     await this.service.runProactiveMonitoring(req.user.schoolId);
@@ -46,24 +50,28 @@ export class AIController {
   }
 
   @Get('alerts')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Get proactive agent alerts' })
   async getAlerts(@Request() req: any) {
     return this.service.getProactiveAlerts(req.user.schoolId);
   }
 
   @Patch('alerts/read-all')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Mark all alerts as read' })
   async markAllRead(@Request() req: any) {
     return this.service.markAllAlertsRead(req.user.schoolId);
   }
 
   @Patch('alerts/:id/read')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Mark an alert as read' })
   async markAlertRead(@Param('id') id: string, @Request() req: any) {
     return this.service.markAlertRead(id, req.user.schoolId);
   }
 
   @Post('admissions/:id/workflow')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Run multi-agent admission workflow' })
   async runAdmissionWorkflow(@Param('id') id: string, @Request() req: any) {
     return this.service.runAdmissionWorkflow(id, req.user.schoolId);
@@ -95,6 +103,7 @@ export class AIController {
   }
 
   @Get('automation/preview/:taskType')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Preview an automation task' })
   async previewAutomation(@Param('taskType') taskType: string, @Request() req: any) {
     const { schoolId } = req.user;
@@ -111,12 +120,14 @@ export class AIController {
   }
 
   @Post('automation/execute')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Execute a confirmed automation task' })
   async executeAutomation(@Body() body: { taskType: string; payload: any }, @Request() req: any) {
     return this.service.executeAutomationTask(req.user.schoolId, req.user.id, body.taskType, body.payload);
   }
 
   @Post('copilot/lesson-plan')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   @ApiOperation({ summary: 'Generate a lesson plan' })
   async generateLessonPlan(@Body() body: { topic: string; grade: string; duration: string }) {
     const result = await this.service.generateLessonPlan(body.topic, body.grade, body.duration);
@@ -124,6 +135,7 @@ export class AIController {
   }
 
   @Post('copilot/remark')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   @ApiOperation({ summary: 'Generate a student remark' })
   async generateRemark(@Body() body: { studentProfile: string; tone: string }) {
     const result = await this.service.generateStudentRemark(body.studentProfile, body.tone);
@@ -131,6 +143,7 @@ export class AIController {
   }
 
   @Post('copilot/parent-update')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   @ApiOperation({ summary: 'Generate a parent update' })
   async generateParentUpdate(@Body() body: { studentProfile: string; context: string }) {
     const result = await this.service.generateParentUpdate(body.studentProfile, body.context);
@@ -138,6 +151,7 @@ export class AIController {
   }
 
   @Post('query')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Execute a natural language data query' })
   async executeDataQuery(@Body() body: { prompt: string }, @Request() req: any) {
     const result = await this.service.executeDataQuery(req.user.schoolId, body.prompt, req.user.id);
@@ -145,6 +159,7 @@ export class AIController {
   }
 
   @Get('anomalies')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Get school anomalies' })
   async getAnomalies(@Request() req: any) {
     const anomalies = await this.service.getSchoolAnomalies(req.user.schoolId);

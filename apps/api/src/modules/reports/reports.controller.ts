@@ -52,6 +52,7 @@ export class ReportsController {
   }
 
   @Get('fees/collection')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   getFeeCollection(
     @Request() req: any,
     @Query('from') from: string,
@@ -65,6 +66,7 @@ export class ReportsController {
   }
 
   @Get('fees/outstanding')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   getFeeOutstanding(@Request() req: any) {
     return this.reportsService.getFeeOutstanding(req.user.schoolId);
   }

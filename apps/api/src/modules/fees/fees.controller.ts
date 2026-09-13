@@ -2,8 +2,10 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Body,
   Query,
+  Param,
   UseGuards,
   Request,
 } from '@nestjs/common';
@@ -103,7 +105,84 @@ export class FeesController {
 
   @Post('parent/pay')
   @Roles('PARENT')
-  processParentPayment(@Request() req: any, @Body() data: { studentId: string; amount: number; paymentMode: string }) {
+  processParentPayment(
+    @Request() req: any,
+    @Body() data: { studentId: string; amount: number; paymentMode: string; transactionRef?: string },
+  ) {
     return this.feesService.processParentPayment(req.user.schoolId, req.user.id, data);
+  }
+
+  @Post('orders/create')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'PARENT', 'STUDENT')
+  createOrder(
+    @Request() req: any,
+    @Body() data: { studentId: string; amount: number; academicYearId?: string },
+  ) {
+    return this.feesService.createRazorpayOrder(
+      req.user.schoolId,
+      data.studentId,
+      data.amount,
+      data.academicYearId,
+    );
+  }
+
+  @Post('orders/verify')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'PARENT', 'STUDENT')
+  verifyPayment(
+    @Request() req: any,
+    @Body() data: {
+      orderId: string;
+      paymentId: string;
+      signature: string;
+      studentId: string;
+      amount: number;
+      academicYearId?: string;
+      remarks?: string;
+    },
+  ) {
+    return this.feesService.verifyRazorpayPayment(
+      req.user.schoolId,
+      req.user.id,
+      data,
+    );
+  }
+
+  @Get('settings/payment')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'PARENT', 'STUDENT')
+  getPaymentSettings(@Request() req: any) {
+    return this.feesService.getPaymentSettings(req.user.schoolId, req.user.role);
+  }
+
+  @Put('settings/payment')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  updatePaymentSettings(
+    @Request() req: any,
+    @Body()
+    data: {
+      upiVpa: string;
+      payeeName: string;
+      qrCodeImageUrl?: string;
+      accountNumber?: string;
+      ifscCode?: string;
+      bankName?: string;
+      branch?: string;
+      razorpayEnabled?: boolean;
+      razorpayKeyId?: string;
+      razorpayKeySecret?: string;
+      preferredMode?: string;
+      customInstructions?: string;
+    },
+  ) {
+    return this.feesService.updatePaymentSettings(
+      req.user.schoolId,
+      req.user.id,
+      data,
+    );
+  }
+
+  @Get('receipts/:id')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'PARENT', 'STUDENT')
+  getReceiptDetails(@Request() req: any, @Param('id') id: string) {
+    return this.feesService.getReceiptDetails(req.user.schoolId, id);
   }
 }

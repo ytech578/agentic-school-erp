@@ -159,7 +159,7 @@ export default function TeacherCopilotPage() {
     { title: "Photosynthesis & Respiration", grade: "Grade 7", duration: "45 mins" },
     { title: "Quadratic Equations & Graphs", grade: "Grade 10", duration: "60 mins" },
     { title: "Newton's Laws of Motion", grade: "Grade 9", duration: "45 mins" },
-    { title: "Shakespeare: Macbeth Themes", grade: "Grade 11", duration: "60 mins" },
+    { title: "Shakespeare: Merchant of Venice", grade: "Grade 10", duration: "60 mins" },
     { title: "Indian Freedom Movement 1947", grade: "Grade 8", duration: "45 mins" },
     { title: "Python Basics: Conditionals", grade: "Grade 9", duration: "45 mins" },
   ];
@@ -601,7 +601,7 @@ export default function TeacherCopilotPage() {
                         outline: "none",
                       }}
                     >
-                      {["Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6", "Grade 7", "Grade 8", "Grade 9", "Grade 10", "Grade 11", "Grade 12"].map((g) => (
+                      {["Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6", "Grade 7", "Grade 8", "Grade 9", "Grade 10"].map((g) => (
                         <option key={g} value={g}>{g}</option>
                       ))}
                     </select>

@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
@@ -29,19 +30,33 @@ export class ExamsService {
     providedId?: string,
   ): Promise<string> {
     const validSchoolId = requireSchoolId(schoolId);
-    if (providedId) {
+    if (providedId && providedId !== 'undefined' && providedId !== 'null' && providedId.trim() !== '') {
+      const trimmed = providedId.trim();
+      const normalizedName = trimmed.replace(/^AY[-_]?/i, '');
       const year = await this.prisma.academicYear.findFirst({
-        where: { id: providedId, schoolId: validSchoolId },
+        where: {
+          schoolId: validSchoolId,
+          OR: [
+            { id: trimmed },
+            { name: trimmed },
+            { name: normalizedName },
+          ],
+        },
       });
-      if (!year) throw new NotFoundException('Academic year not found');
-      return year.id;
+      if (year) return year.id;
     }
     const activeYear = await this.prisma.academicYear.findFirst({
       where: { schoolId: validSchoolId, isActive: true },
     });
-    if (!activeYear)
-      throw new BadRequestException('No active academic year found');
-    return activeYear.id;
+    if (activeYear) return activeYear.id;
+
+    const latestYear = await this.prisma.academicYear.findFirst({
+      where: { schoolId: validSchoolId },
+      orderBy: { startDate: 'desc' },
+    });
+    if (latestYear) return latestYear.id;
+
+    throw new BadRequestException('No active academic year found for this school');
   }
 
   // ─── Create Exam ──────────────────────────────────────────────────────────
@@ -438,11 +453,53 @@ export class ExamsService {
     return reportCards;
   }
 
+  private async validateStudentAccess(
+    student: { id: string; userId: string },
+    requestingUser?: { id: string; role: string },
+  ) {
+    if (!requestingUser) return;
+    const { id: userId, role } = requestingUser;
+
+    if (['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER'].includes(role)) {
+      return;
+    }
+
+    if (role === 'STUDENT') {
+      if (student.userId !== userId) {
+        throw new ForbiddenException('You can only view your own academic records');
+      }
+      return;
+    }
+
+    if (role === 'PARENT') {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true },
+      });
+      const guardian = await this.prisma.guardian.findFirst({
+        where: {
+          studentId: student.id,
+          OR: [
+            { userId },
+            ...(user?.email ? [{ email: user.email }] : []),
+          ],
+        },
+      });
+      if (!guardian) {
+        throw new ForbiddenException('You are not authorized to view this student\'s academic records');
+      }
+      return;
+    }
+
+    throw new ForbiddenException('Access denied');
+  }
+
   // ─── Get Student Report Card ──────────────────────────────────────────────
   async getStudentReportCard(
     examId: string,
     studentId: string,
     schoolId: string,
+    requestingUser?: { id: string; role: string },
   ) {
     const validSchoolId = requireSchoolId(schoolId);
     const exam = await this.prisma.exam.findFirst({
@@ -454,6 +511,8 @@ export class ExamsService {
       where: { id: studentId, schoolId: validSchoolId },
     });
     if (!student) throw new NotFoundException('Student not found');
+
+    await this.validateStudentAccess(student, requestingUser);
 
     const [reportCard, subjectMarks, studentEnrollments] = await Promise.all([
       this.prisma.reportCard.findUnique({
@@ -567,12 +626,18 @@ export class ExamsService {
   }
 
   // ─── Get Student Results (all exams) ─────────────────────────────────────
-  async getStudentResults(studentId: string, schoolId: string) {
+  async getStudentResults(
+    studentId: string,
+    schoolId: string,
+    requestingUser?: { id: string; role: string },
+  ) {
     const validSchoolId = requireSchoolId(schoolId);
     const student = await this.prisma.student.findFirst({
       where: { id: studentId, schoolId: validSchoolId },
     });
     if (!student) throw new NotFoundException('Student not found');
+
+    await this.validateStudentAccess(student, requestingUser);
 
     const reportCards = await this.prisma.reportCard.findMany({
       where: {

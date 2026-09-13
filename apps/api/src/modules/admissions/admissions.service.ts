@@ -5,6 +5,9 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { AdmissionStatus, EnquiryStatus, Gender } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
+import { requireSchoolId } from '../../core/tenant/tenant.util';
+import { generateNextSequence } from '../../core/database/sequence.util';
 
 @Injectable()
 export class AdmissionsService {
@@ -13,8 +16,9 @@ export class AdmissionsService {
   // ================= ENQUIRIES =================
 
   async createEnquiry(schoolId: string, data: any) {
+    const validSchoolId = requireSchoolId(schoolId, 'Create admission enquiry');
     const activeYear = await this.prisma.academicYear.findFirst({
-      where: { schoolId, isActive: true },
+      where: { schoolId: validSchoolId, isActive: true },
     });
     if (!activeYear)
       throw new BadRequestException('No active academic year found');
@@ -30,7 +34,7 @@ export class AdmissionsService {
 
     return this.prisma.admissionEnquiry.create({
       data: {
-        schoolId,
+        schoolId: validSchoolId,
         academicYearId: activeYear.id,
         studentName: data.studentName,
         dob: data.dob ? new Date(data.dob) : null,
@@ -49,8 +53,9 @@ export class AdmissionsService {
   }
 
   async findAllEnquiries(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'List admission enquiries');
     return this.prisma.admissionEnquiry.findMany({
-      where: { schoolId },
+      where: { schoolId: validSchoolId },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -60,15 +65,17 @@ export class AdmissionsService {
     id: string,
     status: EnquiryStatus,
   ) {
+    const validSchoolId = requireSchoolId(schoolId, 'Update enquiry status');
     return this.prisma.admissionEnquiry.update({
-      where: { id, schoolId },
+      where: { id, schoolId: validSchoolId },
       data: { status },
     });
   }
 
   async calculateLeadScores(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'Calculate lead scores');
     const enquiries = await this.prisma.admissionEnquiry.findMany({
-      where: { schoolId },
+      where: { schoolId: validSchoolId },
     });
 
     let updatedCount = 0;
@@ -115,20 +122,18 @@ export class AdmissionsService {
   // ================= APPLICATIONS =================
 
   async createApplication(schoolId: string, data: any) {
+    const validSchoolId = requireSchoolId(schoolId, 'Create admission application');
     const activeYear = await this.prisma.academicYear.findFirst({
-      where: { schoolId, isActive: true },
+      where: { schoolId: validSchoolId, isActive: true },
     });
     if (!activeYear)
       throw new BadRequestException('No active academic year found');
 
-    const appCount = await this.prisma.admissionApplication.count({
-      where: { schoolId, academicYearId: activeYear.id },
-    });
-    const applicationNo = `APP-${new Date().getFullYear()}-${String(appCount + 1).padStart(4, '0')}`;
+    const applicationNo = await generateNextSequence(this.prisma, validSchoolId, 'APP');
 
     return this.prisma.admissionApplication.create({
       data: {
-        schoolId,
+        schoolId: validSchoolId,
         academicYearId: activeYear.id,
         applicationNo,
         studentName: data.studentName,
@@ -148,15 +153,17 @@ export class AdmissionsService {
   }
 
   async findAllApplications(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'List admission applications');
     return this.prisma.admissionApplication.findMany({
-      where: { schoolId },
+      where: { schoolId: validSchoolId },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async getApplicationById(schoolId: string, id: string) {
-    const app = await this.prisma.admissionApplication.findUnique({
-      where: { id, schoolId },
+    const validSchoolId = requireSchoolId(schoolId, 'Get admission application');
+    const app = await this.prisma.admissionApplication.findFirst({
+      where: { id, schoolId: validSchoolId },
       include: { documents: true },
     });
     if (!app) throw new NotFoundException('Application not found');
@@ -168,15 +175,17 @@ export class AdmissionsService {
     id: string,
     status: AdmissionStatus,
   ) {
+    const validSchoolId = requireSchoolId(schoolId, 'Update application status');
     return this.prisma.admissionApplication.update({
-      where: { id, schoolId },
+      where: { id, schoolId: validSchoolId },
       data: { status },
     });
   }
 
   async convertApplicationToStudent(schoolId: string, id: string) {
-    const app = await this.prisma.admissionApplication.findUnique({
-      where: { id, schoolId },
+    const validSchoolId = requireSchoolId(schoolId, 'Convert application to student');
+    const app = await this.prisma.admissionApplication.findFirst({
+      where: { id, schoolId: validSchoolId },
     });
     if (!app) throw new NotFoundException('Application not found');
     if (app.status !== AdmissionStatus.ACCEPTED) {
@@ -188,28 +197,31 @@ export class AdmissionsService {
       throw new BadRequestException('Application already converted to student');
     }
 
+    const birthYear = app.dateOfBirth ? new Date(app.dateOfBirth).getFullYear() : '2026';
+    const tempPassword = `Std@${birthYear}!${Math.random().toString(36).slice(-4)}`;
+    const passwordHash = await bcrypt.hash(tempPassword, 12);
+
     return this.prisma.$transaction(async (tx: any) => {
-      // Create user for student (randomized credentials for now, could be sent via email later)
+      // Create user for student with hashed credentials
       const user = await tx.user.create({
         data: {
           email: app.parentEmail
             ? `student_${app.applicationNo}@example.com`
             : `temp_${app.applicationNo}@example.com`,
-          password: 'Password123', // In real app, generate securely
+          passwordHash,
           firstName: app.studentName.split(' ')[0],
-          lastName: app.studentName.split(' ').slice(1).join(' '),
+          lastName: app.studentName.split(' ').slice(1).join(' ') || 'Student',
           role: 'STUDENT',
-          schoolId: schoolId,
+          schoolId: validSchoolId,
         },
       });
 
-      // Find how many students exist to generate admission number
-      const studentCount = await tx.student.count({ where: { schoolId } });
-      const admissionNumber = `ADM-${new Date().getFullYear()}-${String(studentCount + 1).padStart(4, '0')}`;
+      // Atomically generate sequential admission number
+      const admissionNumber = await generateNextSequence(tx, validSchoolId, 'ADM');
 
       const student = await tx.student.create({
         data: {
-          schoolId,
+          schoolId: validSchoolId,
           userId: user.id,
           admissionNumber,
           dateOfBirth: app.dateOfBirth,
@@ -243,30 +255,31 @@ export class AdmissionsService {
         },
       });
 
-      return { student, application: updatedApp };
+      return { student, application: updatedApp, temporaryPassword: tempPassword };
     });
   }
 
   async getAnalytics(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'Get admission analytics');
     const [enquiries, applications] = await Promise.all([
       this.prisma.admissionEnquiry.groupBy({
         by: ['status'],
-        where: { schoolId },
+        where: { schoolId: validSchoolId },
         _count: true,
       }),
       this.prisma.admissionApplication.groupBy({
         by: ['status'],
-        where: { schoolId },
+        where: { schoolId: validSchoolId },
         _count: true,
       }),
     ]);
 
     const activeYear = await this.prisma.academicYear.findFirst({
-      where: { schoolId, isActive: true },
+      where: { schoolId: validSchoolId, isActive: true },
     });
 
     const recentApplications = await this.prisma.admissionApplication.findMany({
-      where: { schoolId, academicYearId: activeYear?.id },
+      where: { schoolId: validSchoolId, academicYearId: activeYear?.id },
       orderBy: { createdAt: 'desc' },
       take: 5,
     });

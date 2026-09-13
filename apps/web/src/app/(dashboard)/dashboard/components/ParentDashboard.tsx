@@ -23,10 +23,6 @@ export function ParentDashboard({ user }: { user: any }) {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [results, setResults] = useState<any[]>([]);
   const [extraLoading, setExtraLoading] = useState(true);
-  
-  const [payModal, setPayModal] = useState<{ child: any; method: string } | null>(null);
-  const [paying, setPaying] = useState(false);
-  const [receipt, setReceipt] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -39,21 +35,6 @@ export function ParentDashboard({ user }: { user: any }) {
   }, [child?.id]);
 
   const loading = parentLoading || extraLoading;
-
-  const handlePay = async () => {
-    if (!payModal) return;
-    setPaying(true);
-    try {
-      const res = await apiClient.post('/fees/parent/pay', {
-        studentId: payModal.child.id,
-        amount: payModal.child.fees?.outstandingFee || 0,
-        paymentMode: payModal.method,
-      });
-      setReceipt(res.data?.data?.receiptNumber || res.data?.receiptNumber || `RCPT-${Date.now()}`);
-      refetch(); // Refresh dashboard after payment
-    } catch (e) { console.error(e); }
-    finally { setPaying(false); }
-  };
 
   const notifIconMap: Record<string, { bg: string; color: string; icon: any }> = {
     ACADEMIC: { bg: 'var(--risk-medium-bg)', color: 'var(--risk-medium)', icon: AlertTriangle },
@@ -311,7 +292,7 @@ export function ParentDashboard({ user }: { user: any }) {
                 <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.2 }}>{fmt(feeAmount)}</div>
                 {feeAmount > 0 ? <div style={{ display: 'inline-block', background: 'var(--risk-high-bg)', color: 'var(--risk-high)', padding: '0.15rem 0.5rem', borderRadius: '2rem', fontSize: '0.688rem', fontWeight: 600, marginTop: '0.25rem' }}>Due Soon</div> : null}
               </div>
-              <Button size="sm" style={{ background: '#0f766e', color: "var(--bg-surface)", borderRadius: '2rem' }} disabled={!feeAmount} onClick={() => child && setPayModal({ child, method: 'ONLINE_UPI' })}>Pay Now</Button>
+              <Button size="sm" style={{ background: 'var(--primary-600)', color: "#ffffff", borderRadius: '2rem', boxShadow: '0 2px 8px rgba(37,99,235,0.25)' }} disabled={!feeAmount} onClick={() => router.push('/parent-fees')}>Pay Now</Button>
             </div>
           )}
         </div>
@@ -356,56 +337,6 @@ export function ParentDashboard({ user }: { user: any }) {
           <div style={{ position: 'absolute', right: '-8px', bottom: '-12px', fontSize: '5rem', opacity: 0.85, transform: 'rotate(-5deg)', userSelect: 'none' }}>👨‍👩‍👧</div>
         </div>
       </div>
-
-      {/* ── PAYMENT MODAL ── */}
-      {payModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          {receipt ? (
-            <div style={{ background: "var(--bg-surface)", padding: '2.5rem', borderRadius: '1.5rem', maxWidth: 400, width: '100%', textAlign: 'center', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
-              <div style={{ width: 72, height: 72, background: 'var(--risk-low-bg)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}><ShieldCheck size={36} color="var(--risk-low)" /></div>
-              <h2 style={{ fontSize: '1.375rem', fontWeight: 700, margin: '0 0 0.5rem' }}>Payment Successful!</h2>
-              <p style={{ color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>Your fee has been received securely.</p>
-              <div style={{ background: 'var(--bg-surface-hover)', padding: '0.75rem 1.25rem', borderRadius: '0.75rem', display: 'inline-block', marginBottom: '1.5rem' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Receipt Number</div>
-                <div style={{ fontWeight: 700, fontSize: '1.125rem', color: 'var(--text-primary)' }}>{receipt}</div>
-              </div>
-              <Button style={{ width: '100%', background: '#0f766e' }} onClick={() => { setPayModal(null); setReceipt(null); }}>Done</Button>
-            </div>
-          ) : (
-            <div style={{ background: "var(--bg-surface)", padding: '2rem', borderRadius: '1.5rem', maxWidth: 460, width: '100%', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 700 }}>Secure Checkout</h2>
-                <ShieldCheck color="var(--risk-low)" />
-              </div>
-              <div style={{ background: 'var(--bg-surface-hover)', padding: '1.25rem', borderRadius: '1rem', marginBottom: '1.5rem', border: '1px solid var(--border-default)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.875rem' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Student</span>
-                  <span style={{ fontWeight: 600 }}>{payModal.child.name}</span>
-                </div>
-                <div style={{ height: 1, background: 'var(--border-default)', margin: '0.75rem 0' }} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Amount</span>
-                  <span style={{ fontSize: '1.375rem', fontWeight: 800, color: '#0f766e' }}>{fmt(feeAmount)}</span>
-                </div>
-              </div>
-              <p style={{ fontSize: '0.813rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>Payment Method</p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1.5rem' }}>
-                {['ONLINE_UPI','ONLINE_CARD'].map(m => (
-                  <div key={m} onClick={() => setPayModal({...payModal, method: m})} style={{ padding: '0.875rem', border: `2px solid ${payModal.method===m?'#0f766e':'var(--border-default)'}`, borderRadius: '0.75rem', cursor: 'pointer', textAlign: 'center', background: payModal.method===m?'var(--risk-low-bg)':"var(--bg-surface)", fontSize: '0.875rem', fontWeight: 600, color: payModal.method===m?'#0f766e':'var(--text-secondary)' }}>
-                    {m === 'ONLINE_UPI' ? 'UPI App' : 'Card'}
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: 'flex', gap: '0.75rem' }}>
-                <Button variant="outline" style={{ flex: 1 }} onClick={() => setPayModal(null)} disabled={paying}>Cancel</Button>
-                <Button style={{ flex: 2, background: '#0f766e', color: "var(--bg-surface)" }} onClick={handlePay} disabled={paying}>
-                  {paying ? 'Processing…' : `Pay ${fmt(feeAmount)}`}
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

@@ -376,7 +376,7 @@ function PrincipalCommandContent() {
   }> = dashboardData?.atRiskStudents || [
     { id: "s1", name: "Aarav Gupta", admissionNumber: "ADM-104", className: "Grade 10 - A", attendancePct: 68, guardianPhone: "+91-9876543210", riskFactor: "Attendance < 75%", severity: "CRITICAL" },
     { id: "s2", name: "Sneha Reddy", admissionNumber: "ADM-112", className: "Grade 9 - B", attendancePct: 71, guardianPhone: "+91-9876543211", riskFactor: "Consecutive Test Score Drop", severity: "WARNING" },
-    { id: "s3", name: "Kavya Patel", admissionNumber: "ADM-128", className: "Grade 11 - MPC", attendancePct: 64, guardianPhone: "+91-9876543212", riskFactor: "Attendance < 75%", severity: "CRITICAL" },
+    { id: "s3", name: "Kavya Patel", admissionNumber: "ADM-128", className: "Grade 8 - A", attendancePct: 64, guardianPhone: "+91-9876543212", riskFactor: "Attendance < 75%", severity: "CRITICAL" },
     { id: "s4", name: "Rohan Varma", admissionNumber: "ADM-135", className: "Grade 10 - B", attendancePct: 73, guardianPhone: "+91-9876543213", riskFactor: "Consecutive Test Score Drop", severity: "WARNING" },
   ];
 
@@ -1026,8 +1026,8 @@ function PrincipalCommandContent() {
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
                   <div>
-                    <label style={{ display: "block", fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--text-secondary)", marginBottom: "0.35rem", textTransform: "uppercase" }}>Class / Stream *</label>
-                    <input type="text" required placeholder="e.g. Grade 11 Science" value={admissionForm.classApplied} onChange={(e) => setAdmissionForm({ ...admissionForm, classApplied: e.target.value })} style={formInput} />
+                    <label style={{ display: "block", fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--text-secondary)", marginBottom: "0.35rem", textTransform: "uppercase" }}>Class / Section *</label>
+                    <input type="text" required placeholder="e.g. Grade 10 - Section A" value={admissionForm.classApplied} onChange={(e) => setAdmissionForm({ ...admissionForm, classApplied: e.target.value })} style={formInput} />
                   </div>
                   <div>
                     <label style={{ display: "block", fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--text-secondary)", marginBottom: "0.35rem", textTransform: "uppercase" }}>Gender *</label>

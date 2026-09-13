@@ -174,6 +174,7 @@ export class ExamsController {
       examId,
       studentId,
       req.user.schoolId,
+      req.user,
     );
   }
 
@@ -200,6 +201,10 @@ export class ExamsController {
     @Request() req: any,
     @Param('studentId') studentId: string,
   ) {
-    return this.service.getStudentResults(studentId, req.user.schoolId);
+    return this.service.getStudentResults(
+      studentId,
+      req.user.schoolId,
+      req.user,
+    );
   }
 }

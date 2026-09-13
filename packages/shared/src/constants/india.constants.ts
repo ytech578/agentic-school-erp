@@ -60,8 +60,6 @@ export const CLASS_LEVELS = [
   { name: 'Class 8', level: 10 },
   { name: 'Class 9', level: 11 },
   { name: 'Class 10', level: 12 },
-  { name: 'Class 11', level: 13 },
-  { name: 'Class 12', level: 14 },
 ] as const;
 
 /**

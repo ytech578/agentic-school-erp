@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { requireSchoolId } from '../../core/tenant/tenant.util';
 
 @Injectable()
 export class ReportsService {
@@ -9,9 +10,10 @@ export class ReportsService {
     schoolId: string,
     academicYearId?: string,
   ): Promise<string | undefined> {
+    const validSchoolId = requireSchoolId(schoolId, 'Resolve active year');
     if (academicYearId) return academicYearId;
     const ay = await this.prisma.academicYear.findFirst({
-      where: { schoolId, isActive: true },
+      where: { schoolId: validSchoolId, isActive: true },
     });
     return ay?.id;
   }
@@ -19,6 +21,7 @@ export class ReportsService {
   // ── Attendance Reports ────────────────────────────────────────────────
 
   async getDailyAttendance(schoolId: string, date?: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'Daily attendance report');
     const targetDate = date ? new Date(date) : new Date();
     const startOfDay = new Date(targetDate);
     startOfDay.setHours(0, 0, 0, 0);
@@ -28,10 +31,10 @@ export class ReportsService {
     const [records, totalStudents] = await Promise.all([
       this.prisma.attendanceRecord.groupBy({
         by: ['status'],
-        where: { schoolId, date: { gte: startOfDay, lte: endOfDay } },
+        where: { schoolId: validSchoolId, date: { gte: startOfDay, lte: endOfDay } },
         _count: { status: true },
       }),
-      this.prisma.student.count({ where: { schoolId, isActive: true } }),
+      this.prisma.student.count({ where: { schoolId: validSchoolId, isActive: true } }),
     ]);
 
     const summary: Record<string, number> = {
@@ -61,12 +64,13 @@ export class ReportsService {
     month: number,
     year: number,
   ) {
+    const validSchoolId = requireSchoolId(schoolId, 'Attendance register');
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 0, 23, 59, 59);
 
     // Enrollments for this section
     const enrollments = await this.prisma.studentEnrollment.findMany({
-      where: { sectionId, status: 'ACTIVE' },
+      where: { sectionId, status: 'ACTIVE', section: { class: { schoolId: validSchoolId } } },
       include: {
         student: {
           include: { user: { select: { firstName: true, lastName: true } } },
@@ -76,7 +80,7 @@ export class ReportsService {
 
     // Attendance records for this section in the given month
     const records = await this.prisma.attendanceRecord.findMany({
-      where: { schoolId, sectionId, date: { gte: startDate, lte: endDate } },
+      where: { schoolId: validSchoolId, sectionId, date: { gte: startDate, lte: endDate } },
     });
 
     // Build lookup: studentId → { day → status }
@@ -118,9 +122,10 @@ export class ReportsService {
   }
 
   async getLowAttendanceStudents(schoolId: string, threshold = 75) {
+    const validSchoolId = requireSchoolId(schoolId, 'Low attendance report');
     // Get all students in school
     const students = await this.prisma.student.findMany({
-      where: { schoolId, isActive: true },
+      where: { schoolId: validSchoolId, isActive: true },
       include: {
         user: { select: { firstName: true, lastName: true } },
         enrollments: {
@@ -137,9 +142,9 @@ export class ReportsService {
     for (const s of students) {
       const [present, total] = await Promise.all([
         this.prisma.attendanceRecord.count({
-          where: { studentId: s.id, status: 'PRESENT' },
+          where: { studentId: s.id, schoolId: validSchoolId, status: 'PRESENT' },
         }),
-        this.prisma.attendanceRecord.count({ where: { studentId: s.id } }),
+        this.prisma.attendanceRecord.count({ where: { studentId: s.id, schoolId: validSchoolId } }),
       ]);
       const pct = total > 0 ? (present / total) * 100 : 0;
       if (pct < threshold) {
@@ -162,9 +167,10 @@ export class ReportsService {
   // ── Fee Reports ────────────────────────────────────────────────────────
 
   async getFeeCollectionSummary(schoolId: string, from: string, to: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'Fee collection summary');
     const payments = await this.prisma.feePayment.findMany({
       where: {
-        schoolId,
+        schoolId: validSchoolId,
         paymentStatus: 'PAID',
         paymentDate: { gte: new Date(from), lte: new Date(to + 'T23:59:59') },
       },
@@ -203,9 +209,10 @@ export class ReportsService {
   }
 
   async getFeeOutstanding(schoolId: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'Fee outstanding report');
     const pending = await this.prisma.feePayment.findMany({
       where: {
-        schoolId,
+        schoolId: validSchoolId,
         paymentStatus: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] },
       },
       include: {
@@ -242,8 +249,9 @@ export class ReportsService {
   // ── Exam Reports ──────────────────────────────────────────────────────
 
   async getExamReport(schoolId: string, examId: string, classId?: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'Exam report');
     const exam = await this.prisma.exam.findFirst({
-      where: { id: examId, schoolId },
+      where: { id: examId, schoolId: validSchoolId },
       include: { academicYear: { select: { name: true } } },
     });
     if (!exam) return null;
@@ -339,9 +347,10 @@ export class ReportsService {
   }
 
   async getReportCard(schoolId: string, studentId: string, examId?: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'Student report card');
     // Fetch student with user + active enrollment
     const student = await this.prisma.student.findFirst({
-      where: { id: studentId, schoolId },
+      where: { id: studentId, schoolId: validSchoolId },
       include: {
         user: { select: { firstName: true, lastName: true, email: true } },
         enrollments: {

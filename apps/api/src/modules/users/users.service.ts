@@ -101,6 +101,45 @@ export class UsersService {
     };
   }
 
+  async getStats(schoolId: string, requestingUser?: any) {
+    const isGlobal = requestingUser?.role === 'SUPER_ADMIN';
+    const effectiveSchoolId =
+      isGlobal && !schoolId ? undefined : requireSchoolId(schoolId, 'Get user stats');
+
+    const where: any = effectiveSchoolId ? { schoolId: effectiveSchoolId } : {};
+
+    const [total, active, inactive, roles] = await Promise.all([
+      this.prisma.user.count({ where }),
+      this.prisma.user.count({ where: { ...where, status: 'ACTIVE' } }),
+      this.prisma.user.count({ where: { ...where, status: { not: 'ACTIVE' } } }),
+      this.prisma.user.groupBy({
+        by: ['role'],
+        where,
+        _count: { _all: true },
+      }),
+    ]);
+
+    const byRole: Record<string, number> = {
+      SUPER_ADMIN: 0,
+      SCHOOL_ADMIN: 0,
+      PRINCIPAL: 0,
+      TEACHER: 0,
+      STUDENT: 0,
+      PARENT: 0,
+    };
+
+    for (const r of roles) {
+      byRole[r.role] = r._count._all;
+    }
+
+    return {
+      total,
+      active,
+      inactive,
+      byRole,
+    };
+  }
+
   async createUser(
     schoolId: string,
     data: {

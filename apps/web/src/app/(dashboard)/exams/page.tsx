@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
   Plus, BookOpen, CheckCircle, Clock, Pencil, Trash2,
-  ChevronRight, X, AlertTriangle, Calendar
+  ChevronRight, X, AlertTriangle, Calendar, FileText
 } from "lucide-react";
+import { OfficialReportCardModal } from "@/components/exams/OfficialReportCardModal";
 import { useAuthStore } from "@/store/auth.store";
 
 const EXAM_TYPES = ["UNIT_TEST", "MIDTERM", "QUARTERLY", "HALF_YEARLY", "FINAL", "ANNUAL"];
@@ -35,15 +36,35 @@ function ExamModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const [academicYears, setAcademicYears] = useState<any[]>([]);
   const [form, setForm] = useState({
     name: exam?.name || "",
     examType: exam?.examType || "UNIT_TEST",
-    academicYearId: "AY2026-27",
+    academicYearId: exam?.academicYearId || "",
     startDate: exam?.startDate ? new Date(exam.startDate).toISOString().split("T")[0] : "",
     endDate: exam?.endDate ? new Date(exam.endDate).toISOString().split("T")[0] : "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const fetchYears = async () => {
+      try {
+        const res = await apiClient.get("/schools/academic-years");
+        const years = res.data?.data || res.data || [];
+        setAcademicYears(years);
+        if (!exam?.academicYearId && years.length > 0) {
+          const active = years.find((y: any) => y.isActive) || years[0];
+          if (active) {
+            setForm(f => ({ ...f, academicYearId: active.id }));
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load academic years", err);
+      }
+    };
+    fetchYears();
+  }, [exam]);
 
   const selectStyle: React.CSSProperties = {
     padding: "0.625rem 0.875rem",
@@ -186,6 +207,7 @@ export default function ExamsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editingExam, setEditingExam] = useState<any>(null);
   const [deletingExam, setDeletingExam] = useState<any>(null);
+  const [sampleReportCardOpen, setSampleReportCardOpen] = useState(false);
 
   useEffect(() => { fetchExams(); }, []);
 
@@ -211,11 +233,16 @@ export default function ExamsPage() {
             Manage exams, marks entry, and report cards
           </p>
         </div>
-        {canEdit && (
-          <Button onClick={() => setShowCreate(true)}>
-            <Plus size={16} style={{ marginRight: "0.5rem" }} /> Create Exam
+        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+          <Button variant="outline" onClick={() => setSampleReportCardOpen(true)}>
+            <FileText size={16} style={{ marginRight: "0.5rem" }} /> Official Report Card Format
           </Button>
-        )}
+          {canEdit && (
+            <Button onClick={() => setShowCreate(true)}>
+              <Plus size={16} style={{ marginRight: "0.5rem" }} /> Create Exam
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Exam Cards */}
@@ -333,6 +360,42 @@ export default function ExamsPage() {
       )}
       {deletingExam && (
         <DeleteConfirmModal exam={deletingExam} onClose={() => setDeletingExam(null)} onDeleted={() => { setDeletingExam(null); fetchExams(); }} />
+      )}
+      {sampleReportCardOpen && (
+        <OfficialReportCardModal
+          data={{
+            examName: "Annual Progress Examination 2025-26",
+            student: {
+              firstName: "Aarav",
+              lastName: "Sharma",
+              admissionNumber: "ADM-2025-0142",
+              rollNumber: "14",
+              className: "Class 10",
+              sectionName: "Section A",
+              dob: "2010-05-12",
+              fatherName: "Vikram Sharma",
+              attendancePercent: 96.4,
+            },
+            subjects: [
+              { code: "ENG-101", name: "English Language & Literature", totalMax: 100, totalPass: 35, totalScored: 92, grade: "A1", status: "PASSED" },
+              { code: "MAT-102", name: "Mathematics Standard", totalMax: 100, totalPass: 35, totalScored: 95, grade: "A1", status: "PASSED" },
+              { code: "SCI-103", name: "Science & Technology", totalMax: 100, totalPass: 35, totalScored: 88, grade: "A2", status: "PASSED" },
+              { code: "SOC-104", name: "Social Science", totalMax: 100, totalPass: 35, totalScored: 90, grade: "A1", status: "PASSED" },
+              { code: "HIN-105", name: "Hindi Course A", totalMax: 100, totalPass: 35, totalScored: 86, grade: "A2", status: "PASSED" },
+              { code: "CSC-106", name: "Computer Applications / AI", totalMax: 100, totalPass: 35, totalScored: 98, grade: "A1", status: "PASSED" },
+            ],
+            summary: {
+              totalMarks: 600,
+              obtainedMarks: 549,
+              percentage: 91.5,
+              rank: 3,
+              grade: "A1",
+              resultStatus: "DISTINCTION",
+              teacherRemarks: "Exhibits exceptional scholastic discipline, outstanding problem-solving clarity, and active classroom participation.",
+            },
+          }}
+          onClose={() => setSampleReportCardOpen(false)}
+        />
       )}
     </div>
   );

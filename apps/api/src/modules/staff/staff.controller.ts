@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Body,
   Param,
   Query,
@@ -73,5 +74,20 @@ export class StaffController {
   async updateStaff(@Request() req: any, @Param('id') id: string, @Body() body: any) {
     const parsedBody = UpdateStaffSchema.parse(body);
     return this.service.updateStaff(req.user.schoolId, id, parsedBody);
+  }
+
+  @Patch(':id/status')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  async updateStaffStatus(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      isActive: boolean;
+      resignDate?: string;
+      reason?: string;
+    },
+  ) {
+    return this.service.updateStaffStatus(req.user.schoolId, id, body);
   }
 }

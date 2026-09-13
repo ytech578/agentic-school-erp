@@ -2,6 +2,7 @@ import {
   Injectable,
   ConflictException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateStudentInput, UpdateStudentInput } from '@school-erp/shared';
@@ -112,12 +113,38 @@ export class StudentsService {
     });
   }
 
-  async getStudents(schoolId: string, page = 1, limit = 10, search?: string) {
+  async getStudents(
+    schoolId: string,
+    page = 1,
+    limit = 10,
+    search?: string,
+    sectionId?: string,
+    classId?: string,
+  ) {
     const validSchoolId = requireSchoolId(schoolId, 'List students');
     const skip = (page - 1) * limit;
 
     const where: Prisma.StudentWhereInput = {
       schoolId: validSchoolId,
+      ...(sectionId
+        ? {
+            enrollments: {
+              some: {
+                sectionId,
+                status: 'ACTIVE',
+              },
+            },
+          }
+        : classId
+        ? {
+            enrollments: {
+              some: {
+                section: { classId },
+                status: 'ACTIVE',
+              },
+            },
+          }
+        : {}),
       ...(search
         ? {
             OR: [
@@ -203,13 +230,34 @@ export class StudentsService {
 
   async calculateRiskScores(schoolId: string) {
     const validSchoolId = requireSchoolId(schoolId, 'Calculate risk scores');
+    
+    // Fetch active academic year for financial ledger context
+    const activeYear = await this.prisma.academicYear.findFirst({
+      where: { schoolId: validSchoolId, isActive: true },
+      select: { id: true },
+    });
+
     const students = await this.prisma.student.findMany({
       where: { schoolId: validSchoolId, isActive: true },
       include: {
         attendance: true,
-        feePayments: true,
+        enrollments: {
+          where: { status: 'ACTIVE' },
+          include: { section: { select: { classId: true } } },
+          take: 1,
+        },
+        feePayments: activeYear
+          ? { where: { academicYearId: activeYear.id } }
+          : true,
       },
     });
+
+    const structures: any[] = activeYear
+      ? await this.prisma.feeStructure.findMany({
+          where: { schoolId: validSchoolId, academicYearId: activeYear.id, isActive: true },
+          include: { items: true },
+        })
+      : [];
 
     let updatedCount = 0;
 
@@ -217,7 +265,6 @@ export class StudentsService {
       let riskScore = 0;
 
       // 1. Attendance Risk
-      // Calculate attendance percentage (mock for now, assume 100 days total)
       const presentDays = student.attendance.filter(
         (a) => a.status === 'PRESENT',
       ).length;
@@ -230,12 +277,28 @@ export class StudentsService {
         riskScore += 15; // Medium risk
       }
 
-      // 2. Fee Default Risk (mock checking if they have missing payments)
-      // If we don't have enough data, skip fee risk
-      // Just an example check:
-      const pendingFees = Math.floor(Math.random() * 5000); // MOCK for MVP
-      if (pendingFees > 2000) {
-        riskScore += 20;
+      // 2. Real Fee Default Risk
+      const classId = student.enrollments[0]?.section?.classId;
+      const structure = structures.find((s) => s.classId === classId);
+      const totalFee =
+        structure?.items?.reduce(
+          (sum: number, item: any) => sum + Number(item.amount),
+          0,
+        ) || 0;
+      const totalPaid = student.feePayments
+        .filter((p: any) => p.paymentStatus === 'PAID' || p.paymentStatus === 'PARTIAL')
+        .reduce((sum: number, p: any) => sum + Number(p.paidAmount), 0);
+      const pendingFees = Math.max(totalFee - totalPaid, 0);
+
+      if (totalFee > 0 && pendingFees > 0) {
+        const defaultRatio = pendingFees / totalFee;
+        if (defaultRatio >= 0.5 || pendingFees >= 10000) {
+          riskScore += 25; // Severe default risk (>50% unpaid or >= 10,000 due)
+        } else if (defaultRatio >= 0.25 || pendingFees >= 5000) {
+          riskScore += 15; // Moderate fee default risk
+        } else {
+          riskScore += 5; // Minor outstanding balance
+        }
       }
 
       // Determine level
@@ -350,6 +413,155 @@ export class StudentsService {
       }
 
       return this.getStudentById(schoolId, student.id);
+    });
+  }
+
+  async promoteStudents(
+    schoolId: string,
+    promotedById: string,
+    data: {
+      fromSectionId: string;
+      toSectionId?: string;
+      studentIds: string[];
+      academicYearId: string;
+      remarks?: string;
+      status?: 'PROMOTED' | 'GRADUATED';
+    },
+  ) {
+    const validSchoolId = requireSchoolId(schoolId, 'Promote students');
+
+    if (!data.studentIds || data.studentIds.length === 0) {
+      throw new BadRequestException('At least one student must be selected for promotion');
+    }
+
+    const targetStatus = data.status || (data.toSectionId ? 'PROMOTED' : 'GRADUATED');
+
+    return this.prisma.$transaction(async (tx) => {
+      const results = [];
+
+      for (const studentId of data.studentIds) {
+        // 1. Mark existing active enrollment as PROMOTED or GRADUATED
+        await tx.studentEnrollment.updateMany({
+          where: {
+            studentId,
+            sectionId: data.fromSectionId,
+            status: 'ACTIVE',
+          },
+          data: {
+            status: targetStatus as any,
+            leftAt: new Date(),
+          },
+        });
+
+        // 2. If toSectionId provided, create active enrollment in target section
+        if (data.toSectionId) {
+          await tx.studentEnrollment.upsert({
+            where: {
+              studentId_sectionId: {
+                studentId,
+                sectionId: data.toSectionId,
+              },
+            },
+            create: {
+              studentId,
+              sectionId: data.toSectionId,
+              status: 'ACTIVE',
+              joinedAt: new Date(),
+            },
+            update: {
+              status: 'ACTIVE',
+              leftAt: null,
+            },
+          });
+        }
+
+        // 3. Record StudentPromotion log
+        const promotion = await tx.studentPromotion.create({
+          data: {
+            schoolId: validSchoolId,
+            studentId,
+            academicYearId: data.academicYearId,
+            fromSectionId: data.fromSectionId,
+            toSectionId: data.toSectionId || null,
+            promotedById,
+            remarks: data.remarks || `Promoted to ${data.toSectionId ? 'next class' : 'Graduated'}`,
+          },
+        });
+
+        results.push(promotion);
+      }
+
+      return {
+        success: true,
+        promotedCount: results.length,
+        status: targetStatus,
+      };
+    });
+  }
+
+  async updateStudentStatus(
+    schoolId: string,
+    studentId: string,
+    data: {
+      isActive: boolean;
+      status?: 'ACTIVE' | 'TRANSFERRED' | 'DROPPED' | 'GRADUATED';
+      reason?: string;
+    },
+  ) {
+    const validSchoolId = requireSchoolId(schoolId, 'Update student status');
+
+    const student = await this.prisma.student.findFirst({
+      where: { id: studentId, schoolId: validSchoolId },
+      include: { user: true },
+    });
+
+    if (!student) {
+      throw new NotFoundException('Student not found');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Update Student isActive flag
+      const updatedStudent = await tx.student.update({
+        where: { id: student.id },
+        data: { isActive: data.isActive },
+      });
+
+      // 2. Update User status (ACTIVE vs INACTIVE)
+      await tx.user.update({
+        where: { id: student.userId },
+        data: { status: data.isActive ? 'ACTIVE' : 'INACTIVE' },
+      });
+
+      // 3. Update active enrollment if deactivating
+      if (!data.isActive) {
+        await tx.studentEnrollment.updateMany({
+          where: { studentId: student.id, status: 'ACTIVE' },
+          data: {
+            status: (data.status || 'TRANSFERRED') as any,
+            leftAt: new Date(),
+          },
+        });
+      } else {
+        // If reactivating, make sure latest enrollment is ACTIVE
+        const latestEnrollment = await tx.studentEnrollment.findFirst({
+          where: { studentId: student.id },
+          orderBy: { joinedAt: 'desc' },
+        });
+        if (latestEnrollment) {
+          await tx.studentEnrollment.update({
+            where: { id: latestEnrollment.id },
+            data: { status: 'ACTIVE', leftAt: null },
+          });
+        }
+      }
+
+      return {
+        id: updatedStudent.id,
+        isActive: updatedStudent.isActive,
+        message: data.isActive
+          ? 'Student account successfully reactivated'
+          : `Student marked as inactive (${data.status || 'TRANSFERRED'})`,
+      };
     });
   }
 }

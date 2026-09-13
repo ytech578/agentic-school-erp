@@ -2,10 +2,12 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Query, Request, UseGua
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { MessagesService } from './messages.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../core/guards/roles.guard';
+import { Roles } from '../../core/decorators/roles.decorator';
 
 @ApiTags('Messages')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('messages')
 export class MessagesController {
   constructor(private service: MessagesService) {}
@@ -51,6 +53,7 @@ export class MessagesController {
   }
 
   @Post('broadcast')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Broadcast announcement to all/role' })
   broadcast(
     @Request() req: any,

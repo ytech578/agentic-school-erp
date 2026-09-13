@@ -30,7 +30,9 @@ import {
   ClipboardList,
   TrendingUp,
   HelpCircle,
-  Baby
+  Baby,
+  QrCode,
+  Layers
 } from "lucide-react";
 import { useState } from "react";
 import { useAuthStore } from "@/store/auth.store";
@@ -53,6 +55,7 @@ const NAV_GROUPS = [
     label: "Academics",
     items: [
       { label: "Admissions", href: "/admissions", icon: UserPlus, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
+      { label: "Classes & Sections", href: "/classes", icon: Layers, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
       { label: "Students", href: "/students", icon: GraduationCap, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
       { label: "Attendance", href: "/attendance", icon: CalendarCheck, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
       { label: "Timetable", href: "/timetable", icon: CalendarDays, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
@@ -64,7 +67,7 @@ const NAV_GROUPS = [
     label: "Finance & Operations",
     items: [
       { label: "Fees", href: "/fees", icon: CreditCard, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
-      { label: "Fee Portal", href: "/parent-fees", icon: CreditCard, roles: ["PARENT"] },
+      { label: "Payment Options & QR", href: "/fees/settings", icon: QrCode, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
       { label: "Staff", href: "/staff", icon: Users, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
       { label: "HR Management", href: "/hr", icon: Briefcase, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
       { label: "My Leaves", href: "/hr", icon: CalendarCheck, roles: ["TEACHER"] },
@@ -97,6 +100,18 @@ const PARENT_NAV = [
   { label: "Reports", href: "/parent/reports", icon: BarChart3 },
   { label: "Settings & Profile", href: "/settings", icon: Settings },
   { label: "Support & Help", href: "/parent/support", icon: HelpCircle },
+];
+
+// ─── STUDENT PORTAL NAV ─────────────────────────────────────────────────────
+const STUDENT_NAV = [
+  { label: "Home", href: "/dashboard", icon: LayoutDashboard },
+  { label: "My Attendance", href: "/student/attendance", icon: CalendarCheck },
+  { label: "My Timetable", href: "/student/timetable", icon: CalendarDays },
+  { label: "Homework & Assignments", href: "/student/assignments", icon: ClipboardList },
+  { label: "Marks & Assessments", href: "/student/marks", icon: BookMarked },
+  { label: "Messages", href: "/messages", icon: MessageSquare },
+  { label: "School Calendar", href: "/parent/calendar", icon: CalendarDays },
+  { label: "Profile & Settings", href: "/settings", icon: Settings },
 ];
 
 export default function Sidebar() {
@@ -141,6 +156,31 @@ export default function Sidebar() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
               {PARENT_NAV.map((item) => {
                 const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href + item.label}
+                    href={item.href}
+                    className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
+                    title={collapsed ? item.label : undefined}
+                    style={{ justifyContent: collapsed ? 'center' : 'flex-start' }}
+                  >
+                    <Icon className="nav-icon" size={20} style={{ flexShrink: 0 }} />
+                    {!collapsed && <span>{item.label}</span>}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ) : user?.role === 'STUDENT' ? (
+          // ─── STUDENT PORTAL SIDEBAR ───
+          <div className="sidebar-nav-group">
+            {!collapsed && (
+              <div className="sidebar-nav-group-label">Student Portal</div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              {STUDENT_NAV.map((item) => {
+                const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href + '/'));
                 const Icon = item.icon;
                 return (
                   <Link

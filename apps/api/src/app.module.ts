@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { AuditLogInterceptor } from './core/interceptors/audit-log.interceptor';
 import { PrismaModule } from './core/database/prisma.module';
+import { RedisModule } from './core/cache/redis.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { SchoolsModule } from './modules/schools/schools.module';
@@ -53,6 +56,7 @@ import aiConfig from './config/ai.config';
 
     // ─── Core ──────────────────────────────────────────────────────────
     PrismaModule,
+    RedisModule,
     StorageModule,
     EmailModule,
 
@@ -77,6 +81,16 @@ import aiConfig from './config/ai.config';
     AssignmentsModule,
     ActivitiesModule,
     CurriculumModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: AuditLogInterceptor,
+    },
   ],
 })
 export class AppModule {}

@@ -1,10 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class MessagesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Optional() private notificationsService?: NotificationsService,
+  ) {}
 
   async getInbox(userId: string, schoolId: string) {
     const validSchoolId = requireSchoolId(schoolId);
@@ -172,6 +176,26 @@ export class MessagesService {
     }));
 
     await this.prisma.message.createMany({ data: messages });
+
+    // Dispatches major notification and triggers email delivery for students/parents
+    if (this.notificationsService) {
+      for (const r of recipients) {
+        await this.notificationsService
+          .createNotification({
+            schoolId: validSchoolId,
+            userId: r.id,
+            type: 'GENERAL',
+            title: data.subject,
+            message: data.body,
+            metadata: {
+              isMajor: true,
+              category: 'ANNOUNCEMENT',
+            },
+          })
+          .catch(() => {});
+      }
+    }
+
     return { success: true, sent: messages.length };
   }
 }
