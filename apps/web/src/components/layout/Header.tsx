@@ -8,6 +8,7 @@ import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useEffect, useState, useRef } from "react";
 import { apiClient } from "@/lib/axios";
 import GlobalSearch from "@/components/layout/GlobalSearch";
+import SchoolSwitcher from "@/components/layout/SchoolSwitcher";
 
 export default function Header() {
   const { user, logout } = useAuthStore();
@@ -165,6 +166,9 @@ export default function Header() {
         </div>
 
         <GlobalSearch isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
+
+        {/* Super Admin Multi-Campus Context Switcher */}
+        <SchoolSwitcher />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <ThemeToggle />

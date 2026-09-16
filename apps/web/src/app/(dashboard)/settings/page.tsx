@@ -585,7 +585,7 @@ export default function SettingsPage() {
                           disabled={!isAdmin}
                         >
                           <option value="">Select Board</option>
-                          {["CBSE", "ICSE", "State Board", "IB", "Cambridge"].map(b => <option key={b} value={b}>{b}</option>)}
+                          {["CBSE", "ICSE", "State Board"].map(b => <option key={b} value={b}>{b}</option>)}
                         </select>
                       </div>
                       {isAdmin && (

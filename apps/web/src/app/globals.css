@@ -85,6 +85,7 @@
   --bg-surface-solid:   #FFFFFF;
   --bg-surface-hover:   #F8FAFC;
   --bg-elevated:        #FFFFFF;
+  --bg-input:           #FFFFFF;
   --bg-overlay:         rgba(15, 23, 42, 0.75);
   --modal-backdrop-blur: blur(12px);
   --modal-shadow:       0 25px 50px -12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1);
@@ -183,6 +184,7 @@
   --bg-surface-solid:   #0D1B36;
   --bg-surface-hover:   #162040;
   --bg-elevated:        #1A2847;
+  --bg-input:           #0B1528;
   --bg-overlay:         rgba(6, 14, 31, 0.85);
   --modal-backdrop-blur: blur(14px);
   --modal-shadow:       0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08);

@@ -95,13 +95,15 @@ describe('HRService', () => {
     const res = await service.getLeaveBalances('school_1', 'user_1');
     expect(res).toBeDefined();
     const casual = res.find((r: any) => r.type === 'CASUAL');
-    expect(casual.quota).toBe(12);
-    expect(casual.used).toBe(3);
-    expect(casual.balance).toBe(9);
+    expect(casual).toBeDefined();
+    expect(casual!.quota).toBe(12);
+    expect(casual!.used).toBe(3);
+    expect(casual!.balance).toBe(9);
 
     const sick = res.find((r: any) => r.type === 'SICK');
-    expect(sick.quota).toBe(10);
-    expect(sick.used).toBe(2);
-    expect(sick.balance).toBe(8);
+    expect(sick).toBeDefined();
+    expect(sick!.quota).toBe(10);
+    expect(sick!.used).toBe(2);
+    expect(sick!.balance).toBe(8);
   });
 });

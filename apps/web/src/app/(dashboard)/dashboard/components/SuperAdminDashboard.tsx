@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { DashboardKpiCard } from "@/components/ui/DashboardKpiCard";
 import { formatDate, formatTimeAgo } from "@/lib/formatters";
+import { CreateSchoolModal } from "@/components/schools/CreateSchoolModal";
 
 function LoadingSkeleton() {
   return (
@@ -35,6 +36,7 @@ export function SuperAdminDashboard({ user }: { user: any }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   const fetchDashboard = async () => {
     try {
@@ -107,7 +109,7 @@ export function SuperAdminDashboard({ user }: { user: any }) {
             <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
             Sync Telemetry
           </button>
-          <Button variant="primary" onClick={() => router.push('/users')} style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "linear-gradient(135deg, #2563EB 0%, #06B6D4 100%)" }}>
+          <Button variant="primary" onClick={() => setIsCreateModalOpen(true)} style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "linear-gradient(135deg, #2563EB 0%, #06B6D4 100%)" }}>
             <Plus size={16} />
             Onboard New School
           </Button>
@@ -164,7 +166,7 @@ export function SuperAdminDashboard({ user }: { user: any }) {
               <CardTitle style={{ fontSize: "var(--text-base)" }}>Onboarded School Campuses</CardTitle>
               <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", margin: 0 }}>Active enterprise institutions under management</p>
             </div>
-            <Button size="sm" variant="ghost" onClick={() => router.push('/users')} style={{ fontSize: "var(--text-xs)" }}>
+            <Button size="sm" variant="ghost" onClick={() => router.push('/schools')} style={{ fontSize: "var(--text-xs)" }}>
               Manage All <ArrowRight size={13} style={{ marginLeft: "0.25rem" }} />
             </Button>
           </CardHeader>
@@ -187,13 +189,27 @@ export function SuperAdminDashboard({ user }: { user: any }) {
                         Code: <strong>{school.code}</strong> • {school.city || "—"} • {school.boardType || "CBSE"}
                       </div>
                     </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--brand-primary)" }}>
-                        {school._count?.students ?? "—"} Students
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--brand-primary)" }}>
+                          {school._count?.students ?? "—"} Students
+                        </div>
+                        <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>
+                          Joined {formatDate(school.createdAt)}
+                        </div>
                       </div>
-                      <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>
-                        Joined {formatDate(school.createdAt)}
-                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          localStorage.setItem("selected_school_id", school.id);
+                          window.dispatchEvent(new Event("school-context-changed"));
+                          window.location.reload();
+                        }}
+                        style={{ fontSize: "11px", padding: "0.3rem 0.6rem" }}
+                      >
+                        Enter
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -251,6 +267,12 @@ export function SuperAdminDashboard({ user }: { user: any }) {
           </CardContent>
         </Card>
       </div>
+
+      <CreateSchoolModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSuccess={() => fetchDashboard()}
+      />
     </div>
   );
 }

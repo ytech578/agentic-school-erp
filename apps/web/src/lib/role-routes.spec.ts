@@ -67,6 +67,16 @@ describe('Role-Based Routes & Cross-Portal Redirection Guard', () => {
       expect(isRouteAllowedForRole('/principal', 'PARENT')).toBe(false);
       expect(isRouteAllowedForRole('/principal', 'STUDENT')).toBe(false);
     });
+
+    it('strictly isolates Staff directory (/staff) to Admins and Principals', () => {
+      expect(isRouteAllowedForRole('/staff', 'SUPER_ADMIN')).toBe(true);
+      expect(isRouteAllowedForRole('/staff', 'SCHOOL_ADMIN')).toBe(true);
+      expect(isRouteAllowedForRole('/staff', 'PRINCIPAL')).toBe(true);
+
+      expect(isRouteAllowedForRole('/staff', 'TEACHER')).toBe(false);
+      expect(isRouteAllowedForRole('/staff', 'PARENT')).toBe(false);
+      expect(isRouteAllowedForRole('/staff', 'STUDENT')).toBe(false);
+    });
   });
 
   describe('getAuthorizedRedirect', () => {

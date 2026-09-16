@@ -32,7 +32,8 @@ import {
   HelpCircle,
   Baby,
   QrCode,
-  Layers
+  Layers,
+  Building2
 } from "lucide-react";
 import { useState } from "react";
 import { useAuthStore } from "@/store/auth.store";
@@ -77,6 +78,7 @@ const NAV_GROUPS = [
   {
     label: "System",
     items: [
+      { label: "Schools & Campuses", href: "/schools", icon: Building2, roles: ["SUPER_ADMIN"] },
       { label: "Users", href: "/users", icon: UserCog, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
       { label: "Settings", href: "/settings", icon: Settings, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER", "PARENT", "STUDENT"] },
     ]

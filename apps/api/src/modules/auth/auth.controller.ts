@@ -67,6 +67,7 @@ export class AuthController {
       data: {
         user: result.user,
         accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
       },
       message: 'Login successful',
     };
@@ -82,7 +83,10 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
     @CurrentUser() user: JwtPayload,
   ) {
-    const refreshToken = req.cookies?.['refresh_token'];
+    const refreshToken =
+      req.cookies?.['refresh_token'] ||
+      (req.body as any)?.refreshToken ||
+      (req.headers['x-refresh-token'] as string);
     if (refreshToken) {
       await this.authService.logout(refreshToken, user.sub);
     }
@@ -94,12 +98,15 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtRefreshGuard)
   @ApiCookieAuth()
-  @ApiOperation({ summary: 'Refresh access token using refresh token cookie' })
+  @ApiOperation({ summary: 'Refresh access token using refresh token cookie, body, or header' })
   async refreshToken(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const refreshToken = req.cookies?.['refresh_token'];
+    const refreshToken =
+      req.cookies?.['refresh_token'] ||
+      (req.body as any)?.refreshToken ||
+      (req.headers['x-refresh-token'] as string);
     const ipAddress =
       (req.headers['x-forwarded-for'] as string) || req.ip || '';
 
@@ -110,7 +117,10 @@ export class AuthController {
     this.setRefreshTokenCookie(res, tokens.refreshToken);
 
     return {
-      data: { accessToken: tokens.accessToken },
+      data: {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      },
       message: 'Token refreshed',
     };
   }
@@ -160,8 +170,6 @@ export class AuthController {
       'jwt.refreshExpiresInMs',
       7 * 24 * 60 * 60 * 1000,
     );
-    const apiPrefix = (this.config.get<string>('app.apiPrefix') || 'api').replace(/^\/+|\/+$/g, '');
-    const cookiePath = `/${apiPrefix}/auth`;
     const sameSite = isProduction
       ? (this.config.get<'lax' | 'none' | 'strict'>('app.cookieSameSite') || 'none')
       : 'lax';
@@ -171,14 +179,12 @@ export class AuthController {
       secure: isProduction,
       sameSite,
       maxAge,
-      path: cookiePath,
+      path: '/',
     });
   }
 
   private clearRefreshTokenCookie(res: Response) {
     const isProduction = this.config.get('app.nodeEnv') === 'production';
-    const apiPrefix = (this.config.get<string>('app.apiPrefix') || 'api').replace(/^\/+|\/+$/g, '');
-    const cookiePath = `/${apiPrefix}/auth`;
     const sameSite = isProduction
       ? (this.config.get<'lax' | 'none' | 'strict'>('app.cookieSameSite') || 'none')
       : 'lax';
@@ -187,7 +193,7 @@ export class AuthController {
       httpOnly: true,
       secure: isProduction,
       sameSite,
-      path: cookiePath,
+      path: '/',
     });
   }
 }

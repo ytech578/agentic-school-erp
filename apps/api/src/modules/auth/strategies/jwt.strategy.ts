@@ -47,18 +47,11 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         }
       }
 
-      // If still not resolved, fallback to the primary active school
-      if (!schoolId) {
-        const firstSchool = await this.prisma.school.findFirst({
-          where: { isActive: true },
-          select: { id: true },
-        });
-        if (firstSchool) {
-          schoolId = firstSchool.id;
-        }
-      }
+      // Security: Do NOT fall back to findFirst() for SUPER_ADMIN.
+      // Without an explicit x-school-id, the super admin operates in global fleet mode (schoolId: null).
+      // School-scoped service methods will enforce requireSchoolId() and fail-closed if schoolId is null.
     }
 
-    return { ...payload, id: user.id, schoolId, role: user.role }; // Attached to req.user
+    return { ...payload, id: user.id, schoolId: schoolId ?? null, role: user.role }; // Attached to req.user
   }
 }

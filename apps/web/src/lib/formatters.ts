@@ -98,3 +98,33 @@ export function formatChartSeries(labels: string[], datasets: { label: string; d
     return item;
   });
 }
+
+export function getMTSSRiskBadge(level?: string | null): { label: string; color: string; bg: string; border: string; tier: string } {
+  const l = (level || '').toUpperCase();
+  if (l === 'CRITICAL' || l === 'TIER_3') {
+    return {
+      label: 'Tier 3 (High Risk)',
+      tier: 'Tier 3',
+      color: 'var(--status-danger)',
+      bg: 'rgba(239, 68, 68, 0.12)',
+      border: 'rgba(239, 68, 68, 0.3)',
+    };
+  }
+  if (l === 'HIGH' || l === 'MODERATE' || l === 'TIER_2') {
+    return {
+      label: l === 'HIGH' ? 'Tier 2 (High Risk)' : 'Tier 2 (Moderate)',
+      tier: 'Tier 2',
+      color: 'var(--status-warning)',
+      bg: 'rgba(245, 158, 11, 0.12)',
+      border: 'rgba(245, 158, 11, 0.3)',
+    };
+  }
+  return {
+    label: 'Tier 1 (Universal / Low)',
+    tier: 'Tier 1',
+    color: 'var(--status-success)',
+    bg: 'rgba(16, 185, 129, 0.12)',
+    border: 'rgba(16, 185, 129, 0.3)',
+  };
+}
+

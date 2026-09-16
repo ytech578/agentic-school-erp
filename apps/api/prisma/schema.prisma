@@ -235,6 +235,7 @@ model School {
   Assignment            Assignment[]
   activities            Activity[]
   agentAlerts           AgentAlert[]
+  facultySubstitutions  FacultySubstitution[]
 
   @@index([code])
   @@index([boardId])
@@ -930,14 +931,16 @@ model Staff {
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
-  user               User                @relation(fields: [userId], references: [id])
-  department         Department?         @relation(fields: [departmentId], references: [id])
-  designation        Designation?        @relation(fields: [designationId], references: [id])
-  teacherAssignments TeacherAssignment[]
-  attendanceRecords  StaffAttendance[]
-  timetableSlots     TimetableSlot[]
-  leaveRequests      LeaveRequest[]
-  Assignment         Assignment[]
+  user                  User                  @relation(fields: [userId], references: [id])
+  department            Department?           @relation(fields: [departmentId], references: [id])
+  designation           Designation?          @relation(fields: [designationId], references: [id])
+  teacherAssignments    TeacherAssignment[]
+  attendanceRecords     StaffAttendance[]
+  timetableSlots        TimetableSlot[]
+  leaveRequests         LeaveRequest[]
+  Assignment            Assignment[]
+  originalSubstitutions FacultySubstitution[] @relation("OriginalStaffSubstitutions")
+  coveredSubstitutions  FacultySubstitution[] @relation("SubstituteStaffSubstitutions")
 
   @@unique([schoolId, employeeId])
   @@index([schoolId])
@@ -1297,11 +1300,41 @@ model TimetableSlot {
   staff         Staff?       @relation(fields: [staffId], references: [id])
   Department    Department?  @relation(fields: [departmentId], references: [id])
   departmentId  String?
+  substitutions FacultySubstitution[]
 
   @@index([schoolId, academicYearId])
   @@index([sectionId, dayOfWeek])
   @@index([staffId, dayOfWeek])
   @@map("timetable_slots")
+}
+
+model FacultySubstitution {
+  id                  String         @id @default(cuid())
+  schoolId            String
+  date                DateTime       @db.Date
+  originalStaffId     String
+  substituteStaffId   String
+  slotId              String?
+  periodNumber        Int
+  time                String?
+  className           String?
+  subjectName         String?
+  status              String         @default("CONFIRMED")
+  notes               String?
+  confirmedBy         String?
+  confirmedAt         DateTime       @default(now())
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  school              School         @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  originalStaff       Staff          @relation("OriginalStaffSubstitutions", fields: [originalStaffId], references: [id], onDelete: Cascade)
+  substituteStaff     Staff          @relation("SubstituteStaffSubstitutions", fields: [substituteStaffId], references: [id], onDelete: Cascade)
+  slot                TimetableSlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
+
+  @@index([schoolId, date])
+  @@index([substituteStaffId, date])
+  @@index([originalStaffId, date])
+  @@map("faculty_substitutions")
 }
 
 // ============================================================

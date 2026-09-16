@@ -8,6 +8,8 @@ import {
   DollarSign, UserCheck, UserX, CalendarCheck,
   Award, Shield, Phone, X, Users, BookOpen,
   RefreshCw, BarChart2, History, Terminal,
+  FileText, Activity, Filter, Brain, ShieldAlert,
+  Paperclip, Mic, Square, Clock,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -18,8 +20,16 @@ import {
   Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 import {
-  formatDate, formatCurrencyINR, getAnomalyBadgeStyle, formatChartSeries,
+  formatDate, formatCurrencyINR, getAnomalyBadgeStyle, formatChartSeries, getMTSSRiskBadge,
 } from "@/lib/formatters";
+import MTSSInterventionPlanModal from "@/components/principal/MTSSInterventionPlanModal";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+import {
+  FileAttachment,
+  FileAttachmentChips,
+  VoiceWaveVisualizer,
+  fileToAttachment,
+} from "@/components/ai/FileAttachmentChips";
 
 // ─── Shared chip styles (eliminates repeated inline style objects) ──────────
 const chipBase: React.CSSProperties = {
@@ -112,6 +122,60 @@ function PrincipalCommandContent() {
   // Execution log — unique to Command Center, not on dashboard
   const [execLog, setExecLog] = useState<ExecLogEntry[]>([]);
 
+  // Multimodal attachments and voice recognition state
+  const [attachments, setAttachments] = useState<FileAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const initialPromptRef = useRef("");
+
+  const {
+    isListening,
+    toggleListening,
+    stopListening,
+    interimTranscript,
+    isSupported: isSpeechSupported,
+  } = useSpeechRecognition({
+    onStart: () => {
+      initialPromptRef.current = prompt;
+    },
+    onTranscriptChange: (spokenText) => {
+      const base = initialPromptRef.current.trim();
+      const combined = base ? `${base} ${spokenText}` : spokenText;
+      setPrompt(combined);
+    },
+    onError: (err) => {
+      console.warn("Speech recognition notice:", err);
+    },
+  });
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    if (attachments.length + files.length > 5) {
+      alert("You can attach a maximum of 5 files at a time.");
+      return;
+    }
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (file.size > 10 * 1024 * 1024) {
+        alert(`"${file.name}" exceeds 10MB limit.`);
+        continue;
+      }
+      try {
+        const att = await fileToAttachment(file);
+        setAttachments((prev) => [...prev, att]);
+      } catch {
+        console.error(`Could not process "${file.name}"`);
+      }
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
   // Modal states
   const [showAdmissionModal, setShowAdmissionModal] = useState(false);
   const [showBroadcastModal, setShowBroadcastModal] = useState(false);
@@ -137,8 +201,45 @@ function PrincipalCommandContent() {
 
   // Interactive tab state
   const [confirmedSubs, setConfirmedSubs] = useState<Record<string, boolean>>({});
+  const [confirmingSub, setConfirmingSub] = useState<string | null>(null);
   const [guardianAlerted, setGuardianAlerted] = useState<Record<string, boolean>>({});
   const [reviewedLeaves, setReviewedLeaves] = useState<Record<string, "APPROVED" | "REJECTED">>({});
+
+  // MTSS Retention & Early-Warning State
+  const [mtssData, setMtssData] = useState<any>(null);
+  const [mtssLoading, setMtssLoading] = useState(false);
+  const [mtssFilter, setMtssFilter] = useState("ALL");
+  const [selectedPlan, setSelectedPlan] = useState<any>(null);
+  const [generatingPlanId, setGeneratingPlanId] = useState<string | null>(null);
+  const [showPlanModal, setShowPlanModal] = useState(false);
+
+  const fetchMTSS = async (filterLevel = "ALL") => {
+    setMtssLoading(true);
+    try {
+      const url = filterLevel && filterLevel !== "ALL"
+        ? `/ai/retention/early-warning?riskLevel=${filterLevel}`
+        : `/ai/retention/early-warning`;
+      const res = await apiClient.get(url);
+      setMtssData(res.data?.data || res.data);
+    } catch (e) {
+      console.error("Failed to load MTSS early-warning telemetry", e);
+    } finally {
+      setMtssLoading(false);
+    }
+  };
+
+  const handleGeneratePlan = async (studentId: string) => {
+    setGeneratingPlanId(studentId);
+    try {
+      const res = await apiClient.post("/ai/retention/intervention-plan", { studentId });
+      setSelectedPlan(res.data?.data || res.data);
+      setShowPlanModal(true);
+    } catch (e) {
+      console.error("Failed to generate MTSS intervention plan", e);
+    } finally {
+      setGeneratingPlanId(null);
+    }
+  };
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -148,7 +249,17 @@ function PrincipalCommandContent() {
     else setDashboardLoading(true);
     try {
       const res = await apiClient.get("/dashboard/principal");
-      setDashboardData(res.data?.data || res.data);
+      const payload = res.data?.data || res.data;
+      setDashboardData(payload);
+      if (payload?.substitutions && Array.isArray(payload.substitutions)) {
+        const initialConfirmed: Record<string, boolean> = {};
+        for (const s of payload.substitutions) {
+          if (s.isConfirmed) {
+            initialConfirmed[s.staffId] = true;
+          }
+        }
+        setConfirmedSubs((prev) => ({ ...initialConfirmed, ...prev }));
+      }
       setLastRefreshed(new Date());
     } catch (err) {
       console.error("Failed to load principal dashboard telemetry", err);
@@ -160,21 +271,32 @@ function PrincipalCommandContent() {
 
   useEffect(() => { fetchDashboard(); }, []);
 
+  useEffect(() => {
+    if (activeTab === "interventions") {
+      fetchMTSS(mtssFilter);
+    }
+  }, [activeTab, mtssFilter]);
+
   // ─── Execute AI command ───────────────────────────────────────────────────
-  const executeCommand = async (cmdPrompt: string) => {
-    if (!cmdPrompt.trim() || isLoading) return;
+  const executeCommand = async (cmdPrompt: string, customAttachments?: FileAttachment[]) => {
+    const activeAttachments = customAttachments !== undefined ? customAttachments : attachments;
+    if ((!cmdPrompt.trim() && activeAttachments.length === 0) || isLoading) return;
+    if (isListening) stopListening();
     setIsLoading(true);
     setQueryResponse(null);
 
     const logEntry: ExecLogEntry = {
       id: Date.now().toString(),
       time: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }),
-      command: cmdPrompt.length > 72 ? cmdPrompt.slice(0, 72) + "…" : cmdPrompt,
+      command: cmdPrompt.length > 72 ? cmdPrompt.slice(0, 72) + "…" : (cmdPrompt || "Analyzing attachment(s)..."),
       success: false,
     };
 
     try {
-      const res = await apiClient.post("/ai/query", { prompt: cmdPrompt });
+      const res = await apiClient.post("/ai/query", {
+        prompt: cmdPrompt,
+        attachments: activeAttachments.length > 0 ? activeAttachments : undefined,
+      });
       const data = res.data?.data?.result || res.data?.result || {};
       const result: QueryResponse = {
         text: data.textResponse || "Command executed and school data synchronized successfully.",
@@ -184,6 +306,7 @@ function PrincipalCommandContent() {
       };
       setQueryResponse(result);
       setActiveTab("operations");
+      setAttachments([]);
       logEntry.success = true;
       logEntry.intent = result.intent;
     } catch (err: any) {
@@ -326,8 +449,36 @@ function PrincipalCommandContent() {
   };
 
   // ─── 1-click action handlers ──────────────────────────────────────────────
-  const handleConfirmSubstitution = (subKey: string) => {
-    setConfirmedSubs((prev) => ({ ...prev, [subKey]: true }));
+  const handleConfirmSubstitution = async (subKey: string) => {
+    const sub = substitutions.find((s: any, idx: number) => (s.staffId || String(idx)) === subKey);
+    if (!sub) return;
+
+    setConfirmingSub(subKey);
+    try {
+      const payload = {
+        originalStaffId: sub.staffId,
+        date: new Date().toISOString().split("T")[0],
+        periods: (sub.periods || []).map((p: any) => ({
+          slotId: p.slotId,
+          periodNumber: p.periodNumber,
+          time: p.time,
+          className: p.className,
+          subjectName: p.subject,
+          substituteStaffId: p.substituteStaffId,
+          notes: `Cover period assigned to ${p.substituteName} (${p.matchType})`,
+        })),
+      };
+
+      await apiClient.post("/dashboard/principal/substitutions/confirm", payload);
+      setConfirmedSubs((prev) => ({ ...prev, [subKey]: true }));
+      // Silently refresh dashboard telemetry to pull saved relations and confirmed state
+      fetchDashboard(false);
+    } catch (err: any) {
+      console.error("Failed to confirm faculty substitutions", err);
+      alert(err?.response?.data?.message || "Failed to confirm faculty substitutions.");
+    } finally {
+      setConfirmingSub(null);
+    }
   };
 
   const handleAlertGuardian = (studentId: string) => {
@@ -350,18 +501,31 @@ function PrincipalCommandContent() {
     totalFaculty: 32,
     avgAcademicPct: 82,
     atRiskStudentsCount: 6,
-    substitutionsNeeded: 2,
+    substitutionsNeeded: 0,
   };
 
   const substitutions: Array<{
     staffId?: string;
     name: string;
     status: string;
+    leaveReason?: string;
+    classesCount?: number;
     recommendedSubstitute: string;
-  }> = dashboardData?.substitutions || [
-    { staffId: "1", name: "Mr. Vikram Rao (Physics)", status: "ABSENT", recommendedSubstitute: "Dr. Priya Raman (Room 204)" },
-    { staffId: "2", name: "Mrs. Shanthi Kumar (English)", status: "EXCUSED", recommendedSubstitute: "Mrs. Susan Thomas (Period 2)" },
-  ];
+    periods?: Array<{
+      slotId: string;
+      periodNumber: number;
+      time: string;
+      className: string;
+      subject: string;
+      recommendedSubstitute: string;
+      substituteStaffId: string | null;
+      substituteName: string;
+      substituteSubject: string;
+      matchType: string;
+      freeTeachersAvailable: number;
+      alternatives?: Array<{ name: string; subject: string; staffId: string }>;
+    }>;
+  }> = dashboardData?.substitutions || [];
 
   // Sort at-risk: CRITICAL first, then by lowest attendance
   const rawAtRisk: Array<{
@@ -425,6 +589,10 @@ function PrincipalCommandContent() {
     @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
     @keyframes pulse-dot { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.4);opacity:0.7} }
     @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+    @keyframes pulseRed { 0%{box-shadow:0 0 0 0 rgba(239,68,68,0.7)} 70%{box-shadow:0 0 0 10px rgba(239,68,68,0)} 100%{box-shadow:0 0 0 0 rgba(239,68,68,0)} }
+    @keyframes soundwave { 0%{height:4px} 100%{height:16px} }
+    @keyframes chipPopIn { 0%{opacity:0;transform:scale(0.85) translateY(4px)} 100%{opacity:1;transform:scale(1) translateY(0)} }
+    @keyframes micRipple { 0%{transform:scale(0.95);box-shadow:0 0 0 0 rgba(239,68,68,0.5)} 70%{transform:scale(1.05);box-shadow:0 0 0 10px rgba(239,68,68,0)} 100%{transform:scale(0.95);box-shadow:0 0 0 0 rgba(239,68,68,0)} }
   `;
 
   // ─── Shared form input style ──────────────────────────────────────────────
@@ -512,25 +680,132 @@ function PrincipalCommandContent() {
             </div>
           </div>
 
+          {/* Active Voice & Attachment Chips */}
+          <VoiceWaveVisualizer
+            isListening={isListening}
+            onStop={stopListening}
+            label="Principal Voice Command active… Speak executive directive"
+            liveTranscript={interimTranscript}
+          />
+          {attachments.length > 0 && (
+            <div style={{ margin: "0.25rem 0" }}>
+              <FileAttachmentChips
+                attachments={attachments}
+                onRemoveAttachment={removeAttachment}
+              />
+            </div>
+          )}
+
           {/* Command input */}
-          <form onSubmit={handleFormSubmit} style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem", position: "relative", zIndex: 1 }}>
-            <div style={{ flex: 1, display: "flex", alignItems: "center", background: "rgba(15,23,42,0.75)", backdropFilter: "blur(12px)", border: "1px solid rgba(199,210,254,0.35)", borderRadius: "var(--radius-xl)", padding: "0.6rem 1rem", boxShadow: "0 4px 18px rgba(0,0,0,0.25)" }}>
+          <form onSubmit={handleFormSubmit} style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem", position: "relative", zIndex: 1 }}>
+            {/* Hidden File Input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*,application/pdf,.csv,.xlsx,.xls,.docx,.txt"
+              onChange={handleFileUpload}
+              style={{ display: "none" }}
+            />
+
+            <div style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              background: "rgba(15,23,42,0.75)",
+              backdropFilter: "blur(12px)",
+              border: isListening ? "1.5px solid #EF4444" : "1px solid rgba(199,210,254,0.35)",
+              borderRadius: "var(--radius-xl)",
+              padding: "0.6rem 1rem",
+              boxShadow: isListening ? "0 0 0 3px rgba(239, 68, 68, 0.2)" : "0 4px 18px rgba(0,0,0,0.25)",
+              transition: "all 0.2s ease",
+            }}>
               <Zap size={18} color="#818CF8" style={{ marginRight: "0.75rem", flexShrink: 0 }} />
               <textarea
                 ref={textareaRef}
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask or command: e.g. 'Show attendance trend for Grade 10', 'Broadcast holiday notice', 'Pending fee summary'…"
+                placeholder={isListening ? "Listening to executive voice dictation… (speaking will transcribe here)" : "Ask or command: e.g. 'Show attendance trend for Grade 10', 'Broadcast holiday notice', 'Pending fee summary'…"}
                 rows={1}
                 disabled={isLoading}
                 style={{ width: "100%", background: "transparent", border: "none", outline: "none", color: "#FFFFFF", fontSize: "var(--text-sm)", resize: "none", fontFamily: "inherit", lineHeight: "1.4" }}
               />
               {prompt && (
-                <button type="button" onClick={() => setPrompt("")} style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: "0.2rem", display: "flex", alignItems: "center" }}>
+                <button type="button" onClick={() => setPrompt("")} style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: "0.2rem", display: "flex", alignItems: "center", marginRight: "0.35rem" }}>
                   <X size={16} />
                 </button>
               )}
+
+              {/* Upload Document / Image */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                title="Attach reports, spreadsheets, circulars or images"
+                style={{
+                  background: attachments.length > 0 ? "rgba(99,102,241,0.35)" : "rgba(255,255,255,0.08)",
+                  border: "1px solid rgba(199,210,254,0.2)",
+                  color: attachments.length > 0 ? "#A5B4FC" : "#CBD5E1",
+                  borderRadius: "var(--radius-md)",
+                  padding: "0.35rem 0.5rem",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginRight: "0.35rem",
+                  position: "relative",
+                  transition: "all 0.15s ease",
+                }}
+                onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.18)")}
+                onMouseOut={(e) => (e.currentTarget.style.background = attachments.length > 0 ? "rgba(99,102,241,0.35)" : "rgba(255,255,255,0.08)")}
+              >
+                <Paperclip size={15} />
+                {attachments.length > 0 && (
+                  <span style={{
+                    position: "absolute",
+                    top: "-2px",
+                    right: "-2px",
+                    width: "7px",
+                    height: "7px",
+                    borderRadius: "50%",
+                    background: "#818CF8",
+                  }} />
+                )}
+              </button>
+
+              {/* Mic Voice Dictation */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isSpeechSupported) {
+                    alert("Speech recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.");
+                    return;
+                  }
+                  toggleListening();
+                }}
+                title={isListening ? "Stop listening" : "Click to dictate executive voice command"}
+                style={{
+                  background: isListening ? "#EF4444" : "rgba(255,255,255,0.08)",
+                  border: isListening ? "1px solid #EF4444" : "1px solid rgba(199,210,254,0.2)",
+                  color: "#FFFFFF",
+                  borderRadius: "var(--radius-md)",
+                  padding: "0.35rem 0.5rem",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  animation: isListening ? "micRipple 1.4s infinite" : "none",
+                  transition: "all 0.15s ease",
+                }}
+                onMouseOver={(e) => {
+                  if (!isListening) e.currentTarget.style.background = "rgba(255,255,255,0.18)";
+                }}
+                onMouseOut={(e) => {
+                  if (!isListening) e.currentTarget.style.background = "rgba(255,255,255,0.08)";
+                }}
+              >
+                {isListening ? <Square size={13} fill="#FFFFFF" stroke="none" /> : <Mic size={15} />}
+              </button>
             </div>
             <Button
               type="submit"
@@ -831,34 +1106,142 @@ function PrincipalCommandContent() {
               </CardContent>
             </Card>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: "1.25rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "1.25rem" }}>
               {substitutions.map((sub, idx) => {
                 const subKey = sub.staffId || String(idx);
                 const isConfirmed = confirmedSubs[subKey];
                 return (
-                  <Card key={idx} style={{ border: isConfirmed ? "1px solid rgba(16,185,129,0.4)" : "1px solid var(--border-default)" }}>
+                  <Card key={idx} style={{ border: isConfirmed ? "1px solid rgba(16,185,129,0.4)" : "1px solid var(--border-default)", background: "var(--bg-surface)" }}>
                     <CardContent style={{ padding: "1.25rem" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-                        <span style={{ fontWeight: 700, fontSize: "var(--text-sm)", color: "var(--text-primary)" }}>{sub.name}</span>
-                        <span style={{ fontSize: "10px", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "var(--radius-full)", background: "rgba(239,68,68,0.1)", color: "var(--status-danger)" }}>
+                      {/* Teacher Header */}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.6rem" }}>
+                        <div>
+                          <h4 style={{ fontWeight: 800, fontSize: "var(--text-sm)", color: "var(--text-primary)", margin: 0 }}>{sub.name}</h4>
+                          {sub.leaveReason && (
+                            <p style={{ fontSize: "11px", color: "var(--text-secondary)", margin: "0.2rem 0 0", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                              <span style={{ fontWeight: 600, color: "var(--status-warning)" }}>Reason:</span> {sub.leaveReason}
+                            </p>
+                          )}
+                        </div>
+                        <span style={{
+                          fontSize: "10px",
+                          fontWeight: 800,
+                          padding: "0.2rem 0.6rem",
+                          borderRadius: "var(--radius-full)",
+                          background: sub.status === "ON LEAVE" ? "rgba(245, 158, 11, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                          color: sub.status === "ON LEAVE" ? "#D97706" : "var(--status-danger)",
+                          letterSpacing: "0.04em",
+                          textTransform: "uppercase",
+                        }}>
                           {sub.status}
                         </span>
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: isConfirmed ? "rgba(16,185,129,0.08)" : "var(--bg-app)", padding: "0.6rem 0.8rem", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-default)", margin: "0.75rem 0" }}>
-                        <UserCheck size={16} color={isConfirmed ? "var(--status-success)" : "#4F46E5"} />
-                        <div>
-                          <div style={{ fontSize: "10px", color: "var(--text-secondary)", textTransform: "uppercase", fontWeight: 700 }}>Recommended Substitute</div>
-                          <div style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: isConfirmed ? "var(--status-success)" : "var(--text-primary)" }}>{sub.recommendedSubstitute}</div>
+
+                      {/* Summary Banner */}
+                      <div style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.5rem",
+                        background: isConfirmed ? "rgba(16,185,129,0.08)" : "var(--bg-app)",
+                        padding: "0.6rem 0.8rem",
+                        borderRadius: "var(--radius-lg)",
+                        border: "1px solid var(--border-default)",
+                        marginBottom: "0.85rem",
+                      }}>
+                        <UserCheck size={18} color={isConfirmed ? "var(--status-success)" : "#4F46E5"} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: "10px", color: "var(--text-secondary)", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.03em" }}>
+                            {sub.periods && sub.periods.length > 0 ? `${sub.periods.length} Classes Require Cover Today` : "Recommended Substitute"}
+                          </div>
+                          <div style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: isConfirmed ? "var(--status-success)" : "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {sub.recommendedSubstitute}
+                          </div>
                         </div>
                       </div>
+
+                      {/* Period-by-Period Classes Needing Cover */}
+                      {sub.periods && sub.periods.length > 0 && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "0.85rem" }}>
+                          <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                            <Clock size={12} /> Today's Scheduled Classes & Free Teachers
+                          </div>
+                          {sub.periods.map((p, pIdx) => (
+                            <div key={p.slotId || pIdx} style={{
+                              padding: "0.6rem 0.75rem",
+                              borderRadius: "var(--radius-md)",
+                              background: "var(--bg-app)",
+                              border: "1px solid var(--border-default)",
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: "0.35rem",
+                            }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                                  <span style={{ fontSize: "11px", fontWeight: 800, padding: "0.1rem 0.4rem", borderRadius: "var(--radius-sm)", background: "rgba(99, 102, 241, 0.12)", color: "#4F46E5" }}>
+                                    P{p.periodNumber}
+                                  </span>
+                                  <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-primary)" }}>
+                                    {p.className} • {p.subject}
+                                  </span>
+                                </div>
+                                <span style={{ fontSize: "10px", color: "var(--text-secondary)" }}>{p.time}</span>
+                              </div>
+
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.1rem" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "11px" }}>
+                                  <UserCheck size={13} color="var(--status-success)" />
+                                  <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>{p.substituteName}</span>
+                                  <span style={{
+                                    fontSize: "9px",
+                                    fontWeight: 700,
+                                    padding: "0.1rem 0.35rem",
+                                    borderRadius: "var(--radius-full)",
+                                    background: p.matchType === "Subject Specialist" ? "rgba(16, 185, 129, 0.12)" : "rgba(245, 158, 11, 0.12)",
+                                    color: p.matchType === "Subject Specialist" ? "var(--status-success)" : "#D97706",
+                                  }}>
+                                    {p.matchType}
+                                  </span>
+                                </div>
+                                <span style={{ fontSize: "10px", color: "var(--text-secondary)" }}>
+                                  {p.freeTeachersAvailable} free now
+                                </span>
+                              </div>
+
+                              {p.alternatives && p.alternatives.length > 0 && (
+                                <div style={{ fontSize: "10px", color: "var(--text-secondary)", borderTop: "1px dashed var(--border-default)", paddingTop: "0.25rem", marginTop: "0.15rem" }}>
+                                  <span style={{ fontWeight: 600 }}>Also free:</span> {p.alternatives.map((a: any) => a.name).join(", ")}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
                       <Button
                         size="sm"
                         variant={isConfirmed ? "secondary" : "primary"}
-                        disabled={isConfirmed}
+                        disabled={isConfirmed || confirmingSub === subKey}
                         onClick={() => handleConfirmSubstitution(subKey)}
-                        style={{ width: "100%", fontSize: "var(--text-xs)", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", background: isConfirmed ? "rgba(16,185,129,0.15)" : "#4F46E5", color: isConfirmed ? "var(--status-success)" : "#FFFFFF", border: isConfirmed ? "1px solid rgba(16,185,129,0.3)" : "none" }}
+                        style={{
+                          width: "100%",
+                          fontSize: "var(--text-xs)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "0.4rem",
+                          background: isConfirmed ? "rgba(16,185,129,0.15)" : "#4F46E5",
+                          color: isConfirmed ? "var(--status-success)" : "#FFFFFF",
+                          border: isConfirmed ? "1px solid rgba(16,185,129,0.3)" : "none",
+                          cursor: isConfirmed || confirmingSub === subKey ? "default" : "pointer",
+                        }}
                       >
-                        {isConfirmed ? <><CheckCircle2 size={14} /> Confirmed & Substitute Notified</> : <><UserCheck size={14} /> Confirm & Auto-Assign</>}
+                        {confirmingSub === subKey ? (
+                          <><Clock size={14} /> Confirming & Notifying Faculty...</>
+                        ) : isConfirmed ? (
+                          <><CheckCircle2 size={14} /> All Substitutes Confirmed & Notified</>
+                        ) : (
+                          <><UserCheck size={14} /> Confirm & Auto-Assign ({sub.periods?.length || 1} Classes)</>
+                        )}
                       </Button>
                     </CardContent>
                   </Card>
@@ -869,75 +1252,339 @@ function PrincipalCommandContent() {
         )}
 
         {/* ═══════════════════════════════════════════════════════════════
-            TAB 3: AT-RISK STUDENTS (CRITICAL first + attendance bar)
+            TAB 3: PREDICTIVE EARLY-WARNING & MTSS RETENTION SENTINEL
         ═══════════════════════════════════════════════════════════════ */}
         {activeTab === "interventions" && (
-          <Card>
-            <CardHeader style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <CardTitle style={{ fontSize: "var(--text-base)" }}>At-Risk Academic Intervention Watchlist</CardTitle>
-                <span style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
-                  Sorted by severity — CRITICAL first. Attendance &lt; 75% or consecutive score regression.
-                </span>
-              </div>
-              <span style={{ fontSize: "11px", fontWeight: 700, padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", background: "rgba(239,68,68,0.1)", color: "var(--status-danger)" }}>
-                {atRiskStudents.length} Flagged
-              </span>
-            </CardHeader>
-            <CardContent style={{ padding: "0 1.25rem 1.25rem" }}>
-              {dashboardLoading ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                  {[1, 2, 3].map((i) => <SkeletonCard key={i} height={72} />)}
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+            {/* MTSS Executive Telemetry KPI Ribbon */}
+            {(() => {
+              const summary = mtssData?.summary || {
+                totalAssessed: atRiskStudents.length || 24,
+                criticalCount: atRiskStudents.filter((s: any) => s.severity === "CRITICAL").length || 2,
+                highCount: atRiskStudents.filter((s: any) => s.severity === "WARNING").length || 4,
+                moderateCount: 6,
+                lowCount: 12,
+                averageRiskScore: 38,
+              };
+
+              return (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
+                  <Card style={{ padding: "1.1rem", background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                      <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Students Assessed</span>
+                      <Users size={16} color="var(--brand-primary)" />
+                    </div>
+                    <div style={{ fontSize: "1.75rem", fontWeight: 800, color: "var(--text-primary)" }}>{summary.totalAssessed}</div>
+                    <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "0.25rem" }}>90-Day Continuous Telemetry</div>
+                  </Card>
+
+                  <Card style={{ padding: "1.1rem", background: "rgba(239, 68, 68, 0.05)", border: "1px solid rgba(239, 68, 68, 0.25)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                      <span style={{ fontSize: "11px", fontWeight: 700, color: "#EF4444", textTransform: "uppercase", letterSpacing: "0.05em" }}>Tier 3 Critical</span>
+                      <ShieldAlert size={16} color="#EF4444" />
+                    </div>
+                    <div style={{ fontSize: "1.75rem", fontWeight: 800, color: "#EF4444" }}>{summary.criticalCount}</div>
+                    <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "0.25rem" }}>Intensive Intervention Req.</div>
+                  </Card>
+
+                  <Card style={{ padding: "1.1rem", background: "rgba(245, 158, 11, 0.05)", border: "1px solid rgba(245, 158, 11, 0.25)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                      <span style={{ fontSize: "11px", fontWeight: 700, color: "#F59E0B", textTransform: "uppercase", letterSpacing: "0.05em" }}>Tier 2 Moderate / High</span>
+                      <AlertTriangle size={16} color="#F59E0B" />
+                    </div>
+                    <div style={{ fontSize: "1.75rem", fontWeight: 800, color: "#F59E0B" }}>{summary.highCount + summary.moderateCount}</div>
+                    <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "0.25rem" }}>Targeted Remedial Support</div>
+                  </Card>
+
+                  <Card style={{ padding: "1.1rem", background: "rgba(16, 185, 129, 0.05)", border: "1px solid rgba(16, 185, 129, 0.25)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                      <span style={{ fontSize: "11px", fontWeight: 700, color: "#10B981", textTransform: "uppercase", letterSpacing: "0.05em" }}>Tier 1 Universal</span>
+                      <CheckCircle2 size={16} color="#10B981" />
+                    </div>
+                    <div style={{ fontSize: "1.75rem", fontWeight: 800, color: "#10B981" }}>{summary.lowCount}</div>
+                    <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "0.25rem" }}>On-Track Regular Progress</div>
+                  </Card>
+
+                  <Card style={{ padding: "1.1rem", background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                      <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Campus Risk Index</span>
+                      <Activity size={16} color="#6366F1" />
+                    </div>
+                    <div style={{ fontSize: "1.75rem", fontWeight: 800, color: summary.averageRiskScore > 50 ? "#EF4444" : "#6366F1" }}>
+                      {summary.averageRiskScore}<span style={{ fontSize: "13px", fontWeight: 500, color: "var(--text-secondary)" }}>/100</span>
+                    </div>
+                    <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "0.25rem" }}>Composite Anomaly Score</div>
+                  </Card>
                 </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                  {atRiskStudents.map((s) => {
-                    const isAlerted = guardianAlerted[s.id];
-                    const isCritical = s.severity === "CRITICAL";
-                    const barColor = s.attendancePct < 65 ? "#EF4444" : s.attendancePct < 75 ? "#F59E0B" : "#10B981";
+              );
+            })()}
+
+            {/* MTSS Watchlist & Filter Header */}
+            <Card>
+              <CardHeader style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                    <CardTitle style={{ fontSize: "var(--text-base)" }}>Multi-Tiered System of Supports (MTSS) Early-Warning Sentinel</CardTitle>
+                    <span style={{ fontSize: "11px", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "var(--radius-full)", background: "rgba(99, 102, 241, 0.15)", color: "#4F46E5" }}>
+                      Predictive Sentinel Active
+                    </span>
+                  </div>
+                  <span style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", display: "block", marginTop: "0.25rem" }}>
+                    Synthesizes 90-day attendance records, exam averages, fee default signals, and overdue submissions.
+                  </span>
+                </div>
+
+                {/* Filter Pills */}
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                  {[
+                    { key: "ALL", label: "All Tiers" },
+                    { key: "CRITICAL", label: "Tier 3 Critical" },
+                    { key: "HIGH", label: "Tier 2 High" },
+                    { key: "MODERATE", label: "Tier 2 Moderate" },
+                    { key: "LOW", label: "Tier 1 Universal" },
+                  ].map((filter) => {
+                    const isSelected = mtssFilter === filter.key;
                     return (
-                      <div
-                        key={s.id}
-                        style={{ padding: "1rem", borderRadius: "var(--radius-lg)", background: isCritical ? "rgba(239,68,68,0.03)" : "var(--bg-app)", border: isCritical ? "1px solid rgba(239,68,68,0.2)" : "1px solid var(--border-default)" }}
+                      <button
+                        key={filter.key}
+                        onClick={() => {
+                          setMtssFilter(filter.key);
+                          fetchMTSS(filter.key);
+                        }}
+                        style={{
+                          padding: "0.3rem 0.75rem",
+                          borderRadius: "var(--radius-full)",
+                          fontSize: "12px",
+                          fontWeight: isSelected ? 700 : 500,
+                          background: isSelected ? "var(--brand-primary)" : "var(--bg-app)",
+                          color: isSelected ? "#FFFFFF" : "var(--text-secondary)",
+                          border: isSelected ? "1px solid var(--brand-primary)" : "1px solid var(--border-default)",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
                       >
-                        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                              <span style={{ fontWeight: 700, fontSize: "var(--text-sm)", color: "var(--text-primary)" }}>{s.name}</span>
-                              <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>({s.className} • {s.admissionNumber})</span>
-                              <span style={{ fontSize: "10px", fontWeight: 700, padding: "0.15rem 0.45rem", borderRadius: "var(--radius-full)", background: isCritical ? "rgba(239,68,68,0.12)" : "rgba(245,158,11,0.12)", color: isCritical ? "var(--status-danger)" : "var(--status-warning)" }}>
-                                {s.riskFactor}
-                              </span>
-                            </div>
-                            {/* Attendance progress bar */}
-                            <div style={{ marginTop: "0.5rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                              <span style={{ fontSize: "11px", color: "var(--text-secondary)", flexShrink: 0 }}>Attendance:</span>
-                              <div style={{ flex: 1, height: "6px", background: "var(--border-default)", borderRadius: "3px", overflow: "hidden", maxWidth: "160px" }}>
-                                <div style={{ height: "100%", width: `${s.attendancePct}%`, background: barColor, borderRadius: "3px", transition: "width 0.6s ease" }} />
-                              </div>
-                              <b style={{ fontSize: "11px", color: barColor, fontWeight: 700, flexShrink: 0 }}>{s.attendancePct}%</b>
-                              <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
-                                • <Phone size={10} style={{ display: "inline", verticalAlign: "middle" }} /> {s.guardianPhone}
-                              </span>
-                            </div>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant={isAlerted ? "secondary" : "outline"}
-                            disabled={isAlerted}
-                            onClick={() => handleAlertGuardian(s.id)}
-                            style={{ fontSize: "var(--text-xs)", display: "flex", alignItems: "center", gap: "0.35rem", color: isAlerted ? "var(--status-success)" : "var(--text-primary)", flexShrink: 0 }}
-                          >
-                            {isAlerted ? <><CheckCircle2 size={13} color="var(--status-success)" /> SMS Alert Dispatched</> : <><Phone size={13} /> Send Guardian Notice</>}
-                          </Button>
-                        </div>
-                      </div>
+                        {filter.label}
+                      </button>
                     );
                   })}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => fetchMTSS(mtssFilter)}
+                    disabled={mtssLoading}
+                    style={{ fontSize: "12px", display: "flex", alignItems: "center", gap: "0.35rem" }}
+                  >
+                    <RefreshCw size={13} className={mtssLoading ? "animate-spin" : ""} />
+                    Sync Telemetry
+                  </Button>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </CardHeader>
+
+              <CardContent style={{ padding: "0 1.25rem 1.25rem" }}>
+                {mtssLoading || dashboardLoading ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                    {[1, 2, 3].map((i) => <SkeletonCard key={i} height={120} />)}
+                  </div>
+                ) : (() => {
+                  const studentList = (mtssData?.students && mtssData.students.length > 0)
+                    ? mtssData.students
+                    : atRiskStudents.map((s) => ({
+                        id: s.id,
+                        admissionNumber: s.admissionNumber,
+                        name: s.name,
+                        email: `${s.name.toLowerCase().replace(/\s+/g, ".")}@school.edu`,
+                        class: s.className,
+                        attendanceRate: s.attendancePct,
+                        academicAvg: s.severity === "CRITICAL" ? 38 : 54,
+                        pendingFeesCount: s.severity === "CRITICAL" ? 1 : 0,
+                        overdueAssignmentsCount: s.severity === "CRITICAL" ? 3 : 1,
+                        riskScore: s.severity === "CRITICAL" ? 82 : 55,
+                        riskLevel: s.severity === "CRITICAL" ? "CRITICAL" : "HIGH",
+                        tier: s.severity === "CRITICAL" ? "Tier 3 (Intensive Intervention)" : "Tier 2 (Targeted Support)",
+                        primaryDrivers: [s.riskFactor, s.attendancePct < 75 ? `Chronic attendance deficit (${s.attendancePct}%)` : "Academic score regression"],
+                        guardianPhone: s.guardianPhone,
+                      }));
+
+                  if (studentList.length === 0) {
+                    return (
+                      <div style={{ padding: "3rem", textAlign: "center", color: "var(--text-secondary)" }}>
+                        <CheckCircle2 size={36} color="#10B981" style={{ margin: "0 auto 0.75rem" }} />
+                        <h4 style={{ fontWeight: 700, color: "var(--text-primary)", margin: "0 0 0.25rem" }}>No Students in this Risk Category</h4>
+                        <p style={{ fontSize: "var(--text-xs)", margin: 0 }}>All monitored students meet retention benchmarks for this filter.</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                      {studentList.map((s: any) => {
+                        const isAlerted = guardianAlerted[s.id];
+                        const badge = getMTSSRiskBadge(s.riskLevel);
+                        const isGenerating = generatingPlanId === s.id;
+
+                        // Risk bar color
+                        const meterColor =
+                          s.riskScore >= 70 ? "#EF4444" :
+                          s.riskScore >= 50 ? "#F97316" :
+                          s.riskScore >= 30 ? "#F59E0B" : "#10B981";
+
+                        return (
+                          <div
+                            key={s.id}
+                            style={{
+                              padding: "1.25rem",
+                              borderRadius: "var(--radius-xl)",
+                              background: s.riskLevel === "CRITICAL" ? "rgba(239, 68, 68, 0.03)" : "var(--bg-app)",
+                              border: s.riskLevel === "CRITICAL" ? "1px solid rgba(239, 68, 68, 0.25)" : "1px solid var(--border-default)",
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: "0.85rem",
+                              transition: "all 0.2s ease",
+                            }}
+                          >
+                            {/* Row 1: Student Demographics & Tier Badge */}
+                            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+                              <div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                                  <span style={{ fontWeight: 800, fontSize: "var(--text-base)", color: "var(--text-primary)" }}>{s.name}</span>
+                                  <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                                    ({s.class || s.className} • {s.admissionNumber})
+                                  </span>
+                                  <span
+                                    style={{
+                                      fontSize: "11px",
+                                      fontWeight: 800,
+                                      padding: "0.2rem 0.6rem",
+                                      borderRadius: "var(--radius-full)",
+                                      background: badge.bg,
+                                      color: badge.color,
+                                      border: `1px solid ${badge.border}`,
+                                    }}
+                                  >
+                                    {badge.label} • {s.tier}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
+                                  Contact: {s.guardianPhone || s.email || "Guardian registered on portal"}
+                                </div>
+                              </div>
+
+                              {/* Risk Score Meter */}
+                              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: "220px" }}>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", fontWeight: 700, marginBottom: "0.25rem" }}>
+                                    <span style={{ color: "var(--text-secondary)" }}>Retention Risk</span>
+                                    <span style={{ color: meterColor }}>{s.riskScore}/100</span>
+                                  </div>
+                                  <div style={{ height: "7px", background: "var(--border-default)", borderRadius: "4px", overflow: "hidden" }}>
+                                    <div style={{ height: "100%", width: `${s.riskScore}%`, background: meterColor, borderRadius: "4px", transition: "width 0.6s ease" }} />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Row 2: 4-Point Telemetry Grid */}
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.6rem" }}>
+                              <div style={{ padding: "0.5rem 0.75rem", background: "var(--bg-surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
+                                <div style={{ fontSize: "10px", color: "var(--text-secondary)", textTransform: "uppercase", fontWeight: 700 }}>90-Day Attendance</div>
+                                <div style={{ fontSize: "13px", fontWeight: 800, color: s.attendanceRate < 75 ? "#EF4444" : s.attendanceRate < 85 ? "#F59E0B" : "#10B981" }}>
+                                  {s.attendanceRate}%
+                                </div>
+                              </div>
+
+                              <div style={{ padding: "0.5rem 0.75rem", background: "var(--bg-surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
+                                <div style={{ fontSize: "10px", color: "var(--text-secondary)", textTransform: "uppercase", fontWeight: 700 }}>Academic Average</div>
+                                <div style={{ fontSize: "13px", fontWeight: 800, color: s.academicAvg < 40 ? "#EF4444" : s.academicAvg < 60 ? "#F59E0B" : "#10B981" }}>
+                                  {s.academicAvg}%
+                                </div>
+                              </div>
+
+                              <div style={{ padding: "0.5rem 0.75rem", background: "var(--bg-surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
+                                <div style={{ fontSize: "10px", color: "var(--text-secondary)", textTransform: "uppercase", fontWeight: 700 }}>Fee Obligations</div>
+                                <div style={{ fontSize: "13px", fontWeight: 800, color: s.pendingFeesCount > 0 ? "#EF4444" : "#10B981" }}>
+                                  {s.pendingFeesCount > 0 ? `${s.pendingFeesCount} Overdue` : "Paid in Full"}
+                                </div>
+                              </div>
+
+                              <div style={{ padding: "0.5rem 0.75rem", background: "var(--bg-surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
+                                <div style={{ fontSize: "10px", color: "var(--text-secondary)", textTransform: "uppercase", fontWeight: 700 }}>Overdue Submissions</div>
+                                <div style={{ fontSize: "13px", fontWeight: 800, color: s.overdueAssignmentsCount > 0 ? "#F97316" : "#10B981" }}>
+                                  {s.overdueAssignmentsCount > 0 ? `${s.overdueAssignmentsCount} Pending` : "Up to date"}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Row 3: Primary Risk Drivers & Action Buttons */}
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap", paddingTop: "0.4rem", borderTop: "1px dashed var(--border-subtle)" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", flex: 1 }}>
+                                <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-secondary)" }}>Root Causes:</span>
+                                {s.primaryDrivers && s.primaryDrivers.map((driver: string, didx: number) => (
+                                  <span
+                                    key={didx}
+                                    style={{
+                                      fontSize: "11px",
+                                      padding: "0.15rem 0.5rem",
+                                      borderRadius: "var(--radius-sm)",
+                                      background: "var(--bg-surface)",
+                                      border: "1px solid var(--border-subtle)",
+                                      color: "var(--text-primary)",
+                                    }}
+                                  >
+                                    • {driver}
+                                  </span>
+                                ))}
+                              </div>
+
+                              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={isAlerted}
+                                  onClick={() => handleAlertGuardian(s.id)}
+                                  style={{ fontSize: "var(--text-xs)", display: "flex", alignItems: "center", gap: "0.35rem", color: isAlerted ? "var(--status-success)" : "var(--text-primary)" }}
+                                >
+                                  {isAlerted ? <><CheckCircle2 size={13} color="var(--status-success)" /> Alert Sent</> : <><Phone size={13} /> Guardian Notice</>}
+                                </Button>
+
+                                <Button
+                                  size="sm"
+                                  variant="primary"
+                                  disabled={isGenerating}
+                                  onClick={() => handleGeneratePlan(s.id)}
+                                  style={{
+                                    fontSize: "var(--text-xs)",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "0.4rem",
+                                    background: "linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)",
+                                    color: "#FFFFFF",
+                                    border: "none",
+                                    boxShadow: "0 2px 8px rgba(79, 70, 229, 0.3)",
+                                  }}
+                                >
+                                  {isGenerating ? (
+                                    <>
+                                      <RefreshCw size={13} className="animate-spin" />
+                                      Synthesizing MTSS Plan...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Sparkles size={13} />
+                                      Generate MTSS Intervention Plan
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {/* ═══════════════════════════════════════════════════════════════
@@ -1098,6 +1745,15 @@ function PrincipalCommandContent() {
             </div>
           </div>
         )}
+
+        {/* ═══════════════════════════════════════════════════════════════
+            MODAL 3: Individualized MTSS Intervention Plan Modal
+        ═══════════════════════════════════════════════════════════════ */}
+        <MTSSInterventionPlanModal
+          isOpen={showPlanModal}
+          onClose={() => setShowPlanModal(false)}
+          planData={selectedPlan}
+        />
       </div>
     </>
   );

@@ -58,6 +58,11 @@ export function isRouteAllowedForRole(pathname: string, role?: string): boolean 
     return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER'].includes(role);
   }
 
+  // ─── Multi-School Fleet Management ───
+  if (normalized.startsWith('/schools')) {
+    return role === 'SUPER_ADMIN';
+  }
+
   // ─── Admin Core Operations: Admissions, Staff, Users, Reports ───
   if (
     normalized.startsWith('/admissions') ||

@@ -5,6 +5,7 @@ import {
   getGradeBadge,
   getAttendanceStatusBadge,
   getGreeting,
+  getMTSSRiskBadge,
 } from './formatters';
 
 describe('Web Formatters (FIX-04)', () => {
@@ -63,4 +64,29 @@ describe('Web Formatters (FIX-04)', () => {
       expect(['Good morning', 'Good afternoon', 'Good evening']).toContain(greeting);
     });
   });
+
+  describe('getMTSSRiskBadge (Agent 2)', () => {
+    it('maps CRITICAL risk level to Tier 3 Critical badge', () => {
+      const badge = getMTSSRiskBadge('CRITICAL');
+      expect(badge.label).toBe('Tier 3 (High Risk)');
+      expect(badge.color).toBe('var(--status-danger)');
+    });
+
+    it('maps HIGH risk level to Tier 2 High badge', () => {
+      const badge = getMTSSRiskBadge('HIGH');
+      expect(badge.label).toBe('Tier 2 (High Risk)');
+    });
+
+    it('maps MODERATE risk level to Tier 2 Moderate badge', () => {
+      const badge = getMTSSRiskBadge('MODERATE');
+      expect(badge.label).toBe('Tier 2 (Moderate)');
+    });
+
+    it('defaults unknown or LOW to Tier 1 Universal badge', () => {
+      const badge = getMTSSRiskBadge('LOW');
+      expect(badge.label).toBe('Tier 1 (Universal / Low)');
+      expect(getMTSSRiskBadge(null).label).toBe('Tier 1 (Universal / Low)');
+    });
+  });
 });
+

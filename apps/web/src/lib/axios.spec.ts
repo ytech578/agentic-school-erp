@@ -8,8 +8,8 @@ describe('Axios Client Configuration (FIX-04)', () => {
     expect(apiClient.defaults.headers['Accept']).toBe('application/json');
   });
 
-  it('configures a 20-second timeout (20,000ms) to prevent hanging connections', () => {
-    expect(apiClient.defaults.timeout).toBe(20000);
+  it('configures a 45-second baseline timeout (45,000ms) to prevent hanging connections while supporting deep AI pipelines', () => {
+    expect(apiClient.defaults.timeout).toBe(45000);
   });
 
   it('has request and response interceptors registered', () => {

@@ -7,10 +7,20 @@ export interface PendingAction {
   data: Record<string, unknown>;
 }
 
+export interface AttachmentItem {
+  id?: string;
+  name: string;
+  type: string;
+  size: number;
+  base64: string;
+  previewUrl?: string;
+}
+
 export interface AIMessage {
   id?: string;
   role: "user" | "assistant";
   content: string;
+  attachments?: AttachmentItem[];
   pendingAction?: PendingAction | null;
 }
 
@@ -23,7 +33,7 @@ interface AIState {
   toggle: () => void;
   setIsOpen: (isOpen: boolean) => void;
   setCurrentModule: (module: string) => void;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string, attachments?: AttachmentItem[]) => Promise<void>;
   loadConversation: (id: string) => Promise<void>;
   clearConversation: () => void;
   executeAction: (action: { type: string; data: Record<string, unknown> }) => Promise<{ success: boolean; message: string }>;
@@ -40,15 +50,16 @@ export const useAIStore = create<AIState>((set, get) => ({
   setIsOpen: (isOpen: boolean) => set({ isOpen }),
   setCurrentModule: (module: string) => set({ currentModule: module }),
 
-  sendMessage: async (text: string) => {
-    if (!text.trim()) return;
-    const userMsg: AIMessage = { role: "user", content: text };
+  sendMessage: async (text: string, attachments?: AttachmentItem[]) => {
+    if (!text.trim() && (!attachments || attachments.length === 0)) return;
+    const userMsg: AIMessage = { role: "user", content: text, attachments };
     set((state) => ({ messages: [...state.messages, userMsg], isLoading: true }));
     try {
       const state = get();
       const res = await apiClient.post("/ai/chat", {
         message: text,
         conversationId: state.conversationId,
+        attachments: attachments && attachments.length > 0 ? attachments : undefined,
       });
       const data = res.data.data || res.data;
       const assistantMsg: AIMessage = {

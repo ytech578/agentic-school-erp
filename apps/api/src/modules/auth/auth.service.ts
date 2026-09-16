@@ -316,8 +316,17 @@ export class AuthService {
         secret: this.config.getOrThrow<string>('jwt.accessSecret'),
         expiresIn: this.config.get<string>('jwt.accessExpiresIn', '15m') as any,
       }),
-      // Refresh token is a random secure token stored as hash
-      Promise.resolve(crypto.randomBytes(64).toString('hex')),
+      this.jwtService.signAsync(
+        {
+          ...payload,
+          tokenType: 'refresh',
+          jti: crypto.randomBytes(16).toString('hex'),
+        },
+        {
+          secret: this.config.getOrThrow<string>('jwt.refreshSecret'),
+          expiresIn: this.config.get<string>('jwt.refreshExpiresIn', '7d') as any,
+        },
+      ),
     ]);
 
     return { accessToken, refreshToken };

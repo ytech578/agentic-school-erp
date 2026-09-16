@@ -63,7 +63,7 @@ function LoginForm() {
     try {
       setGlobalError(null);
       const response = await apiClient.post("/auth/login", data);
-      const { user, accessToken } = response.data.data;
+      const { user, accessToken, refreshToken } = response.data.data;
 
       // Handle remember me persistence
       try {
@@ -76,7 +76,7 @@ function LoginForm() {
         // Ignore storage errors
       }
 
-      setAuth(user, accessToken);
+      setAuth(user, accessToken, refreshToken);
       const destination = getAuthorizedRedirect(rawReturnUrl, user?.role);
       router.push(destination);
     } catch (error: any) {

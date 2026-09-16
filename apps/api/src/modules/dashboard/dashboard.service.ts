@@ -1,10 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly notificationsService?: NotificationsService,
+  ) {}
 
   // ─── SUPER ADMIN DASHBOARD (Platform Multi-Tenant Fleet) ───────────────────
   async getSuperAdminDashboard() {
@@ -232,23 +236,57 @@ export class DashboardService {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
     const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
+    const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay();
+
     const [
       totalStudents,
       totalStaff,
-      absentStaffToday,
+      approvedLeavesToday,
+      absentAttendanceToday,
       alerts,
       classes,
       studentMarks,
       pendingLeavesList,
       atRiskStudentsList,
-      availableStaffPool,
+      allActiveStaff,
+      todayTimetableSlots,
+      confirmedSubstitutionsToday,
     ] = await Promise.all([
       this.prisma.student.count({ where: { schoolId: validSchoolId } }),
       this.prisma.staff.count({ where: { schoolId: validSchoolId } }),
+      this.prisma.leaveRequest.findMany({
+        where: {
+          schoolId: validSchoolId,
+          status: 'APPROVED',
+          startDate: { lte: todayEnd },
+          endDate: { gte: todayStart },
+        },
+        include: {
+          staff: {
+            include: {
+              user: true,
+              department: true,
+              teacherAssignments: { include: { subject: true } },
+            },
+          },
+        },
+      }),
       this.prisma.staffAttendance.findMany({
-        where: { schoolId: validSchoolId, date: { gte: todayStart, lte: todayEnd }, status: 'ABSENT' },
-        include: { staff: { include: { user: true, teacherAssignments: { include: { subject: true } } } } },
-      }) as Promise<any[]>,
+        where: {
+          schoolId: validSchoolId,
+          date: { gte: todayStart, lte: todayEnd },
+          status: { in: ['ABSENT', 'EXCUSED'] },
+        },
+        include: {
+          staff: {
+            include: {
+              user: true,
+              department: true,
+              teacherAssignments: { include: { subject: true } },
+            },
+          },
+        },
+      }),
       this.prisma.agentAlert.findMany({
         where: { schoolId: validSchoolId, isRead: false },
         orderBy: { createdAt: 'desc' },
@@ -292,8 +330,36 @@ export class DashboardService {
       }),
       this.prisma.staff.findMany({
         where: { schoolId: validSchoolId, isActive: true },
-        include: { user: true, teacherAssignments: { include: { subject: true } } },
-        take: 10,
+        include: {
+          user: true,
+          department: true,
+          teacherAssignments: { include: { subject: true } },
+        },
+      }),
+      this.prisma.timetableSlot.findMany({
+        where: { schoolId: validSchoolId, dayOfWeek, isActive: true },
+        include: {
+          staff: { include: { user: true, department: true } },
+          subject: true,
+          section: { include: { class: true } },
+          class: true,
+        },
+        orderBy: { periodNumber: 'asc' },
+      }),
+      this.prisma.facultySubstitution.findMany({
+        where: {
+          schoolId: validSchoolId,
+          date: { gte: todayStart, lte: todayEnd },
+          status: 'CONFIRMED',
+        },
+        include: {
+          substituteStaff: {
+            include: {
+              user: true,
+              teacherAssignments: { include: { subject: true } },
+            },
+          },
+        },
       }),
     ]);
 
@@ -313,31 +379,158 @@ export class DashboardService {
       attendance: Math.min(88 + ((idx * 3) % 10), 98),
     }));
 
-    const absentStaffIds = (absentStaffToday || []).map((a: any) => a.staffId);
-    const eligibleSubstitutes = (availableStaffPool || []).filter((s) => !absentStaffIds.includes(s.id));
+    // Build map of staff unavailable today (approved leave or absent/excused attendance)
+    const unavailableMap = new Map<string, { staff: any; status: string; reason?: string }>();
 
-    const substitutions = (absentStaffToday && absentStaffToday.length > 0)
-      ? absentStaffToday.map((a: any, idx: number) => {
-          const absentSubject = a.staff?.teacherAssignments?.[0]?.subject?.name || 'General';
-          
-          // Try to find a substitute with the same subject, otherwise fallback
-          let sub = eligibleSubstitutes.find((s) => s.teacherAssignments?.some((ta: any) => ta.subject?.name === absentSubject));
-          if (!sub) sub = eligibleSubstitutes[idx % Math.max(eligibleSubstitutes.length, 1)];
+    for (const l of approvedLeavesToday) {
+      if (l.staff) {
+        unavailableMap.set(l.staff.id, {
+          staff: l.staff,
+          status: 'ON LEAVE',
+          reason: l.reason || 'Approved Medical / Casual Leave',
+        });
+      }
+    }
 
-          const subName = sub?.user ? `${sub.user.firstName} ${sub.user.lastName}` : 'Dr. Priya Raman';
-          const subSubject = sub?.teacherAssignments?.[0]?.subject?.name || 'General';
-          
-          return {
-            staffId: a.staffId,
-            name: a.staff?.user ? `${a.staff.user.firstName} ${a.staff.user.lastName} (${absentSubject})` : `Faculty Member (${absentSubject})`,
-            status: a.status,
-            recommendedSubstitute: `${subName} (${subSubject})`,
-          };
-        })
-      : [
-          { name: 'Mr. Vikram Rao (Physics)', status: 'ABSENT', recommendedSubstitute: 'Dr. Priya Raman (Physics)' },
-          { name: 'Mrs. Shanthi Kumar (English)', status: 'ABSENT', recommendedSubstitute: 'Mrs. Susan Thomas (English)' },
-        ];
+    for (const a of absentAttendanceToday) {
+      if (a.staff && !unavailableMap.has(a.staff.id)) {
+        unavailableMap.set(a.staff.id, {
+          staff: a.staff,
+          status: a.status === 'EXCUSED' ? 'ON LEAVE' : 'ABSENT',
+          reason: a.remarks || 'Absent today',
+        });
+      }
+    }
+
+    const unavailableStaffIds = new Set(unavailableMap.keys());
+    const eligibleSubPool = allActiveStaff.filter((s) => !unavailableStaffIds.has(s.id));
+
+    // Map existing confirmed substitutions for today by originalStaffId
+    const confirmedSubsMap = new Map<string, any[]>();
+    for (const cs of confirmedSubstitutionsToday) {
+      const list = confirmedSubsMap.get(cs.originalStaffId) || [];
+      list.push(cs);
+      confirmedSubsMap.set(cs.originalStaffId, list);
+    }
+
+    const substitutions: any[] = [];
+
+    for (const [staffId, info] of unavailableMap.entries()) {
+      const staff = info.staff;
+      const staffSlots = todayTimetableSlots.filter((ts) => ts.staffId === staffId);
+      const teacherName = staff?.user ? `${staff.user.firstName} ${staff.user.lastName}` : 'Faculty Member';
+      const mainSubject = staff?.teacherAssignments?.[0]?.subject?.name || 'General';
+      const teacherConfirmedSubs = confirmedSubsMap.get(staffId) || [];
+
+      if (staffSlots.length === 0) {
+        substitutions.push({
+          staffId,
+          name: `${teacherName} (${mainSubject})`,
+          status: info.status,
+          leaveReason: info.reason,
+          classesCount: 0,
+          recommendedSubstitute: 'No teaching periods scheduled today',
+          isConfirmed: false,
+          periods: [],
+        });
+        continue;
+      }
+
+      const periods: any[] = [];
+      for (const slot of staffSlots) {
+        const pNum = slot.periodNumber;
+        const slotTime = slot.startTime && slot.endTime ? `${slot.startTime} - ${slot.endTime}` : `Period ${pNum}`;
+        const className = `${slot.section?.class?.name || slot.class?.name || 'Class'} ${slot.section?.name || ''}`.trim();
+        const subjectName = slot.subject?.name || mainSubject;
+
+        // Staff who already have a teaching slot during this period
+        const busyStaffIdsAtPeriod = new Set(
+          todayTimetableSlots
+            .filter((ts) => ts.periodNumber === pNum && ts.staffId)
+            .map((ts) => ts.staffId)
+        );
+
+        // Staff free at this specific period
+        const freeStaff = eligibleSubPool.filter((st) => !busyStaffIdsAtPeriod.has(st.id) && st.id !== staffId);
+
+        // Ranking: 1. Subject Specialist -> 2. Department Peer -> 3. Available Free Faculty
+        const subjectMatches = freeStaff.filter((st) =>
+          st.teacherAssignments?.some((ta: any) => ta.subjectId === slot.subjectId || ta.subject?.name === subjectName)
+        );
+        const deptMatches = freeStaff.filter((st) =>
+          !subjectMatches.includes(st) && st.departmentId && st.departmentId === staff.departmentId
+        );
+        const otherMatches = freeStaff.filter((st) =>
+          !subjectMatches.includes(st) && !deptMatches.includes(st)
+        );
+
+        const ranked = [...subjectMatches, ...deptMatches, ...otherMatches];
+        const best = ranked[0];
+        const bestName = best?.user ? `${best.user.firstName} ${best.user.lastName}` : 'Unassigned';
+        const bestSubject = best?.teacherAssignments?.[0]?.subject?.name || 'Faculty';
+        const matchType = subjectMatches.includes(best) ? 'Subject Specialist' : (deptMatches.includes(best) ? 'Department Peer' : 'Free Faculty');
+
+        // Check if there is already a confirmed substitute saved in DB for this period
+        const matchingConfirmed = teacherConfirmedSubs.find(
+          (cs) => cs.periodNumber === pNum || (cs.slotId && cs.slotId === slot.id),
+        );
+
+        let chosenSubstituteStaffId = best?.id || null;
+        let chosenSubstituteName = bestName;
+        let chosenSubstituteSubject = bestSubject;
+        let chosenMatchType = matchType;
+        let slotConfirmed = false;
+
+        if (matchingConfirmed) {
+          slotConfirmed = true;
+          chosenSubstituteStaffId = matchingConfirmed.substituteStaffId;
+          if (matchingConfirmed.substituteStaff?.user) {
+            chosenSubstituteName = `${matchingConfirmed.substituteStaff.user.firstName} ${matchingConfirmed.substituteStaff.user.lastName}`;
+          }
+          chosenSubstituteSubject = matchingConfirmed.substituteStaff?.teacherAssignments?.[0]?.subject?.name || 'Faculty';
+          chosenMatchType = 'Confirmed Substitute';
+        }
+
+        periods.push({
+          slotId: slot.id,
+          periodNumber: pNum,
+          time: slotTime,
+          className,
+          subject: subjectName,
+          recommendedSubstitute: chosenSubstituteStaffId ? `${chosenSubstituteName} (${chosenSubstituteSubject})` : 'Unassigned',
+          substituteStaffId: chosenSubstituteStaffId,
+          substituteName: chosenSubstituteName,
+          substituteSubject: chosenSubstituteSubject,
+          matchType: chosenMatchType,
+          isConfirmed: slotConfirmed,
+          freeTeachersAvailable: freeStaff.length,
+          alternatives: ranked.slice(1, 4).map((st) => ({
+            name: `${st.user.firstName} ${st.user.lastName}`,
+            subject: st.teacherAssignments?.[0]?.subject?.name || 'Faculty',
+            staffId: st.id,
+          })),
+        });
+      }
+
+      const uniqueSubs = Array.from(new Set(periods.map((p) => p.substituteName).filter((n) => n !== 'Unassigned')));
+      const isConfirmed = teacherConfirmedSubs.length > 0;
+      const summaryText = isConfirmed
+        ? `${uniqueSubs.slice(0, 2).join(' & ')}${uniqueSubs.length > 2 ? ` +${uniqueSubs.length - 2} more` : ''} (Confirmed & Notified)`
+        : (uniqueSubs.length > 0
+          ? `${uniqueSubs.slice(0, 2).join(' & ')}${uniqueSubs.length > 2 ? ` +${uniqueSubs.length - 2} more` : ''} (Free at respective periods)`
+          : 'Auto-allocation pending');
+
+      substitutions.push({
+        staffId,
+        name: `${teacherName} (${mainSubject})`,
+        status: info.status,
+        leaveReason: info.reason,
+        classesCount: periods.length,
+        recommendedSubstitute: summaryText,
+        isConfirmed,
+        periods,
+      });
+    }
 
     const pendingLeaves = (pendingLeavesList || []).map((l: any) => ({
       id: l.id,
@@ -374,7 +567,8 @@ export class DashboardService {
         totalFaculty: totalStaff || 32,
         avgAcademicPct,
         atRiskStudentsCount: atRiskStudents.length || Math.max(Math.round((totalStudents || 450) * 0.04), 4),
-        substitutionsNeeded: substitutions.length,
+        substitutionsNeeded: substitutions.filter((s) => !s.isConfirmed).reduce((acc, s) => acc + (s.classesCount || 1), 0),
+        substitutionsConfirmed: substitutions.filter((s) => s.isConfirmed).reduce((acc, s) => acc + (s.classesCount || 1), 0),
       },
       classComparison: classComparison.length > 0 ? classComparison : [
         { name: 'Class 6', students: 46, avgScore: 80, attendance: 93 },
@@ -395,6 +589,139 @@ export class DashboardService {
         actionRoute: al.actionRoute,
         createdAt: al.createdAt,
       })),
+    };
+  }
+
+  // ─── CONFIRM FACULTY SUBSTITUTIONS (Principal Auto-Assign Action) ─────────
+  async confirmFacultySubstitutions(
+    schoolId: string,
+    confirmedByUserId: string,
+    data: {
+      originalStaffId: string;
+      date?: string;
+      periods: Array<{
+        slotId?: string;
+        periodNumber: number;
+        time?: string;
+        className?: string;
+        subjectName?: string;
+        substituteStaffId: string;
+        notes?: string;
+      }>;
+    },
+  ) {
+    const validSchoolId = requireSchoolId(schoolId, 'Confirm faculty substitutions');
+    if (!data.originalStaffId || !data.periods || data.periods.length === 0) {
+      return { success: false, message: 'No substitutions provided to confirm.' };
+    }
+
+    const targetDate = data.date ? new Date(data.date) : new Date();
+    const todayStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 0, 0, 0);
+    const todayEnd = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 23, 59, 59);
+
+    const originalStaff = await this.prisma.staff.findUnique({
+      where: { id: data.originalStaffId },
+      include: { user: true },
+    });
+    const originalTeacherName = originalStaff?.user
+      ? `${originalStaff.user.firstName} ${originalStaff.user.lastName}`
+      : 'Faculty Member';
+
+    // Remove any previous substitutions for this teacher today to allow clean update
+    await this.prisma.facultySubstitution.deleteMany({
+      where: {
+        schoolId: validSchoolId,
+        originalStaffId: data.originalStaffId,
+        date: { gte: todayStart, lte: todayEnd },
+      },
+    });
+
+    // Create confirmed substitutions
+    const createdSubs: any[] = [];
+    for (const p of data.periods) {
+      if (!p.substituteStaffId) continue;
+      const sub = await this.prisma.facultySubstitution.create({
+        data: {
+          schoolId: validSchoolId,
+          date: todayStart,
+          originalStaffId: data.originalStaffId,
+          substituteStaffId: p.substituteStaffId,
+          slotId: p.slotId || null,
+          periodNumber: p.periodNumber,
+          time: p.time || null,
+          className: p.className || null,
+          subjectName: p.subjectName || null,
+          status: 'CONFIRMED',
+          notes: p.notes || `Cover assigned for ${originalTeacherName}`,
+          confirmedBy: confirmedByUserId,
+          confirmedAt: new Date(),
+        },
+      });
+      createdSubs.push(sub);
+    }
+
+    // Group assigned periods by substitute staff ID
+    const groupedBySubstitute = new Map<string, any[]>();
+    for (const p of data.periods) {
+      if (!p.substituteStaffId) continue;
+      const list = groupedBySubstitute.get(p.substituteStaffId) || [];
+      list.push(p);
+      groupedBySubstitute.set(p.substituteStaffId, list);
+    }
+
+    // Notify each substitute teacher
+    for (const [subStaffId, periods] of groupedBySubstitute.entries()) {
+      const subStaff = await this.prisma.staff.findUnique({
+        where: { id: subStaffId },
+        include: { user: true },
+      });
+
+      if (subStaff?.userId) {
+        const periodSummary = periods
+          .map((p) => `P${p.periodNumber} (${p.className || 'Class'} - ${p.subjectName || 'Subject'})`)
+          .join(', ');
+        const notifTitle = 'Class Substitution Assigned';
+        const notifMessage = `You have been assigned to cover ${periods.length} class${periods.length > 1 ? 'es' : ''} today for ${originalTeacherName}: ${periodSummary}. Please review your schedule.`;
+
+        if (this.notificationsService) {
+          await this.notificationsService.createNotification({
+            schoolId: validSchoolId,
+            userId: subStaff.userId,
+            type: 'GENERAL',
+            title: notifTitle,
+            message: notifMessage,
+            actionUrl: '/dashboard',
+            metadata: {
+              category: 'SUBSTITUTION',
+              originalTeacher: originalTeacherName,
+              periodsCount: periods.length,
+            },
+          });
+        } else {
+          await this.prisma.notification.create({
+            data: {
+              schoolId: validSchoolId,
+              userId: subStaff.userId,
+              type: 'GENERAL',
+              title: notifTitle,
+              message: notifMessage,
+              actionUrl: '/dashboard',
+              metadata: {
+                category: 'SUBSTITUTION',
+                originalTeacher: originalTeacherName,
+                periodsCount: periods.length,
+              },
+            },
+          });
+        }
+      }
+    }
+
+    return {
+      success: true,
+      count: createdSubs.length,
+      substitutesNotified: groupedBySubstitute.size,
+      message: `Successfully confirmed ${createdSubs.length} substitution periods and notified ${groupedBySubstitute.size} teachers.`,
     };
   }
 
@@ -424,9 +751,10 @@ export class DashboardService {
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1);
     const dayOfWeek = today.getDay() === 0 ? 7 : today.getDay();
 
-    const [classes, todaySlots, assignments] = await Promise.all([
+    const [classes, todaySlots, assignments, coveredSubstitutions] = await Promise.all([
       Promise.all(
         staff.teacherAssignments.map(async (assignment) => {
           const attendanceRecord = await this.prisma.attendanceRecord.findFirst({
@@ -478,9 +806,28 @@ export class DashboardService {
         orderBy: { dueDate: 'desc' },
         take: 10,
       }),
+      this.prisma.facultySubstitution.findMany({
+        where: {
+          schoolId: validSchoolId,
+          substituteStaffId: staff.id,
+          date: { gte: today, lte: todayEnd },
+          status: 'CONFIRMED',
+        },
+        include: {
+          originalStaff: { include: { user: true } },
+          slot: {
+            include: {
+              class: true,
+              section: true,
+              subject: true,
+            },
+          },
+        },
+        orderBy: { periodNumber: 'asc' },
+      }),
     ]);
 
-    const todaySchedule = todaySlots.map((s) => ({
+    const regularSchedule = todaySlots.map((s) => ({
       id: s.id,
       period: s.periodNumber,
       startTime: s.startTime,
@@ -488,7 +835,28 @@ export class DashboardService {
       className: `${s.class.name} - ${s.section?.name || 'All'}`,
       subject: s.subject?.name || 'General Class',
       room: s.roomNumber || 'Room 101',
+      isSubstitution: false,
+      substituteFor: null as string | null,
     }));
+
+    const coverSchedule = coveredSubstitutions.map((sub) => {
+      const origTeacher = sub.originalStaff?.user
+        ? `${sub.originalStaff.user.firstName} ${sub.originalStaff.user.lastName}`
+        : 'Faculty Member';
+      return {
+        id: `sub-${sub.id}`,
+        period: sub.periodNumber,
+        startTime: sub.time?.includes('-') ? sub.time.split('-')[0].trim() : (sub.slot?.startTime || '09:00 AM'),
+        endTime: sub.time?.includes('-') ? sub.time.split('-')[1].trim() : (sub.slot?.endTime || '09:45 AM'),
+        className: sub.className || (sub.slot ? `${sub.slot.class?.name} - ${sub.slot.section?.name || 'All'}` : 'Cover Class'),
+        subject: sub.subjectName || sub.slot?.subject?.name || 'Cover Period',
+        room: sub.slot?.roomNumber || 'Assigned Room',
+        isSubstitution: true,
+        substituteFor: origTeacher,
+      };
+    });
+
+    const mergedSchedule = [...regularSchedule, ...coverSchedule].sort((a, b) => a.period - b.period);
 
     const pendingAssignments = assignments
       .map((a) => ({
@@ -502,20 +870,18 @@ export class DashboardService {
       .filter((a) => a.pendingSubmissions > 0);
 
     const totalStudents = classes.reduce((acc, c) => acc + c.studentsCount, 0);
+    const classesTodayCount = todaySlots.length + coveredSubstitutions.length;
 
     return {
       classes,
-      todaySchedule: todaySchedule.length > 0 ? todaySchedule : [
-        { id: '1', period: 1, startTime: '09:00 AM', endTime: '09:45 AM', className: 'Grade 10 - A', subject: 'Mathematics', room: 'Room 204' },
-        { id: '2', period: 2, startTime: '10:00 AM', endTime: '10:45 AM', className: 'Grade 9 - B', subject: 'Algebra & Geometry', room: 'Room 201' },
-        { id: '3', period: 4, startTime: '11:45 AM', endTime: '12:30 PM', className: 'Grade 10 - B', subject: 'Trigonometry', room: 'Room 204' },
-      ],
+      todaySchedule: mergedSchedule,
+      coveredSubstitutionsCount: coveredSubstitutions.length,
       pendingAssignments: pendingAssignments.length > 0 ? pendingAssignments : [
         { id: 'a1', title: 'Quadratic Equations Exercise 3', className: 'Grade 10-A', subject: 'Mathematics', dueDate: new Date().toISOString(), pendingSubmissions: 12 },
         { id: 'a2', title: 'Polynomial Theorems & Proofs', className: 'Grade 9-B', subject: 'Mathematics', dueDate: new Date().toISOString(), pendingSubmissions: 8 },
       ],
       totalStudentsTaught: totalStudents || 120,
-      classesTodayCount: todaySchedule.length || 3,
+      classesTodayCount: classesTodayCount || classes.length,
       pendingGradingCount: pendingAssignments.reduce((acc, a) => acc + a.pendingSubmissions, 0) || 20,
     };
   }

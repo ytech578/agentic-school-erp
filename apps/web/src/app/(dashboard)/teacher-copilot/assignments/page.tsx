@@ -76,6 +76,7 @@ export default function TeacherAssignmentsPage() {
   const [selectedAssignmentForSubmissions, setSelectedAssignmentForSubmissions] = useState<Assignment | null>(null);
   const [submissionsLoading, setSubmissionsLoading] = useState(false);
   const [submissions, setSubmissions] = useState<SubmissionItem[]>([]);
+  const [submissionsError, setSubmissionsError] = useState<string | null>(null);
   const [submissionStats, setSubmissionStats] = useState<{ totalStudents: number; submittedCount: number; gradedCount: number; pendingCount: number } | null>(null);
   const [gradingMarks, setGradingMarks] = useState<Record<string, { marks: string; feedback: string }>>({});
   const [savingGradeId, setSavingGradeId] = useState<string | null>(null);
@@ -110,6 +111,8 @@ export default function TeacherAssignmentsPage() {
   const handleOpenSubmissions = async (assignment: Assignment) => {
     setSelectedAssignmentForSubmissions(assignment);
     setSubmissionsLoading(true);
+    setSubmissionsError(null);
+    setSubmissions([]);
     try {
       const res = await apiClient.get(`/assignments/${assignment.id}/submissions`);
       const data = res.data?.data || res.data;
@@ -125,8 +128,9 @@ export default function TeacherAssignmentsPage() {
         };
       });
       setGradingMarks(gradesMap);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to load submissions:", err);
+      setSubmissionsError(err?.response?.data?.message || "Failed to load class submissions roster. Please try again.");
     } finally {
       setSubmissionsLoading(false);
     }
@@ -1062,6 +1066,18 @@ export default function TeacherAssignmentsPage() {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "3rem", color: "var(--text-secondary)", gap: "0.75rem" }}>
                   <Loader2 className="animate-spin" size={24} style={{ color: "var(--brand-primary)" }} />
                   <span>Loading class roster and submissions...</span>
+                </div>
+              ) : submissionsError ? (
+                <div style={{ textAlign: "center", padding: "2.5rem 1.5rem", color: "var(--status-danger)", background: "rgba(239, 68, 68, 0.05)", borderRadius: "var(--radius-lg)", border: "1px solid rgba(239, 68, 68, 0.2)" }}>
+                  <p style={{ margin: "0 0 0.75rem", fontSize: "var(--text-sm)", fontWeight: 600 }}>{submissionsError}</p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => selectedAssignmentForSubmissions && handleOpenSubmissions(selectedAssignmentForSubmissions)}
+                    style={{ fontSize: "var(--text-xs)" }}
+                  >
+                    Retry Loading Submissions
+                  </Button>
                 </div>
               ) : submissions.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "3rem", color: "var(--text-secondary)" }}>

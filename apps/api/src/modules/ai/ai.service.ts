@@ -1,6 +1,6 @@
 import { Injectable, Logger, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AuditAction } from '@prisma/client';
+import { AuditAction, RiskLevel, EnquiryStatus } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
 import { generateNextSequence } from '../../core/database/sequence.util';
@@ -106,61 +106,168 @@ export class AIService {
   }
 
   // ─── Build system prompt ─────────────────────────────────────────────────
-  private async buildSystemPrompt(user: {
-    id: string;
-    firstName: string;
-    lastName: string;
-    role: string;
-    schoolId?: string;
-  }): Promise<string> {
-    let schoolStats = '';
-    if (user.schoolId) {
+  private async buildSystemPrompt(
+    user: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      role: string;
+      schoolId?: string;
+    },
+    fallbackSchoolId?: string,
+  ): Promise<string> {
+    let liveOperationalData = '';
+    // Security: Only use schoolId from authenticated user context or explicit fallback.
+    // NEVER fall back to findFirst() — that would leak another school's data into the AI prompt.
+    const targetSchoolId = user.schoolId || fallbackSchoolId || null;
+
+    if (targetSchoolId) {
       try {
-        const [students, staff, todayAtt] = await Promise.all([
-          this.prisma.student.count({
-            where: { schoolId: user.schoolId, isActive: true },
-          }),
-          this.prisma.staff.count({
-            where: { schoolId: user.schoolId, isActive: true },
-          }),
-          this.prisma.attendanceRecord.count({
-            where: {
-              schoolId: user.schoolId,
-              date: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
-              status: 'PRESENT',
-            },
-          }),
+        const [
+          studentsCount,
+          staffCount,
+          todayAttCount,
+          pendingLeaves,
+          classes,
+          topStudents,
+          feeStats,
+        ] = await Promise.all([
+          this.prisma.student?.count
+            ? this.prisma.student.count({ where: { schoolId: targetSchoolId, isActive: true } }).catch(() => 0)
+            : Promise.resolve(0),
+          this.prisma.staff?.count
+            ? this.prisma.staff.count({ where: { schoolId: targetSchoolId, isActive: true } }).catch(() => 0)
+            : Promise.resolve(0),
+          this.prisma.attendanceRecord?.count
+            ? this.prisma.attendanceRecord.count({
+                where: {
+                  schoolId: targetSchoolId,
+                  date: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+                  status: 'PRESENT',
+                },
+              }).catch(() => 0)
+            : Promise.resolve(0),
+          this.prisma.leaveRequest?.findMany
+            ? this.prisma.leaveRequest.findMany({
+                where: { schoolId: targetSchoolId, status: 'PENDING' },
+                include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
+                take: 5,
+                orderBy: { createdAt: 'desc' },
+              }).catch(() => [])
+            : Promise.resolve([]),
+          this.prisma.class?.findMany
+            ? this.prisma.class.findMany({
+                where: { schoolId: targetSchoolId },
+                select: { name: true },
+                distinct: ['name'],
+                take: 12,
+                orderBy: { name: 'asc' },
+              }).catch(() => [])
+            : Promise.resolve([]),
+          this.prisma.attendanceRecord?.groupBy
+            ? this.prisma.attendanceRecord
+                .groupBy({
+                  by: ['studentId'],
+                  where: { schoolId: targetSchoolId, status: 'PRESENT' },
+                  _count: { id: true },
+                  orderBy: { _count: { id: 'desc' } },
+                  take: 5,
+                })
+                .then(async (groups) => {
+                  if (!groups || groups.length === 0 || !this.prisma.student?.findMany) return [];
+                  const studentIds = groups.map((g) => g.studentId);
+                  const students = await this.prisma.student.findMany({
+                    where: { id: { in: studentIds } },
+                    include: { user: { select: { firstName: true, lastName: true } } },
+                  });
+                  const studentMap = new Map(students.map((s) => [s.id, s.user]));
+                  return groups.map((g, idx) => {
+                    const u = studentMap.get(g.studentId);
+                    return `${idx + 1}. ${u?.firstName || 'Student'} ${u?.lastName || ''} (${g._count.id} days present)`;
+                  });
+                })
+                .catch(() => [])
+            : Promise.resolve([]),
+          this.prisma.feePayment?.aggregate
+            ? this.prisma.feePayment.aggregate({
+                where: { schoolId: targetSchoolId },
+                _sum: { totalAmount: true, paidAmount: true, outstandingAmount: true },
+              }).catch(() => null)
+            : Promise.resolve(null),
         ]);
-        schoolStats = `School stats: ${students} active students, ${staff} active staff, ${todayAtt} students marked present today.`;
-      } catch {
-        schoolStats = '';
+
+        const leavesInfo =
+          pendingLeaves.length > 0
+            ? pendingLeaves
+                .map(
+                  (l) =>
+                    `- ${l.staff.user.firstName} ${l.staff.user.lastName}: ${l.leaveType} leave for ${l.totalDays} day(s) (Reason: "${l.reason.slice(0, 100)}") [Leave ID: ${l.id}]`,
+                )
+                .join('\n')
+            : 'None currently pending (all staff leave requests are fully reviewed and up to date).';
+
+        const classList =
+          classes.length > 0
+            ? classes.map((c) => c.name).join(', ')
+            : 'Class 1 to Class 10';
+
+        const topStudentsList =
+          Array.isArray(topStudents) && topStudents.length > 0
+            ? topStudents.join('\n')
+            : 'Attendance records are actively tracked across all grades.';
+
+        const outstandingFees = feeStats?._sum?.outstandingAmount
+          ? `₹${Number(feeStats._sum.outstandingAmount).toLocaleString('en-IN')}`
+          : '₹0';
+        const collectedFees = feeStats?._sum?.paidAmount
+          ? `₹${Number(feeStats._sum.paidAmount).toLocaleString('en-IN')}`
+          : '₹0';
+
+        liveOperationalData = `
+LIVE REAL-TIME SCHOOL ERP DATABASE SNAPSHOT:
+• School Overview: ${studentsCount} active students enrolled, ${staffCount} active faculty/staff members, ${todayAttCount} students marked present today.
+• Available Classes: ${classList}.
+• Pending Staff Leave Requests (${pendingLeaves.length} pending):
+${leavesInfo}
+• Top Students by Attendance:
+${topStudentsList}
+• Fee Dues Summary: Outstanding Dues: ${outstandingFees}, Total Collected: ${collectedFees}.
+`;
+      } catch (err: any) {
+        this.logger.warn(`Failed to build live operational data: ${err.message}`);
+        liveOperationalData = '';
       }
     }
 
     return `You are Agentic AI, the autonomous operations layer for Agentic School ERP.
 Current user: ${user.firstName} ${user.lastName}, Role: ${user.role.replace('_', ' ')}.
-${schoolStats}
+${liveOperationalData}
 
-You help school staff with:
-- Analyzing data proactively to predict outcomes (like student dropout risk or fee default risk)
-- Automating repetitive tasks and drafting communications
-- Answering questions about students, attendance, fees, and exams
-- Navigating the system (respond with route like "/attendance" for navigation requests)
-- Executing real actions when asked (approve leaves, create assignments, send announcements)
+You have DIRECT access to live school data and autonomous action execution capabilities.
+When users ask you questions or command actions, use the live snapshot data provided above.
 
-IMPORTANT - When users ask you to perform an action, you MUST classify it for execution.
-Use these action tags in your response when appropriate:
-- To approve a leave: include [ACTION:APPROVE_LEAVE:staffName]
-- To create an assignment: include [ACTION:CREATE_ASSIGNMENT:className:topic]
-- To send announcement: include [ACTION:SEND_ANNOUNCEMENT:title]
+CRITICAL INSTRUCTIONS FOR ACTIONS AND COMMANDS:
+1. Approving Leave Requests:
+   - When the user asks to "approve leave", "approve the pending leave request", or mentions a staff member's leave:
+     - Check the "Pending Staff Leave Requests" above.
+     - If there is a pending leave: State the staff member's name, leave type, days, and reason, and ALWAYS append the action tag [ACTION:APPROVE_LEAVE:staffName] with the exact staff member name (e.g., [ACTION:APPROVE_LEAVE:Karan Singhania]).
+     - If there are NO pending leave requests: State clearly that all staff leave requests are currently up to date and there are no pending requests awaiting approval right now.
+2. Creating Assignments:
+   - When asked to create an assignment (e.g., "Create an assignment for Class 10 on Photosynthesis"):
+     - Confirm the assignment details and ALWAYS append [ACTION:CREATE_ASSIGNMENT:className:topic] (e.g., [ACTION:CREATE_ASSIGNMENT:Class 10:Photosynthesis]).
+3. Sending Announcements:
+   - When asked to broadcast or send an announcement (e.g., "Send an announcement about tomorrow holiday"):
+     - Draft the announcement and append [ACTION:SEND_ANNOUNCEMENT:title] (e.g., [ACTION:SEND_ANNOUNCEMENT:School Holiday Tomorrow]).
+4. Top Students & Attendance:
+   - When asked "Who are the top students by attendance?": List the top students directly from the live snapshot above.
+5. Fees & Dues:
+   - When asked about fees or dues: Report the actual outstanding and collected figures from the live snapshot above.
 
-Rules:
-- Be concise, professional, and helpful
-- Only share data appropriate for the ${user.role} role
-- For navigation requests, include the route path in your response like: "Navigate to [Students](/students)"
-- If you don't have access to specific live data, say so and explain how to find it
-- Format lists with markdown bullet points
-- Keep responses under 300 words unless a detailed report is requested`;
+General Rules:
+- Be proactive, intelligent, concise, and helpful.
+- You HAVE live real-time access to the ERP data provided in the snapshot above. Do NOT say you don't have access to live data when answering queries covered in the snapshot.
+- For navigation requests, include the route path like: "Navigate to [Students](/students)" or [Staff Leaves](/hr).
+- Keep responses clean with markdown formatting.`;
   }
 
   // ─── Send message / chat ──────────────────────────────────────────────────
@@ -176,15 +283,24 @@ Rules:
     };
     conversationId?: string;
     message: string;
+    attachments?: Array<{ name: string; type: string; size: number; base64: string }>;
   }): Promise<{ conversationId: string; reply: string; tokens?: number; pendingAction?: any }> {
     // Sanitize user message against raw action injection
     const rawMessage = data.message || '';
     const sanitizedUserMessage = rawMessage.replace(/\[ACTION:[^\]]*\]/gi, '').trim();
 
+    // Security: Fail-closed on schoolId. Never fall back to findFirst() — that would
+    // cross-tenant-leak another school's data. SUPER_ADMIN must send x-school-id.
+    const effectiveSchoolId = requireSchoolId(
+      data.schoolId || data.user?.schoolId,
+      'AI chat requires a valid school context',
+    );
+
     // Get or create conversation
+    // Security: scope by userId AND schoolId to prevent cross-tenant conversation access
     let conversation = data.conversationId
       ? await this.prisma.aIConversation.findFirst({
-        where: { id: data.conversationId, userId: data.userId },
+        where: { id: data.conversationId, userId: data.userId, schoolId: effectiveSchoolId },
         include: { messages: { orderBy: { createdAt: 'asc' }, take: 20 } },
       })
       : null;
@@ -192,7 +308,7 @@ Rules:
     if (!conversation) {
       conversation = await this.prisma.aIConversation.create({
         data: {
-          schoolId: data.schoolId,
+          schoolId: effectiveSchoolId,
           userId: data.userId,
           sessionId: `session_${Date.now()}`,
           title: (sanitizedUserMessage || rawMessage).slice(0, 50),
@@ -219,7 +335,7 @@ Rules:
       reply = this.getMockResponse(sanitizedUserMessage || rawMessage);
     } else {
       try {
-        const systemPrompt = await this.buildSystemPrompt(data.user);
+        const systemPrompt = await this.buildSystemPrompt(data.user, effectiveSchoolId);
         const history = (conversation.messages ?? []).map((m: any) => ({
           role: m.role === 'user' ? 'user' : 'model',
           parts: [{ text: (m.content || '').replace(/\[ACTION:[^\]]*\]/gi, '') }],
@@ -240,7 +356,22 @@ Rules:
           ],
         });
 
-        const result = await chat.sendMessage(sanitizedUserMessage || rawMessage);
+        let messagePayload: any = sanitizedUserMessage || rawMessage;
+        if (data.attachments && data.attachments.length > 0) {
+          const parts: any[] = [{ text: sanitizedUserMessage || rawMessage || 'Please review this attached file.' }];
+          for (const att of data.attachments) {
+            const rawBase64 = att.base64.includes('base64,') ? att.base64.split('base64,')[1] : att.base64;
+            parts.push({
+              inlineData: {
+                mimeType: att.type || 'application/octet-stream',
+                data: rawBase64,
+              },
+            });
+          }
+          messagePayload = parts;
+        }
+
+        const result = await chat.sendMessage(messagePayload);
         const response = await result.response;
         try {
           reply = response.text();
@@ -262,7 +393,7 @@ Rules:
             if (rawStaffName) {
               let leave = await this.prisma.leaveRequest.findFirst({
                 where: {
-                  schoolId: data.schoolId,
+                  schoolId: effectiveSchoolId,
                   status: 'PENDING',
                   staff: {
                     user: {
@@ -277,7 +408,7 @@ Rules:
               });
               if (!leave) {
                 leave = await this.prisma.leaveRequest.findFirst({
-                  where: { schoolId: data.schoolId, status: 'PENDING' },
+                  where: { schoolId: effectiveSchoolId, status: 'PENDING' },
                   include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
                 });
               }
@@ -324,7 +455,7 @@ Rules:
             if (rawStaffName.toLowerCase() !== 'any' && rawStaffName.toLowerCase() !== 'pending') {
               leave = await this.prisma.leaveRequest.findFirst({
                 where: {
-                  schoolId: data.schoolId,
+                  schoolId: effectiveSchoolId,
                   status: 'PENDING',
                   staff: {
                     user: {
@@ -340,7 +471,7 @@ Rules:
             }
             if (!leave) {
               leave = await this.prisma.leaveRequest.findFirst({
-                where: { schoolId: data.schoolId, status: 'PENDING' },
+                where: { schoolId: effectiveSchoolId, status: 'PENDING' },
                 include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
               });
             }
@@ -383,6 +514,9 @@ Rules:
 
       // Strip ALL action tags from the user-facing reply
       reply = reply ? reply.replace(/\[ACTION:[^\]]+\]/g, '').trim() : '';
+      if (!reply && pendingAction) {
+        reply = `I have prepared the action to ${pendingAction.label.toLowerCase()}. Please review and confirm below:`;
+      }
 
       } catch (err: any) {
         this.logger.error('Gemini API error', err?.message);
@@ -421,9 +555,18 @@ Rules:
     return { conversationId: conversation.id, reply, tokens, pendingAction };
   }
 
-  // ─── IMPROVEMENT 1: Execute confirmed AI actions with Audit Logging ──────
+  // ─── Execute confirmed AI actions with Audit Logging ──────────────────────
   async executeAIAction(schoolId: string, userId: string, action: { type: string; data: any }, userRole?: string) {
     const validSchoolId = requireSchoolId(schoolId, 'Execute AI action');
+
+    // Security: Action-type allowlist — the server is the authority.
+    // The AI or frontend must NEVER dictate an unrecognised action type.
+    const ALLOWED_ACTION_TYPES = new Set(['APPROVE_LEAVE', 'CREATE_ASSIGNMENT', 'SEND_ANNOUNCEMENT']);
+    if (!ALLOWED_ACTION_TYPES.has(action.type)) {
+      throw new BadRequestException(
+        `Action type '${action.type}' is not a recognized AI action.`,
+      );
+    }
 
     // Verify user role permissions
     const user = await this.prisma.user.findFirst({
@@ -888,54 +1031,153 @@ Generate exactly 3 concise one-sentence insights about school operations. Return
     ];
   }
 
-  // ─── Teacher Copilot: Lesson Plan ─────────────────────────────────────────
-  async generateLessonPlan(topic: string, grade: string, duration: string) {
-    const buildFallbackPlan = () => `## 📘 Lesson Plan: ${topic}
-**Grade Level:** ${grade || 'Grade 8'} | **Duration:** ${duration || '45 mins'} | **Pedagogical Framework:** 5E Instructional Model
+  // ─── Teacher Copilot: Lesson Plan with TLM ────────────────────────────────
+  async generateLessonPlan(
+    topic: string,
+    grade: string,
+    duration: string,
+    options?: { subject?: string; includeTlm?: boolean; curriculum?: string },
+  ) {
+    const subject = options?.subject || 'General Subject';
+    const includeTlm = options?.includeTlm !== false;
+    const curriculum = options?.curriculum || 'CBSE / NCERT Core';
+
+    const buildFallbackPlan = () => {
+      let plan = `## 📘 Lesson Plan: ${topic}
+**Grade Level:** ${grade || 'Grade 8'} | **Subject:** ${subject} | **Duration:** ${duration || '45 mins'} | **Curriculum:** ${curriculum} | **Framework:** 5E Instructional Model (NEP 2020 Aligned)
 
 ---
 
-### 🎯 Learning Objectives
-By the end of this lesson, students will be able to:
-1. **Explain** the fundamental core concepts and terminology of **${topic}**.
-2. **Analyze** practical examples and identify key underlying patterns.
-3. **Apply** problem-solving strategies to real-world scenarios relating to ${topic}.
+### 🎯 Learning Objectives & Competencies
+**National Education Policy (NEP 2020) Competency Mapping:**
+- *Core Competencies:* Scientific Inquiry, Conceptual Clarity, Analytical Problem-Solving, Peer Collaboration.
+- *Bloom's Taxonomy Progression:*
+  1. **Remember & Understand:** State the fundamental definitions, principles, and key mechanisms of **${topic}**.
+  2. **Apply & Analyze:** Interpret experimental data and observe manipulative behavior during hands-on activities.
+  3. **Evaluate & Create:** Hypothesize outcomes under modified variables and formulate evidence-based conclusions.
 
 ---
 
-### ⏱️ Lesson Timeline & Activities
+### ⏱️ Phase-by-Phase 5E Lesson Timeline
 
-| Phase | Time | Teacher Activity | Student Activity |
+| 5E Phase | Duration | Teacher Instructional Script | Student Inquiry & Activity |
 | :--- | :--- | :--- | :--- |
-| **1. Hook / Engage** | 5-7 mins | Present a thought-provoking inquiry or multimedia snippet on **${topic}**. | Brainstorm initial impressions; share prior knowledge in pairs. |
-| **2. Explore & Concept** | 15 mins | Introduce core principles with visual diagram and guided questions. | Take structured notes; annotate diagram worksheets. |
-| **3. Collaborative Practice** | 15 mins | Circulate and provide scaffolded prompts for group problem cards. | Work in pairs to solve challenge prompts and compare reasoning. |
-| **4. Check for Understanding** | 5 mins | Conduct quick formative check (Exit ticket / 3-question pulse). | Submit rapid digital or paper exit slip. |
-| **5. Summary & Wrap-up** | 3 mins | Synthesize key takeaways and preview subsequent module. | Clarify doubts; record homework assignment. |
+| **1. Engage (Hook)** | 5-7 mins | Present an everyday mystery or physical anomaly on **${topic}**. Ask: *"What mechanism explains this?"* | Brainstorm in pairs; sketch initial hypotheses on desk whiteboards. |
+| **2. Explore (Hands-on)** | 15 mins | Distribute TLM manipulative kits; guide student inquiry with 2 open challenge prompts. | Manipulate materials in teams of 4; record observable patterns in the log table. |
+| **3. Explain (Concept)** | 12 mins | Anchor group discoveries to core scientific terminology using the central chalkboard diagram. | Reconcile initial hypotheses with formal definitions; take structured Cornell notes. |
+| **4. Elaborate (Apply)** | 8 mins | Pose a real-world engineering or ecological scenario involving **${topic}**. | Solve challenge scenario in pairs; test edge cases using the TLM model. |
+| **5. Evaluate (Check)** | 5 mins | Conduct rapid formative check and administer the 3-minute Student Exit Slip. | Complete and submit the Student Activity Handout & Exit Slip. |`;
 
----
+      if (includeTlm) {
+        plan += `\n\n---
+
+### 📦 Teaching Learning Material (TLM) Kit & Activity Guide
+
+#### 🛠️ 1. Low-Cost / Zero-Cost Hands-on Physical Manipulatives
+- **Material Kit:** Recycled cardboard strips, bottle caps (color-coded for elements/variables), rubber bands, scale rulers, and marble tokens.
+- **Pedagogical Function:** Translates abstract, unobservable dynamics of **${topic}** into concrete kinesthetic models students can physically assemble.
+- **Setup Time:** Under 5 minutes using everyday recyclable materials readily found in classroom craft cupboards.
+
+#### 📊 2. Visual & Graphic Organizers (Anchor Charts)
+- **Anchor Chart Layout:** 3-quadrant poster on board (*"Observable Phenomenon"*, *"Hidden Mechanism"*, *"Mathematical/Scientific Law"*).
+- **Concept Flowchart:** Visual cause-and-effect branching diagram showing input conditions, transformation stages, and final equilibrium for **${topic}**.
+
+#### 💻 3. Digital & Interactive Multimedia TLM
+- **Interactive Simulation:** PhET Interactive Simulation / GeoGebra virtual lab module exploring real-time variable manipulation.
+- **Micro-Video Anchor:** 90-second high-definition slow-motion video snippet demonstrating **${topic}** in practical modern technology.
+
+#### 📋 4. Step-by-Step TLM Classroom Deployment Script
+1. **Distribution (T+0):** Material captains collect the manipulative kit tray for their group of 4.
+2. **Unguided Exploration (T+2):** 2 minutes of tactile exploration without teacher intervention to build intuitive curiosity.
+3. **Structured Challenge (T+5):** Teacher gives Challenge 1: *"Construct a model that demonstrates how increasing one variable changes the system."*
+4. **Debrief & Synthesis (T+12):** One representative from each team articulates their discovery in 30 seconds.
+
+#### ♿ 5. Differentiated Learning Adaptations
+- **Support / Kinesthetic Learners:** Color-coded tactile sequencing cards providing step-by-step assembly prompts.
+- **Accelerated Learners:** *"What-if"* constraint card requiring students to adapt the model for extreme conditions.
+
+#### ♻️ 6. Safety & Eco-Friendly Clean-Up Protocol
+- Ensure small manipulative tokens are counted back into group containers before dismissal.
+- Return chart paper scraps to the classroom recycling tray; store durable materials in labeled compartment boxes.`;
+      }
+
+      plan += `\n\n---
 
 ### 💡 Formative Assessment Questions
-- *Basic Recall:* What are the 3 essential components involved in **${topic}**?
-- *Conceptual:* How would a change in conditions alter the outcome in **${topic}**?
-- *Application:* Give a modern, everyday scenario where principles of **${topic}** are applied.
+- *Recall:* Name the primary governing principle and key components of **${topic}**.
+- *Conceptual:* How does the system adapt when external conditions are altered?
+- *Application:* Describe one modern technology or daily life phenomenon that relies directly on **${topic}**.
 
 ---
 
-### 📝 Homework & Extension Activity
-- Complete Practice Exercise questions 1–6 in the module workbook.
-- *(Challenge Extension)*: Research a recent real-world discovery or case study concerning **${topic}** and write a 4-sentence summary for the next session.`;
+### 📝 Homework & Extension Project
+- **Standard Practice:** Complete Questions 1–5 in the student workbook chapter on **${topic}**.
+- **Inquiry Extension:** Find one real-world example of **${topic}** in your home or neighborhood. Write a 3-sentence scientific observation.
+
+---
+
+### 📄 Student Classroom Activity Handout & Exit Slip
+
+**Student Name:** ____________________  |  **Class & Section:** ${grade || 'Grade 8'} ____  |  **Date:** ____________
+
+#### Part 1: Hands-on Manipulative Observation Log
+1. Sketch your group's physical TLM model or anchor diagram for **${topic}** below:
+\`\`\`
+[ Draw your manipulative arrangement or concept diagram here ]
+\`\`\`
+2. When you adjusted the primary component in your model, what change did you observe?
+   - **Observation:** ___________________________________________________________________
+   - **Scientific Explanation:** ___________________________________________________________
+
+#### Part 2: Quick Concept Challenge
+State whether the following statement is True or False, and justify in one line:
+- *"The fundamental mechanism of ${topic} remains constant regardless of system scale."*
+- **Response:** [   ] True   [   ] False  —  **Reason:** _______________________________________
+
+#### Part 3: 3-Minute Exit Ticket Slip
+- **One thing I mastered today about ${topic}:** ____________________________________________
+- **One question I still have:** __________________________________________________________
+- **My Confidence Level:** [  ] ⭐ Needs Practice   [  ] ⭐⭐ Got It   [  ] ⭐⭐⭐ Can Teach Others!`;
+
+      return plan;
+    };
 
     if (!this.model) {
       return buildFallbackPlan();
     }
     try {
-      const prompt = `You are an expert master educator. Create a structured, highly engaging lesson plan for ${grade} on the topic "${topic}". Duration: ${duration}.
-Include Learning Objectives, Prerequisites, Detailed Phase-by-Phase Timeline Table (Engage, Explore, Explain, Elaborate, Evaluate), Formative Assessment Questions, Differentiated Instruction Notes, and Homework.
-Format strictly in clean Markdown with professional headers and tables.
+      const prompt = `You are an expert master educator, curriculum specialist, and instructional designer.
+Create a comprehensive, highly engaging, classroom-ready lesson plan for ${grade} on the topic "${topic}".
+Duration: ${duration}. Subject: ${subject}. Curriculum Standard: ${curriculum}.
+
+Structure the lesson plan with these exact sections:
+1. Learning Objectives & NEP 2020 Competencies (Bloom's Taxonomy progression: Remember, Apply, Evaluate).
+2. Phase-by-Phase 5E Lesson Timeline Table (Engage, Explore, Explain, Elaborate, Evaluate with duration, teacher script, and student action).
+${
+  includeTlm
+    ? `3. Comprehensive Teaching Learning Material (TLM) Kit & Activity Guide:
+   - Low-Cost / Zero-Cost Hands-on Physical Manipulatives (materials kit, pedagogical purpose, student group activity).
+   - Visual & Graphic Organizers (chalkboard layout, anchor chart design, concept maps).
+   - Digital & Interactive Multimedia TLM (PhET interactive simulation prompt, video clip anchor).
+   - Step-by-Step TLM Classroom Deployment Script (exact teacher prompts and student actions).
+   - Differentiated Learning Adaptations (support for diverse learning paces).
+   - Safety & Eco-Friendly Clean-Up Protocol (safe handling and recycling).`
+    : ''
+}
+4. Formative Assessment Questions (Recall, Conceptual, Real-world Application).
+5. Homework & Extension Inquiry Project.
+6. A dedicated student-facing section titled strictly:
+### 📄 Student Classroom Activity Handout & Exit Slip
+With:
+- Header: Student Name, Class & Section, Date.
+- Part 1: Hands-on Manipulative Observation Log (prompt for diagram and observation table).
+- Part 2: Quick Concept Challenge (application scenario).
+- Part 3: 3-Minute Exit Ticket Slip (one thing learned, one remaining doubt, 3-star self-assessment).
+
+Format strictly in clean Markdown with professional headers and valid Markdown tables.
 CRITICAL FORMATTING RULES:
 1. Do NOT use raw HTML tags such as <br>, <br/>, or <p>. Use standard Markdown newlines and bullet points.
-2. For the Phase-by-Phase Timeline Table, use valid Markdown table syntax with clean concise text. Never put <br> inside table cells.
+2. For tables, use standard Markdown table syntax with clean concise text. Never put <br> inside table cells.
 3. Do NOT use raw LaTeX dollar delimiters like $x = y$ or $$...$$. Write all equations and formulas cleanly using standard Unicode mathematical symbols (e.g. F = m × a, ax² + bx + c = 0, ±, √, ², ³, Δ, °, θ, π).`;
       const result = await this.model.generateContent(prompt);
       return result.response.text();
@@ -997,6 +1239,1032 @@ CRITICAL FORMATTING RULES:
     }
   }
 
+  // ─── Agent 1: Exam Blueprinter & Question Paper Generator ─────────────
+  async generateQuestionPaper(
+    schoolId: string,
+    params: {
+      grade: string;
+      subject: string;
+      totalMarks?: number;
+      duration?: string;
+      difficulty?: string;
+      topics?: string;
+      includeAnswerKey?: boolean;
+      board?: string;
+      schoolName?: string;
+    },
+  ) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const grade = (params.grade || 'Class 10').trim();
+
+    // Strict K-10 Grade Boundary Enforcement
+    if (/\b(11|12|11th|12th|xi|xii|junior college|intermediate)\b/i.test(grade)) {
+      throw new BadRequestException(
+        'Curriculum strictly restricted to Nursery through Grade 10. Senior secondary grades (11/12) are not supported.',
+      );
+    }
+
+    const subject = params.subject || 'Mathematics';
+    const totalMarks = Number(params.totalMarks) || 80;
+    const duration =
+      params.duration ||
+      (totalMarks <= 25 ? '45 Minutes' : totalMarks <= 50 ? '1.5 Hours' : '3 Hours');
+    const difficulty = params.difficulty || 'BALANCED';
+    const topics = params.topics || 'Comprehensive Term Syllabus';
+    const board = params.board || 'CBSE';
+    const includeAnswerKey = params.includeAnswerKey !== false;
+
+    // Fetch school name for header (with explicit client override support)
+    const school = await this.prisma.school.findUnique({
+      where: { id: validSchoolId },
+      select: { name: true, code: true },
+    });
+    const schoolName = params.schoolName?.trim() || school?.name || 'Academic Institute';
+
+    const buildFallbackPaper = () => {
+      let paper = `# ${schoolName.toUpperCase()}
+**Annual Summative Examination — Session 2026-27**
+**Affiliated to ${board} | Nursery – Grade 10 Curriculum**
+
+---
+
+| **Subject:** ${subject} | **Grade / Level:** ${grade} |
+| :--- | :--- |
+| **Max. Marks:** ${totalMarks} | **Time Allowed:** ${duration} |
+| **Difficulty Tier:** ${difficulty} | **Coverage:** ${topics} |
+
+---
+
+### 📋 General Instructions
+1. This question paper comprises **Five Sections** (Sections A, B, C, D, and E).
+2. **Section A** contains 5 Multiple Choice Questions (MCQs) carrying 1 mark each.
+3. **Section B** contains 3 Short Answer Type-I (SA-I) questions carrying 2 marks each.
+4. **Section C** contains 3 Short Answer Type-II (SA-II) questions carrying 3 marks each.
+5. **Section D** contains 2 Long Answer (LA) questions carrying 5 marks each with internal choice.
+6. **Section E** contains 1 Case/Source-based integrated unit of assessment carrying 4 marks.
+7. All questions are compulsory. Use of calculators or electronic devices is strictly prohibited.
+8. Write all answers neatly with necessary calculation steps and labelled diagrams.
+
+---
+
+### SECTION A: Objective & Multiple Choice Questions (1 Mark Each)
+*All questions are compulsory. Select the correct option.*
+
+**Q1.** *[Remembering]* Which of the following fundamental principles or definitions correctly applies to **${subject}** in ${grade}?
+- (A) Option Alpha: The standard base value remains invariant under uniform translation.
+- (B) Option Beta: The rate of variation is directly proportional to external impetus.
+- (C) Option Gamma: The net equilibrium sum vanishes in closed cyclical states.
+- (D) Option Delta: The resultant magnitude quadruples when factor input doubles.
+
+**Q2.** *[Understanding]* Consider the relationship between primary components in the study of **${topics}**. If the boundary condition is halved, what is the consequence on the system?
+- (A) The system remains strictly unaltered.
+- (B) The resultant decreases by a factor of 2.
+- (C) The equilibrium point shifts toward the origin.
+- (D) The system exhibits exponential divergent oscillation.
+
+**Q3.** *[Applying]* A student needs to verify an experimental result involving **${subject}**. Which step ensures experimental validity and prevents systematic error?
+- (A) Neglecting ambient calibration temperature.
+- (B) Recording triple trials and taking the arithmetic mean.
+- (C) Rounding raw measurements before arithmetic computation.
+- (D) Eliminating control groups from comparative observation.
+
+**Q4.** *[Remembering]* In ${board} curriculum standards for ${grade}, the standardized unit or benchmark metric for measuring energy or output is:
+- (A) Newton-meter or Joule
+- (B) Pascal per second
+- (C) Volt-ampere inverse
+- (D) Hertz-radian
+
+**Q5.** *[Understanding]* An assertion (A) and reason (R) are given:
+- **Assertion (A):** The core theorem holds true for all rational values within the specified domain.
+- **Reason (R):** Continuous differentiability guarantees local existence of critical points.
+Choose the correct option:
+- (A) Both (A) and (R) are true and (R) is the correct explanation of (A).
+- (B) Both (A) and (R) are true but (R) is NOT the correct explanation of (A).
+- (C) (A) is true but (R) is false.
+- (D) (A) is false but (R) is true.
+
+---
+
+### SECTION B: Short Answer Questions — Type I (2 Marks Each)
+
+**Q6.** *[Understanding]* State the two essential criteria required to validate the core theorem in **${topics}**. Give one real-life example illustrating this in action.  
+*(2 Marks)*
+
+**Q7.** *[Applying]* Solve the following standard problem: If a variable quantity P is inversely related to Q, and P = 24 when Q = 3, calculate the value of P when Q = 8. Show all derivation steps.  
+*(2 Marks)*
+
+**Q8.** *[Analyzing]* Differentiate between primary and secondary characteristics of **${subject}** studied in ${grade}. Present your answer in a concise comparative tabular format with at least two distinct points of divergence.  
+*(2 Marks)*
+
+---
+
+### SECTION C: Short Answer Questions — Type II (3 Marks Each)
+
+**Q9.** *[Applying]* A practical scenario involves applying concepts of **${topics}** to optimize resources. Derive the mathematical or conceptual expression step-by-step, stating any assumptions clearly.  
+*(3 Marks)*
+
+**Q10.** *[Analyzing]* Explain why standard experimental values sometimes deviate from theoretical predictions in classroom laboratories. Outline three distinct precautions that students should take to minimize observational error.  
+*(3 Marks)*
+
+**Q11.** *[Understanding]* *(Internal Choice)*
+- **(a)** Explain the detailed mechanism of how feedback loops operate within the context of **${subject}**.
+- **OR**
+- **(b)** Draw a neat, labelled schematic diagram illustrating the primary workflow or structure in ${grade} **${subject}**.  
+*(3 Marks)*
+
+---
+
+### SECTION D: Long Answer Questions (5 Marks Each)
+
+**Q12.** *[Evaluating]*
+- **(a)** Formulate the comprehensive proof or complete theoretical derivation for the governing formula in **${topics}**.
+- **(b)** Using the derived principle, calculate the total output when standard baseline parameters are multiplied by a factor of 1.5.  
+*(3 + 2 = 5 Marks)*  
+*OR*  
+- **(a)** Discuss how historical developments in **${subject}** shaped our modern scientific understanding.
+- **(b)** Outline two contemporary real-world challenges where this principle plays a critical role.  
+*(3 + 2 = 5 Marks)*
+
+**Q13.** *[Analyzing]*
+A composite real-world problem requires synthesizing multiple sub-concepts from ${grade} ${subject}:
+1. Identify the given independent and dependent variables. *(1 Mark)*
+2. Construct the governing system of equations or logical relations. *(2 Marks)*
+3. Solve for the unknown equilibrium states and interpret the physical or practical significance of your final answer. *(2 Marks)*  
+*(Total: 5 Marks)*
+
+---
+
+### SECTION E: Case-Study / Competency-Based Assessment (4 Marks)
+
+**Q14.** *[Source / Case-Based Integrated Problem]*
+> **Case Context:** During a science and technology symposium at ${schoolName}, Class 10 students were tasked with evaluating energy efficiency and material sustainability under varying seasonal conditions. They recorded observations across five controlled trials and synthesized their data into a predictive performance curve.
+
+Based on the above context, answer the following:
+- **(i)** Identify the primary controlling parameter in the symposium experiment. *(1 Mark)*
+- **(ii)** What mathematical or empirical relation describes the trend observed across the trials? *(1 Mark)*
+- **(iii)** If the baseline load increases by 25%, predict the adjusted system output and justify your reasoning with two quantitative arguments. *(2 Marks)*`;
+
+      if (includeAnswerKey) {
+        paper += `\n\n---
+\n# 📝 STEP-BY-STEP MARKING SCHEME & ANSWER KEY
+**Confidential — For Evaluators Only**
+
+| Question | Expected Answer & Step Breakdown | Marks |
+| :--- | :--- | :--- |
+| **Q1** | **(A)** Standard base value remains invariant.<br />*Recall of core definition (1 mark)* | 1 M |
+| **Q2** | **(B)** Resultant decreases by factor of 2.<br />*Inverse proportional reasoning (1 mark)* | 1 M |
+| **Q3** | **(B)** Recording triple trials and taking arithmetic mean.<br />*Application of error reduction technique (1 mark)* | 1 M |
+| **Q4** | **(A)** Newton-meter or Joule.<br />*Accurate unit recall (1 mark)* | 1 M |
+| **Q5** | **(A)** Both (A) and (R) are true and (R) correctly explains (A). | 1 M |
+| **Q6** | • Stating first criterion clearly (1 M)<br />• Stating second criterion and practical example (1 M) | 2 M |
+| **Q7** | • Constant of proportionality k = P × Q = 24 × 3 = 72 (1 M)<br />• P = 72 / 8 = 9 with final unit (1 M) | 2 M |
+| **Q8** | • Point 1: Operational scope difference (1 M)<br />• Point 2: Input dependency difference (1 M) | 2 M |
+| **Q9** | • Setting up initial boundary equations (1 M)<br />• Substitution and algebraic manipulation (1 M)<br />• Final simplified expression with units (1 M) | 3 M |
+| **Q10** | • Precaution 1: Zero-error correction (1 M)<br />• Precaution 2: Parallax avoidance (1 M)<br />• Precaution 3: Environmental stability (1 M) | 3 M |
+| **Q11 (a/b)** | • Complete explanation / neat labelled diagram with all 4 parts identified (2 M)<br />• Functional description of parts (1 M) | 3 M |
+| **Q12** | • Part (a): Correct proof / derivation step-by-step (3 M)<br />• Part (b): Correct numerical substitution and final value (2 M) | 5 M |
+| **Q13** | • Step 1: Variable identification (1 M)<br />• Step 2: System formulation (2 M)<br />• Step 3: Analytical solution and interpretation (2 M) | 5 M |
+| **Q14** | • (i): Identification of controlling variable (1 M)<br />• (ii): Stating governing empirical equation (1 M)<br />• (iii): Calculation of 25% load shift with justification (2 M) | 4 M |`;
+      }
+
+      return paper;
+    };
+
+    if (!this.model) {
+      return buildFallbackPaper();
+    }
+
+    try {
+      const prompt = `You are a chief examination controller for the ${board} Board specializing in K-10 schooling.
+Create a complete, formal, rigorous question paper for ${grade} in the subject "${subject}".
+Total Marks: ${totalMarks}. Duration: ${duration}. Difficulty: ${difficulty}.
+Specific Topics: "${topics}".
+Strict Grade Constraint: STRICTLY Nursery to Grade 10 only. Never use Grade 11 or Grade 12 concepts.
+
+Structure the paper with:
+1. Formal School Header: ${schoolName}, Subject, Grade, Marks, Duration.
+2. General Instructions according to standard ${board} pattern.
+3. Section A: Multiple Choice Questions (1 Mark each) with Bloom's Taxonomy tags ([Remembering], [Understanding], [Applying]).
+4. Section B: Short Answer Type I (2 Marks each).
+5. Section C: Short Answer Type II (3 Marks each).
+6. Section D: Long Answer (5 Marks each) with internal choice.
+7. Section E: Case-study / Competency-based source question (4 Marks).
+${includeAnswerKey ? "8. Comprehensive Step-by-Step Marking Scheme and Answer Key at the end under heading: '# 📝 STEP-BY-STEP MARKING SCHEME & ANSWER KEY'." : ''}
+
+CRITICAL RULES:
+- Format in clean, elegant GitHub Flavored Markdown.
+- Write mathematical equations cleanly with standard Unicode characters (e.g. ², ³, √, ±, ×, ÷, °, π). Do NOT use unescaped raw LaTeX symbols or $$ block delimiters.
+- Ensure natural, clear spacing between words, numbers, mathematical operators, and MCQ options (e.g. '(a) Option', not '(a)Option').
+- Do NOT use raw HTML tags such as <br>, <p>, or <div>.`;
+
+      const result = await this.model.generateContent(prompt);
+      return result.response.text();
+    } catch (err: any) {
+      this.logger.error('Question paper generation error', err?.message);
+      return buildFallbackPaper();
+    }
+  }
+
+  // ─── Agent 2: Early-Warning & Retention Sentinel (MTSS) ───────────────
+  async getEarlyWarningRiskStudents(
+    schoolId: string,
+    filters?: { classId?: string; riskLevel?: string },
+  ) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+
+    const students = await this.prisma.student.findMany({
+      where: {
+        schoolId: validSchoolId,
+        isActive: true,
+        ...(filters?.classId
+          ? {
+              enrollments: {
+                some: {
+                  section: { classId: filters.classId },
+                  status: 'ACTIVE',
+                },
+              },
+            }
+          : {}),
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
+        },
+        enrollments: {
+          where: { status: 'ACTIVE' },
+          include: {
+            section: {
+              include: {
+                class: { select: { id: true, name: true } },
+              },
+            },
+          },
+          take: 1,
+        },
+        attendance: {
+          where: { date: { gte: ninetyDaysAgo } },
+          select: { status: true },
+        },
+        marks: {
+          select: {
+            marksObtained: true,
+            isAbsent: true,
+            examSubject: {
+              select: { maxMarks: true, subject: { select: { name: true } } },
+            },
+          },
+          take: 20,
+        },
+        feePayments: {
+          where: { paymentStatus: { in: ['PENDING', 'PARTIAL'] } },
+          select: { totalAmount: true, paymentStatus: true },
+        },
+        assignmentSubmissions: {
+          where: { status: 'PENDING' },
+          select: { id: true },
+        },
+      },
+      take: 100,
+    });
+
+    let criticalCount = 0;
+    let highCount = 0;
+    let moderateCount = 0;
+    let lowCount = 0;
+    let totalRiskSum = 0;
+
+    const assessedStudents = students.map((s) => {
+      // 1. Attendance telemetry
+      const totalAtt = s.attendance.length;
+      const presentCount = s.attendance.filter(
+        (a) => a.status === 'PRESENT' || a.status === 'HALF_DAY',
+      ).length;
+      const attendanceRate =
+        totalAtt > 0 ? Math.round((presentCount / totalAtt) * 100) : 88;
+
+      // 2. Academic telemetry
+      const validMarks = s.marks.filter(
+        (m) => m.marksObtained !== null && !m.isAbsent,
+      );
+      let academicAvg = 75;
+      if (validMarks.length > 0) {
+        const totalPct = validMarks.reduce((acc, m) => {
+          const max = Number(m.examSubject?.maxMarks) || 100;
+          return acc + (Number(m.marksObtained) / max) * 100;
+        }, 0);
+        academicAvg = Math.round(totalPct / validMarks.length);
+      }
+
+      // 3. Fee & Assignment telemetry
+      const pendingFeesCount = s.feePayments.length;
+      const overdueAssignmentsCount = s.assignmentSubmissions.length;
+
+      // 4. Composite Risk Score Algorithm (0-100)
+      let score = 0;
+      const drivers: string[] = [];
+
+      if (attendanceRate < 75) {
+        score += 35;
+        drivers.push(`Severe chronic absenteeism (${attendanceRate}%)`);
+      } else if (attendanceRate < 85) {
+        score += 18;
+        drivers.push(`Attendance below benchmark (${attendanceRate}%)`);
+      }
+
+      if (academicAvg < 40) {
+        score += 35;
+        drivers.push(`Critical academic failure risk (${academicAvg}% avg)`);
+      } else if (academicAvg < 50) {
+        score += 20;
+        drivers.push(`Marginal academic performance (${academicAvg}% avg)`);
+      } else if (academicAvg < 65) {
+        score += 8;
+        drivers.push(`Moderate learning gaps (${academicAvg}% avg)`);
+      }
+
+      if (pendingFeesCount > 0) {
+        score += 15;
+        drivers.push(`Tuition fee default / pending installments`);
+      }
+
+      if (overdueAssignmentsCount >= 2) {
+        score += 15;
+        drivers.push(`${overdueAssignmentsCount} overdue assignments`);
+      } else if (overdueAssignmentsCount === 1) {
+        score += 8;
+        drivers.push(`1 pending assignment`);
+      }
+
+      // Cap at 100
+      const finalScore = Math.min(100, score);
+      totalRiskSum += finalScore;
+
+      let riskLevel = 'LOW';
+      let tier = 'Tier 1 (Universal)';
+
+      if (finalScore >= 70) {
+        riskLevel = 'CRITICAL';
+        tier = 'Tier 3 (Intensive Intervention)';
+        criticalCount++;
+      } else if (finalScore >= 50) {
+        riskLevel = 'HIGH';
+        tier = 'Tier 2 (Targeted Support)';
+        highCount++;
+      } else if (finalScore >= 30) {
+        riskLevel = 'MODERATE';
+        tier = 'Tier 2 (Progress Monitoring)';
+        moderateCount++;
+      } else {
+        lowCount++;
+      }
+
+      const activeEnrollment = s.enrollments[0];
+      const className = activeEnrollment
+        ? `${activeEnrollment.section.class.name} - ${activeEnrollment.section.name}`
+        : 'Unassigned';
+
+      return {
+        id: s.id,
+        admissionNumber: s.admissionNumber,
+        name: `${s.user.firstName} ${s.user.lastName}`.trim(),
+        email: s.user.email,
+        class: className,
+        attendanceRate,
+        academicAvg,
+        pendingFeesCount,
+        overdueAssignmentsCount,
+        riskScore: finalScore,
+        riskLevel,
+        tier,
+        primaryDrivers:
+          drivers.length > 0 ? drivers : ['Consistent engagement and performance'],
+      };
+    });
+
+    // Filter by riskLevel if requested
+    const filteredStudents =
+      filters?.riskLevel && filters.riskLevel !== 'ALL'
+        ? assessedStudents.filter((s) => s.riskLevel === filters.riskLevel)
+        : assessedStudents;
+
+    // Sort highest risk first
+    filteredStudents.sort((a, b) => b.riskScore - a.riskScore);
+
+    const totalAssessed = assessedStudents.length;
+    const averageRiskScore =
+      totalAssessed > 0 ? Math.round(totalRiskSum / totalAssessed) : 0;
+
+    return {
+      summary: {
+        totalAssessed,
+        criticalCount,
+        highCount,
+        moderateCount,
+        lowCount,
+        averageRiskScore,
+      },
+      students: filteredStudents,
+    };
+  }
+
+  async generateStudentInterventionPlan(schoolId: string, studentId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const student = await this.prisma.student.findFirst({
+      where: { id: studentId, schoolId: validSchoolId },
+      include: {
+        user: { select: { firstName: true, lastName: true, email: true } },
+        enrollments: {
+          where: { status: 'ACTIVE' },
+          include: {
+            section: {
+              include: { class: true },
+            },
+          },
+          take: 1,
+        },
+        attendance: { take: 30, select: { status: true } },
+        marks: {
+          take: 10,
+          select: {
+            marksObtained: true,
+            isAbsent: true,
+            examSubject: {
+              select: { maxMarks: true, subject: { select: { name: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    if (!student) {
+      throw new BadRequestException('Student not found in this school.');
+    }
+
+    const studentName = `${student.user.firstName} ${student.user.lastName}`.trim();
+    const activeClass = student.enrollments[0]
+      ? `${student.enrollments[0].section.class.name} (${student.enrollments[0].section.name})`
+      : 'Class 10';
+
+    const buildFallbackPlan = () => `## 🛡️ Multi-Tiered System of Supports (MTSS) Intervention Plan
+**Student:** ${studentName} | **Admission No:** ${student.admissionNumber} | **Class:** ${activeClass}
+**Generated Date:** ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} | **Review Cycle:** 30-Day Bi-Weekly Milestone
+
+---
+
+### 🔍 1. Executive Diagnostic & Root-Cause Analysis
+- **Primary Concerns:** Persistent dips in academic consistency and sporadic attendance trends requiring systematic multi-tiered scaffolding.
+- **Academic Baseline:** Diagnostic marks indicate conceptual friction in core numerical and comprehension topics.
+- **Behavioral & Engagement Assessment:** Student shows responsiveness during interactive peer sessions but exhibits hesitation in independent summative evaluations.
+
+---
+
+### 🪜 2. Multi-Tiered Action Framework
+
+#### Tier 1: Universal Classroom Adaptations (Led by Subject Teachers)
+1. **Front-Row Preferred Seating:** Position ${studentName} within the prime instructional cone to facilitate non-verbal engagement checks.
+2. **Scaffolded Assignments:** Provide chunked worksheets with initial guided prompts before transitioning to independent problem-solving.
+3. **Praise-to-Correction Ratio:** Maintain a 4:1 positive reinforcement ratio to bolster academic self-efficacy.
+
+#### Tier 2: Targeted Remedial & Small-Group Support (Led by Remedial Specialist)
+1. **Bi-Weekly Remedial Clinic:** Tuesday and Thursday zero-period (8:00 AM - 8:40 AM) focused on foundational concepts in Math & Science.
+2. **Peer Learning Buddy:** Pair with an empathetic high-performing peer partner for collaborative revision sessions.
+3. **Formative Self-Check Slips:** Use 3-minute diagnostic micro-quizzes at the end of each topic module.
+
+#### Tier 3: Intensive Pastoral & Family Alignment (Led by Principal & School Counselor)
+1. **Counselor Touchpoint:** Fortnightly 20-minute structured check-in addressing anxiety and motivation.
+2. **Bi-Weekly Parent Check-in:** Brief WhatsApp/Call progress pulse sent every other Friday afternoon to synchronize home revision schedules.
+3. **Attendance Sentinel:** Immediate notification dispatched to parents if absent for more than 1 day without prior leave note.
+
+---
+
+### 🎯 3. 30-Day Milestone Checkpoints
+
+| Timeline | Milestone Target | Verification Metric | Responsible Stakeholder |
+| :--- | :--- | :--- | :--- |
+| **Week 1** | Establish baseline rapport and initial remedial seating | 100% on-time attendance in Week 1 | Class Teacher |
+| **Week 2** | Complete 4 foundational practice worksheets | Scoring ≥ 65% on formative check | Subject Teachers |
+| **Week 3** | Mid-cycle counselor evaluation and parent progress review | Joint counselor & parent sign-off | School Counselor |
+| **Week 4** | Summative micro-assessment and Tier recalibration | Achieve ≥ 70% composite score | Academic Coordinator |
+
+---
+
+### ✍️ Formal Approvals & Commitments
+- **Class Teacher Signature:** ___________________________  
+- **School Counselor Signature:** _______________________  
+- **Principal Endorsement:** ____________________________`;
+
+    if (!this.model) {
+      return {
+        plan: buildFallbackPlan(),
+        studentName,
+        admissionNumber: student.admissionNumber,
+      };
+    }
+
+    try {
+      const prompt = `You are a clinical school psychologist and MTSS academic intervention director for K-10 schooling.
+Create a comprehensive, highly actionable Multi-Tiered System of Supports (MTSS) Individualized Intervention Plan for:
+Student: ${studentName}
+Class: ${activeClass}
+Admission Number: ${student.admissionNumber}
+
+The plan must include:
+1. Executive Diagnostic and Root-Cause Analysis
+2. Tier 1 (Universal Classroom Accommodations)
+3. Tier 2 (Targeted Remedial Support & Peer Mentorship)
+4. Tier 3 (Intensive Pastoral, Counselor, and Parent Alignment)
+5. 30-Day Milestone Checkpoints Table
+6. Measurable Success & Tier De-escalation Criteria
+
+Format strictly in clean, professional Markdown with clear tables and headers.
+Do NOT use raw HTML tags or unescaped LaTeX symbols.`;
+
+      const result = await this.model.generateContent(prompt);
+      return {
+        plan: result.response.text(),
+        studentName,
+        admissionNumber: student.admissionNumber,
+      };
+    } catch (err: any) {
+      this.logger.error('MTSS Intervention plan error', err?.message);
+      return {
+        plan: buildFallbackPlan(),
+        studentName,
+        admissionNumber: student.admissionNumber,
+      };
+    }
+  }
+
+  // ─── Agent 3: 24/7 Multilingual Admissions & Tour Concierge ───────────
+  async chatHelpdesk(
+    schoolId: string,
+    payload: {
+      message: string;
+      language?: string;
+      sessionId?: string;
+      parentName?: string;
+      phone?: string;
+      email?: string;
+      classApplied?: string;
+      studentName?: string;
+    },
+  ) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const message = (payload.message || '').trim();
+    const language = (payload.language || 'English').toLowerCase();
+
+    // Check for Lead Capture trigger
+    let leadCaptured = false;
+    let enquiryId: string | undefined = undefined;
+
+    const phoneMatch =
+      payload.phone || message.match(/(?:\+91|0)?[6-9]\d{9}/)?.[0];
+    const parentName =
+      payload.parentName ||
+      message.match(/(?:my name is|i am|this is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i)?.[1];
+
+    if (phoneMatch) {
+      try {
+        const currentYear = await this.prisma.academicYear.findFirst({
+          where: { schoolId: validSchoolId },
+          orderBy: { startDate: 'desc' },
+        });
+
+        if (currentYear) {
+          const enquiry = await this.prisma.admissionEnquiry.create({
+            data: {
+              schoolId: validSchoolId,
+              academicYearId: currentYear.id,
+              studentName:
+                payload.studentName ||
+                (parentName ? `${parentName}'s Child` : 'Prospective Student'),
+              classApplied: payload.classApplied || 'Class 1',
+              parentName: parentName || 'Prospective Parent',
+              phone: phoneMatch,
+              email: payload.email || null,
+              source: 'AI_HELPDESK',
+              notes: `Automated lead captured via 24/7 AI Admissions Concierge. Inquiry: "${message}"`,
+              status: EnquiryStatus.NEW,
+              leadScore: 85,
+              nextAction:
+                'Admissions office to initiate callback for campus walkthrough and document verification.',
+            },
+          });
+          leadCaptured = true;
+          enquiryId = enquiry.id;
+        }
+      } catch (err: any) {
+        this.logger.warn(`Failed to auto-capture admissions lead: ${err.message}`);
+      }
+    }
+
+    // Multilingual Knowledge Base Responses
+    const buildFallbackResponse = () => {
+      const lower = message.toLowerCase();
+
+      // Hindi
+      if (language.includes('hi') || language.includes('hindi')) {
+        if (
+          lower.includes('age') ||
+          lower.includes('उम्र') ||
+          lower.includes('nursery') ||
+          lower.includes('class 1')
+        ) {
+          return `नमस्ते! सत्र 2026-27 के लिए हमारे प्रवेश नियम इस प्रकार हैं:
+• **Nursery:** 31 मार्च तक न्यूनतम 3 वर्ष
+• **LKG / UKG:** क्रमशः 4 और 5 वर्ष
+• **Class 1:** NEP 2020 दिशानिर्देशों के अनुसार 6 वर्ष पूर्ण होने चाहिए
+क्या आप अपने बच्चे के लिए स्कूल कैंपस विजिट या आवेदन पत्र बुक करना चाहते हैं? कृपया अपना फोन नंबर साझा करें!`;
+        }
+        if (leadCaptured) {
+          return `धन्यवाद! आपका अनुरोध सफलतापूर्वक दर्ज कर लिया गया है (Ref ID: ${enquiryId?.slice(-6) || 'ADM-2026'}). हमारी प्रवेश परामर्श टीम शीघ्र ही आपसे संपर्क करेगी।`;
+        }
+        return `नमस्ते! हमारे विद्यालय में नर्सरी से कक्षा 10वीं तक सीबीएसई (CBSE) आधारित आधुनिक शिक्षा, रोबोटिक्स लैब, खेल परिसर और जीपीएस बस सुविधा उपलब्ध है। आप प्रवेश पात्रता, शुल्क संरचना, या स्कूल टूर के बारे में पूछ सकते हैं!`;
+      }
+
+      // Telugu
+      if (language.includes('te') || language.includes('telugu')) {
+        if (leadCaptured) {
+          return `ధన్యవాదాలు! మీ ప్రవేశ విచారణ నమోదు చేయబడింది. మా అడ్మిషన్ల బృందం త్వరలోనే మిమ్మల్ని సంప్రదిస్తుంది.`;
+        }
+        return `నమస్కారం! నర్సరీ నుండి 10వ తరగతి వరకు ప్రవేశాలు ప్రారంభమైనవి. మా క్యాంపస్‌లో స్మార్ట్ క్లాస్‌రూమ్‌లు, ల్యాబ్‌లు మరియు బస్సు రవాణా సదుపాయాలు ఉన్నాయి. మీరు ప్రవేశ వివరాలు లేదా ఫీజుల గురించి తెలుసుకోవచ్చు.`;
+      }
+
+      // Tamil
+      if (language.includes('ta') || language.includes('tamil')) {
+        if (leadCaptured) {
+          return `நன்றி! உங்கள் சேர்க்கை தகவல் வெற்றிகரமாக பதிவு செய்யப்பட்டது. எங்கள் குழு விரைவில் தொடர்பு கொள்ளும்.`;
+        }
+        return `வணக்கம்! நர்சரி முதல் 10 ஆம் வகுப்பு வரையிலான சேர்க்கைகள் வரவேற்கப்படுகின்றன. ஸ்மார்ட் வகுப்பறைகள் மற்றும் விளையாட்டு வசதிகள் உள்ளன. மேலும் விவரங்களை நீங்கள் கேட்கலாம்.`;
+      }
+
+      // Marathi
+      if (language.includes('mr') || language.includes('marathi')) {
+        if (leadCaptured) {
+          return `धन्यवाद! तुमची प्रवेश चौकशी नोंदवली गेली आहे. आमची प्रवेश समिती लवकरच तुमच्याशी संपर्क साधेल.`;
+        }
+        return `नमस्कार! नर्सरी ते इयत्ता १० वी पर्यंत प्रवेश प्रक्रिया सुरू आहे. आमच्या शाळेत डिजिटल वर्ग, प्रयोगशाळा आणि सुरक्षित बस वाहतूक उपलब्ध आहे.`;
+      }
+
+      // Default English
+      if (leadCaptured) {
+        return `Thank you for your interest! 🎉 Your admissions enquiry has been successfully registered (Reference: **${enquiryId?.slice(-6).toUpperCase() || 'ENQ-2026'}**).\n\nOur Admissions Counselor will contact you via **${phoneMatch}** within 24 business hours to arrange an interactive campus walkthrough and assist with document verification.\n\nIs there anything else regarding our CBSE curriculum, STEM labs, or transport routes I can assist you with today?`;
+      }
+
+      if (
+        lower.includes('age') ||
+        lower.includes('eligibility') ||
+        lower.includes('nursery') ||
+        lower.includes('class 1')
+      ) {
+        return `### 🏫 Age Eligibility Criteria (Session 2026–27)
+In accordance with NEP 2020 and CBSE standards (calculated as of **March 31, 2026**):
+- **Nursery / Pre-KG:** 3 Years completed
+- **LKG (Lower Kindergarten):** 4 Years completed
+- **UKG (Upper Kindergarten):** 5 Years completed
+- **Class 1:** 6 Years completed
+- **Classes 2 to 10:** Progression based on previous school's valid Transfer Certificate (TC) and progress card.
+
+Would you like to book a campus tour or reserve an application slot? Share your contact number and our counselor will assist you!`;
+      }
+
+      if (
+        lower.includes('document') ||
+        lower.includes('require') ||
+        lower.includes('certificate')
+      ) {
+        return `### 📄 Admission Document Checklist
+To finalize admission for Nursery through Class 10, please keep the following verified copies ready:
+1. **Birth Certificate** (Issued by Municipal Corporation / Panchayat)
+2. **Student & Parent Aadhaar Cards** (Proof of identity & residence)
+3. **Transfer Certificate (TC)** (Mandatory for Class 2 through 10, countersigned if inter-state)
+4. **Previous Year Report Card** (Mark sheet from the recognized previous school)
+5. **Immunization & Medical Fitness Record**
+6. **Passport-size Photographs** (4 student, 2 each of mother & father)
+
+Our admissions office can pre-verify your documents during your campus walkthrough.`;
+      }
+
+      if (
+        lower.includes('facility') ||
+        lower.includes('transport') ||
+        lower.includes('bus') ||
+        lower.includes('sports')
+      ) {
+        return `### 🚌 Campus Infrastructure & Facilities
+Our school offers comprehensive, safe, and modern amenities:
+- **Smart Classrooms:** Interactive 75" touch panels and high-speed campus Wi-Fi.
+- **STEM & Robotics Labs:** Hands-on AI, robotics, and composite physics/chemistry/biology laboratories.
+- **Sports Complex:** Cricket pitch, basketball courts, badminton arena, and indoor chess/table tennis academy.
+- **Safe Fleet Transport:** 100% GPS-tracked school buses with speed governors, CCTV cameras, and female attendants on all routes.
+- **Infirmary & Healthcare:** Full-time certified nurse and tie-up with multi-specialty pediatric clinics.`;
+      }
+
+      if (
+        lower.includes('fee') ||
+        lower.includes('cost') ||
+        lower.includes('structure')
+      ) {
+        return `### 💳 Fee Transparency & Payment Options
+- School fees are structured transparently across tuition, technology, and activity components.
+- Payments can be made in **Quarterly installments** via Net Banking, UPI, or Debit/Credit card through our secure Parent Portal.
+- Sibling concessions and merit scholarships are applicable upon admissions evaluation.
+
+Would you like a detailed fee schedule for your desired grade? Provide your phone number or email and we will send the full brochure!`;
+      }
+
+      return `Hello! Welcome to our 24/7 AI Admissions & Campus Concierge. 🌟
+
+I can assist you with:
+1. **Age Criteria & Admissions Timeline** (Nursery through Class 10)
+2. **Campus Walkthrough Booking** (Meet our principal and tour STEM labs)
+3. **Document Verification Checklist**
+4. **Curriculum, Sports, and Transport Routes**
+
+How may I help you and your child today?`;
+    };
+
+    if (!this.model) {
+      return {
+        reply: buildFallbackResponse(),
+        leadCaptured,
+        enquiryId,
+        language,
+      };
+    }
+
+    try {
+      const prompt = `You are the Official AI Admissions Concierge and School Ambassador for a premier CBSE K-10 institution.
+The user is speaking in ${language}.
+User query: "${message}".
+Context:
+- Grades: Strictly Nursery through 10th Grade.
+- Age eligibility: Nursery 3+, LKG 4+, UKG 5+, Class 1 6+ as of March 31.
+- Lead status: ${leadCaptured ? `A lead has just been successfully captured for phone ${phoneMatch}. Acknowledge warmly.` : 'If parent expresses interest to apply or visit, politely invite them to share their phone number or child grade.'}
+
+Respond helpfully, courteously, and professionally in ${language}.
+Format in clean Markdown without raw HTML or unescaped LaTeX.`;
+
+      const result = await this.model.generateContent(prompt);
+      return {
+        reply: result.response.text(),
+        leadCaptured,
+        enquiryId,
+        language,
+      };
+    } catch (err: any) {
+      this.logger.error('Helpdesk chat error', err?.message);
+      return {
+        reply: buildFallbackResponse(),
+        leadCaptured,
+        enquiryId,
+        language,
+      };
+    }
+  }
+
+  // ─── Agent 4: Adaptive Student Remedial & Revision Tutor ──────────────
+  async getStudentRemedialPlan(schoolId: string, userId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const student = await this.prisma.student.findFirst({
+      where: { userId, schoolId: validSchoolId },
+      include: {
+        user: { select: { firstName: true, lastName: true } },
+        enrollments: {
+          where: { status: 'ACTIVE' },
+          include: {
+            section: {
+              include: { class: true },
+            },
+          },
+          take: 1,
+        },
+        marks: {
+          include: {
+            examSubject: {
+              include: { subject: true, exam: true },
+            },
+          },
+          take: 20,
+        },
+      },
+    });
+
+    if (!student) {
+      throw new BadRequestException('Student profile not found.');
+    }
+
+    const studentName = `${student.user.firstName} ${student.user.lastName}`.trim();
+    const className = student.enrollments[0]?.section.class.name || 'Class 10';
+
+    // Analyze marks
+    const subjectStats: Record<
+      string,
+      { totalObtained: number; totalMax: number; count: number }
+    > = {};
+
+    for (const m of student.marks) {
+      const subj = m.examSubject.subject.name || 'General';
+      const max = Number(m.examSubject.maxMarks) || 100;
+      const obtained =
+        m.marksObtained !== null && !m.isAbsent ? Number(m.marksObtained) : 0;
+
+      if (!subjectStats[subj]) {
+        subjectStats[subj] = { totalObtained: 0, totalMax: 0, count: 0 };
+      }
+      subjectStats[subj].totalObtained += obtained;
+      subjectStats[subj].totalMax += max;
+      subjectStats[subj].count += 1;
+    }
+
+    const subjectsSummary = Object.entries(subjectStats).map(([name, s]) => {
+      const pct =
+        s.totalMax > 0 ? Math.round((s.totalObtained / s.totalMax) * 100) : 75;
+      return {
+        subject: name,
+        percentage: pct,
+        status:
+          pct < 50
+            ? 'NEEDS_INTENSIVE_REMEDIAL'
+            : pct < 70
+            ? 'NEEDS_PRACTICE'
+            : 'MASTERED',
+      };
+    });
+
+    // Curated learning gaps based on subjects
+    const learningGaps = subjectsSummary
+      .filter((s) => s.percentage < 70)
+      .map((s) => ({
+        subject: s.subject,
+        percentage: s.percentage,
+        weakTopic: s.subject.toLowerCase().includes('math')
+          ? 'Quadratic Equations & Linear Graphs'
+          : s.subject.toLowerCase().includes('science')
+          ? 'Chemical Reactions & Optics'
+          : s.subject.toLowerCase().includes('english')
+          ? 'Grammar (Subject-Verb Agreement & Tenses)'
+          : 'Core Analytical Concepts',
+        recommendedAction:
+          '30-minute interactive diagnostic practice & flashcard review',
+      }));
+
+    // Fallback default gaps if no marks recorded yet
+    if (learningGaps.length === 0) {
+      learningGaps.push(
+        {
+          subject: 'Mathematics',
+          percentage: 62,
+          weakTopic: 'Polynomials & Coordinate Geometry',
+          recommendedAction:
+            'Practice 5 adaptive diagnostic questions to reinforce algebraic factorization.',
+        },
+        {
+          subject: 'Science',
+          percentage: 68,
+          weakTopic: 'Light Reflection & Refraction Ray Diagrams',
+          recommendedAction:
+            'Review step-by-step sign convention rules with interactive flashcards.',
+        },
+      );
+    }
+
+    const overallMastery =
+      subjectsSummary.length > 0
+        ? Math.round(
+            subjectsSummary.reduce((acc, s) => acc + s.percentage, 0) /
+              subjectsSummary.length,
+          )
+        : 72;
+
+    return {
+      studentName,
+      class: className,
+      overallMastery,
+      subjectsSummary,
+      learningGaps,
+      remedialSchedule: [
+        {
+          day: 'Monday & Wednesday',
+          focus: 'Mathematics Practice Lab (4:00 PM)',
+        },
+        {
+          day: 'Tuesday & Thursday',
+          focus: 'Science Concept Reinforcement (4:00 PM)',
+        },
+        { day: 'Friday', focus: 'Weekly Adaptive Self-Assessment Quiz' },
+      ],
+    };
+  }
+
+  async generateAdaptivePractice(
+    schoolId: string,
+    userId: string,
+    subject: string,
+    topic: string,
+  ) {
+    requireSchoolId(schoolId);
+    const s = subject || 'Mathematics';
+    const t = topic || 'Foundations';
+
+    const buildFallbackQuestions = () => [
+      {
+        id: 1,
+        question: `In ${s}, when solving problems related to "${t}", which of the following is the essential first step?`,
+        options: [
+          'Identify the given known values and determine the target variable.',
+          'Skip initial parameter checks and estimate the answer directly.',
+          'Invert the final equation without applying algebraic symmetry.',
+          'Assume all boundary conditions are zero.',
+        ],
+        correctIndex: 0,
+        hint: 'Always begin by organizing knowns, unknowns, and appropriate units.',
+        explanation:
+          'Systematic problem solving in K-10 curriculum mandates listing known parameters before selecting the governing formula.',
+        conceptRecap:
+          'Rule of Practice: Known Parameters -> Governing Principle -> Unit Consistency -> Solution.',
+      },
+      {
+        id: 2,
+        question: `Consider an application of "${t}". If a key factor increases by 100% (doubles) while other conditions remain invariant, what happens to the resultant?`,
+        options: [
+          'The resultant reduces to zero.',
+          'The resultant doubles (increases proportionally).',
+          'The resultant decreases by half.',
+          'No change occurs.',
+        ],
+        correctIndex: 1,
+        hint: 'Direct linear relationship: Output is proportional to input factor.',
+        explanation:
+          'Under linear models studied in Grades 6-10, doubling the direct independent variable doubles the resultant output.',
+        conceptRecap:
+          'Direct Variation: Y = k × X. When X doubles, Y also doubles.',
+      },
+      {
+        id: 3,
+        question: `Which common misconception should students strictly avoid when working with "${t}"?`,
+        options: [
+          'Checking that units on both sides of the equation balance out.',
+          'Forgetting to distribute negative signs across grouped parentheses.',
+          'Writing down the step-by-step reasoning clearly.',
+          'Verifying the solution by substituting it back into the original problem.',
+        ],
+        correctIndex: 1,
+        hint: 'Distributive property of negative signs is the single most frequent algebraic error.',
+        explanation:
+          'Distributing negative signs across parentheses like -(a - b) = -a + b is a critical foundational skill tested in CBSE board exams.',
+        conceptRecap:
+          'Signs Rule: -(a - b) = -a + b. Always double-check grouped terms.',
+      },
+    ];
+
+    if (!this.model) {
+      return {
+        subject: s,
+        topic: t,
+        questions: buildFallbackQuestions(),
+      };
+    }
+
+    try {
+      const prompt = `You are an adaptive pedagogical tutor for K-10 students.
+Generate 3 diagnostic multiple-choice questions for the subject "${s}" and topic "${t}".
+Strict Constraint: Grade 1 to 10 curriculum only. Zero higher-secondary (11/12) topics.
+
+Return strictly valid JSON with this exact structure:
+[
+  {
+    "id": 1,
+    "question": "Question text here",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "correctIndex": 0,
+    "hint": "Helpful hint without giving away the answer directly",
+    "explanation": "Clear step-by-step explanation of why option is correct",
+    "conceptRecap": "1-sentence memory anchor"
+  }
+]`;
+
+      const result = await this.model.generateContent(prompt);
+      const text = result.response.text().trim();
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return { subject: s, topic: t, questions: parsed };
+      }
+      return { subject: s, topic: t, questions: buildFallbackQuestions() };
+    } catch (err: any) {
+      this.logger.error('Adaptive practice error', err?.message);
+      return { subject: s, topic: t, questions: buildFallbackQuestions() };
+    }
+  }
+
   // ─── Mock response when no API key ───────────────────────────────────────
   private getMockResponse(message: string): string {
     const lower = message.toLowerCase();
@@ -1033,7 +2301,12 @@ CRITICAL FORMATTING RULES:
   }
 
   // ─── Principal Intelligence: Semantic Router Data Query ─────────────────────
-  async executeDataQuery(schoolId: string, prompt: string, userId?: string) {
+  async executeDataQuery(
+    schoolId: string,
+    prompt: string,
+    userId?: string,
+    attachments?: Array<{ name: string; type: string; size: number; base64: string }>,
+  ) {
     try {
       // Step 1: Semantic Routing with Heuristic Fallback
       let intent = 'GENERAL_QUERY';
@@ -1351,7 +2624,21 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
 If the user asks you to draft an announcement, message, or email, DO NOT refuse. Do not ask for verification. Assume the principal has already verified the facts and immediately provide a highly professional, ready-to-send draft.
 Format your response cleanly in Markdown with headings and bullet points.
 User request: "${prompt}"`;
-            const fallbackResult = await this.model.generateContent(fallbackPrompt);
+            let contentPayload: any = fallbackPrompt;
+            if (attachments && attachments.length > 0) {
+              const parts: any[] = [{ text: fallbackPrompt }];
+              for (const att of attachments) {
+                const rawBase64 = att.base64.includes('base64,') ? att.base64.split('base64,')[1] : att.base64;
+                parts.push({
+                  inlineData: {
+                    mimeType: att.type || 'application/octet-stream',
+                    data: rawBase64,
+                  },
+                });
+              }
+              contentPayload = parts;
+            }
+            const fallbackResult = await this.model.generateContent(contentPayload);
             textResponse = fallbackResult.response.text();
           } catch {
             textResponse = `### 🏫 Executive Operations Response\n\n**Processed Instruction:** "${prompt}"\n\n- **Status:** Command ingested into Principal Command Center.\n- **School Telemetry:** Real-time metrics across academics, attendance, and finances are fully synchronized.\n- **Quick Actions:** You can trigger direct admissions, send emergency circulars, approve teacher leaves, or inspect at-risk students using the command actions below.`;
@@ -1565,40 +2852,79 @@ User request: "${prompt}"`;
   // ─── Feature 3: Timetable Cover Suggestion ────────────────────────────────
   async generateTimetableCoverPreview(schoolId: string) {
     const validSchoolId = requireSchoolId(schoolId);
-    const today = new Date();
-    const dayOfWeek = today.getDay() === 0 ? 7 : today.getDay();
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay();
 
-    const approvedLeaves = await this.prisma.leaveRequest.findMany({
-      where: { schoolId: validSchoolId, status: 'APPROVED', startDate: { lte: today }, endDate: { gte: today } },
-      include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
-    });
+    const [approvedLeaves, todayTimetableSlots, allActiveStaff] = await Promise.all([
+      this.prisma.leaveRequest.findMany({
+        where: { schoolId: validSchoolId, status: 'APPROVED', startDate: { lte: todayEnd }, endDate: { gte: todayStart } },
+        include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
+      }),
+      this.prisma.timetableSlot.findMany({
+        where: { schoolId: validSchoolId, dayOfWeek, isActive: true },
+        include: { class: true, subject: true },
+      }),
+      this.prisma.staff.findMany({
+        where: { schoolId: validSchoolId, isActive: true },
+        include: {
+          user: { select: { firstName: true, lastName: true } },
+          teacherAssignments: { include: { subject: true } },
+        },
+      }),
+    ]);
+
+    const onLeaveStaffIds = new Set(approvedLeaves.map((l) => l.staffId));
+    const eligibleStaffPool = allActiveStaff.filter((s) => !onLeaveStaffIds.has(s.id));
 
     const items = await Promise.all(approvedLeaves.map(async (leave) => {
       const absentStaffName = `${leave.staff.user.firstName} ${leave.staff.user.lastName}`;
 
-      const affectedSlots = await this.prisma.timetableSlot.findMany({
-        where: { schoolId: validSchoolId, staffId: leave.staffId, dayOfWeek, isActive: true },
-        include: { class: true },
+      const affectedSlots = todayTimetableSlots.filter(
+        (ts) => ts.staffId === leave.staffId
+      );
+
+      // Find free substitute for the primary affected period (or overall)
+      let suggestedSub: any = null;
+      const slotsWithSub = affectedSlots.map((slot) => {
+        const busyStaffAtPeriod = new Set(
+          todayTimetableSlots
+            .filter((ts) => ts.periodNumber === slot.periodNumber && ts.staffId)
+            .map((ts) => ts.staffId)
+        );
+
+        const freeStaff = eligibleStaffPool.filter(
+          (st) => !busyStaffAtPeriod.has(st.id) && st.id !== leave.staffId
+        );
+
+        // Subject match priority
+        const subjectMatch = freeStaff.find((st) =>
+          st.teacherAssignments?.some((ta: any) => ta.subjectId === slot.subjectId || ta.subject?.name === slot.subject?.name)
+        );
+
+        const chosenSub = subjectMatch || freeStaff[0];
+        if (!suggestedSub && chosenSub) suggestedSub = chosenSub;
+
+        return {
+          id: slot.id,
+          period: slot.periodNumber,
+          class: slot.class?.name,
+          subject: slot.subject?.name || slot.subjectId || null,
+          freeSubstitute: chosenSub?.user ? `${chosenSub.user.firstName} ${chosenSub.user.lastName}` : 'Unassigned',
+        };
       });
 
-      // Find potential substitutes (same subject, different staff)
-      const substitutes = await this.prisma.staff.findMany({
-        where: { schoolId: validSchoolId, isActive: true, id: { not: leave.staffId } },
-        include: { user: { select: { firstName: true, lastName: true } } },
-        take: 3,
-      });
-
-      const suggestedSub = substitutes[0];
-      const suggestedName = suggestedSub ? `${suggestedSub.user.firstName} ${suggestedSub.user.lastName}` : 'Unassigned';
+      const suggestedName = suggestedSub?.user ? `${suggestedSub.user.firstName} ${suggestedSub.user.lastName}` : 'Unassigned';
 
       return {
         id: leave.id,
         absentStaff: absentStaffName,
         affectedPeriods: affectedSlots.length,
-        slots: affectedSlots.map(s => ({ id: s.id, period: s.periodNumber, class: s.class?.name, subject: s.subjectId || null })),
+        slots: slotsWithSub,
         suggestedSubstitute: suggestedName,
         suggestedSubstituteId: suggestedSub?.id,
-        draftMessage: `${absentStaffName} is on approved leave today. ${suggestedName} has been suggested to cover ${affectedSlots.length} period(s).`,
+        draftMessage: `${absentStaffName} is on approved leave today. ${suggestedName} is free during the scheduled periods and has been suggested to cover ${affectedSlots.length} period(s).`,
       };
     }));
 

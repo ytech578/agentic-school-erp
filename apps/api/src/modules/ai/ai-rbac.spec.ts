@@ -14,6 +14,14 @@ describe('RBAC Metadata and Guard Annotations (Action 1 & Action 10)', () => {
       expect(roles).not.toContain('TEACHER');
     });
 
+    it('TEACHER cannot directly call executeAction (action execution is admin-only)', () => {
+      const roles = Reflect.getMetadata(ROLES_KEY, AIController.prototype.executeAction);
+      // Defensive assertion: TEACHER must never be in the allowed roles for AI action execution
+      expect(roles).not.toContain('TEACHER');
+      // Only these 3 privileged roles may execute confirmed AI actions
+      expect(roles.length).toBe(3);
+    });
+
     it('restricts runMonitoring to administrative roles', () => {
       const roles = Reflect.getMetadata(ROLES_KEY, AIController.prototype.runMonitoring);
       expect(roles).toBeDefined();

@@ -74,10 +74,13 @@ async function bootstrap() {
       'X-Requested-With',
       'x-school-id',
       'X-School-Id',
+      'x-refresh-token',
+      'X-Refresh-Token',
       'x-razorpay-signature',
       'Accept',
       'Cache-Control',
       'Range',
+      'Origin',
     ],
     exposedHeaders: ['Content-Range', 'X-Total-Count'],
   });
@@ -134,7 +137,7 @@ async function bootstrap() {
   }
 
   // ─── Health Check Route ───────────────────────────────────────────────────
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
 
   const logger = new Logger('Bootstrap');
   logger.log(

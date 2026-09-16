@@ -135,33 +135,73 @@ function StaffAttendanceTab({ isAdmin }: { isAdmin: boolean }) {
                     <td style={{ padding: "0.875rem 1.25rem", fontSize: "0.8125rem", color: "var(--text-secondary)" }}>{s.department || "—"}</td>
                     <td style={{ padding: "0.875rem 1.25rem", fontSize: "0.8125rem", color: "var(--text-secondary)" }}>{s.designation || "—"}</td>
                     <td style={{ padding: "0.875rem 1.25rem" }}>
-                      <span style={{ padding: "0.25rem 0.75rem", borderRadius: "999px", fontSize: "0.75rem", fontWeight: 700, background: cfg.bg, color: cfg.color }}>
-                        {cfg.label}
-                      </span>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", alignItems: "flex-start" }}>
+                        <span style={{ padding: "0.25rem 0.75rem", borderRadius: "999px", fontSize: "0.75rem", fontWeight: 700, background: cfg.bg, color: cfg.color }}>
+                          {cfg.label}
+                        </span>
+                        {s.leaveReason && (
+                          <span style={{ fontSize: "11px", color: "var(--text-secondary)", maxWidth: "260px", lineHeight: 1.3 }}>
+                            {s.leaveType ? `${s.leaveType}: ` : ""}{s.leaveReason}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     {isAdmin && (
                       <td style={{ padding: "0.875rem 1.25rem" }}>
-                        <div style={{ display: "flex", gap: "0.5rem" }}>
-                          {(["PRESENT", "ABSENT"] as const).map(st => {
-                            const c = statusCfg[st];
-                            const active = s.attendanceStatus === st;
-                            return (
-                              <button
-                                key={st}
-                                disabled={isMarking || active}
-                                onClick={() => markAttendance(s.id, st)}
-                                style={{
-                                  padding: "0.35rem 0.75rem", borderRadius: "var(--radius-sm)", border: `1px solid ${active ? c.color : "var(--border-default)"}`,
-                                  background: active ? c.bg : "transparent", color: active ? c.color : "var(--text-secondary)",
-                                  fontSize: "0.75rem", fontWeight: 700, cursor: active || isMarking ? "default" : "pointer", opacity: isMarking ? 0.6 : 1,
-                                  transition: "all 0.15s",
-                                }}
-                              >
-                                {st === "PRESENT" ? "✓ Present" : "✗ Absent"}
-                              </button>
-                            );
-                          })}
-                        </div>
+                        {s.attendanceStatus === "ON_LEAVE" ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                            <span style={{
+                              fontSize: "0.75rem",
+                              fontWeight: 600,
+                              color: "#D97706",
+                              background: "rgba(245, 158, 11, 0.1)",
+                              padding: "0.3rem 0.6rem",
+                              borderRadius: "var(--radius-sm)",
+                              border: "1px solid rgba(245, 158, 11, 0.25)",
+                            }}>
+                              Approved Leave Active
+                            </span>
+                            <button
+                              disabled={isMarking}
+                              onClick={() => markAttendance(s.id, "PRESENT")}
+                              title="Override and mark Present if reporting to work"
+                              style={{
+                                padding: "0.3rem 0.6rem",
+                                borderRadius: "var(--radius-sm)",
+                                border: "1px solid var(--border-default)",
+                                background: "transparent",
+                                color: "var(--text-secondary)",
+                                fontSize: "0.72rem",
+                                fontWeight: 600,
+                                cursor: isMarking ? "default" : "pointer",
+                              }}
+                            >
+                              Override
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ display: "flex", gap: "0.5rem" }}>
+                            {(["PRESENT", "ABSENT"] as const).map(st => {
+                              const c = statusCfg[st];
+                              const active = s.attendanceStatus === st;
+                              return (
+                                <button
+                                  key={st}
+                                  disabled={isMarking || active}
+                                  onClick={() => markAttendance(s.id, st)}
+                                  style={{
+                                    padding: "0.35rem 0.75rem", borderRadius: "var(--radius-sm)", border: `1px solid ${active ? c.color : "var(--border-default)"}`,
+                                    background: active ? c.bg : "transparent", color: active ? c.color : "var(--text-secondary)",
+                                    fontSize: "0.75rem", fontWeight: 700, cursor: active || isMarking ? "default" : "pointer", opacity: isMarking ? 0.6 : 1,
+                                    transition: "all 0.15s",
+                                  }}
+                                >
+                                  {st === "PRESENT" ? "✓ Present" : "✗ Absent"}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </td>
                     )}
                   </tr>

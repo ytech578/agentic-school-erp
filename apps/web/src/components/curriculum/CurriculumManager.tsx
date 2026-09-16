@@ -5,6 +5,8 @@ import { apiClient } from "@/lib/axios";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
+import { InitCurriculumModal } from "./InitCurriculumModal";
+import { CustomSubjectModal } from "./CustomSubjectModal";
 import {
   BookOpen,
   Layers,
@@ -1284,233 +1286,23 @@ export function CurriculumManager({ onToast }: { onToast?: (msg: string, type: "
         </div>
       )}
 
-      {/* ── Modal: Load Recommended Curriculum Confirmation ─────── */}
-      <Modal
+            {/* Modals extracted to separate components */}
+      <InitCurriculumModal 
         isOpen={initModalOpen}
         onClose={() => setInitModalOpen(false)}
-        title="Load Recommended Curriculum Template"
-        footer={
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", width: "100%" }}>
-            <Button variant="outline" onClick={() => setInitModalOpen(false)} disabled={initializing}>
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={handleLoadRecommended} disabled={initializing}>
-              {initializing ? "Loading Framework..." : "Confirm & Load Framework"}
-            </Button>
-          </div>
-        }
-      >
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem", fontSize: "var(--text-sm)" }}>
-          <div
-            style={{
-              padding: "1rem",
-              borderRadius: "var(--radius-md)",
-              background: "rgba(99, 102, 241, 0.08)",
-              border: "1px solid rgba(99, 102, 241, 0.2)",
-              display: "flex",
-              alignItems: "flex-start",
-              gap: "0.75rem",
-            }}
-          >
-            <Sparkles size={20} style={{ color: "var(--brand-primary)", flexShrink: 0, marginTop: "2px" }} />
-            <div>
-              <p style={{ fontWeight: 700, color: "var(--text-primary)" }}>
-                Initialize Standard Academic Framework
-              </p>
-              <p style={{ color: "var(--text-secondary)", fontSize: "0.82rem", marginTop: "0.2rem" }}>
-                This will populate the official Classes 1–10 subject groupings, codes, and baseline assessment models for{" "}
-                <strong>
-                  {boards.find((b) => b.id === selectedBoardId)?.name || "the selected board"}
-                </strong>.
-              </p>
-            </div>
-          </div>
-
-          <ul style={{ paddingLeft: "1.25rem", color: "var(--text-secondary)", lineHeight: 1.6, fontSize: "0.85rem" }}>
-            <li>Existing custom subjects and marks records will NOT be deleted.</li>
-            <li>All loaded subjects can be modified, enabled, or disabled at any time.</li>
-            <li>Class and Section subject mappings will reference these standard offerings.</li>
-          </ul>
-        </div>
-      </Modal>
-
-      {/* ── Modal: Add Custom School Subject ──────────────────────── */}
-      <Modal
+        initializing={initializing}
+        handleLoadRecommended={handleLoadRecommended}
+        selectedBoardId={selectedBoardId}
+        boards={boards}
+      />
+      <CustomSubjectModal
         isOpen={customModalOpen}
         onClose={() => setCustomModalOpen(false)}
-        title="Add Custom School Subject"
-        footer={
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", width: "100%" }}>
-            <Button variant="outline" onClick={() => setCustomModalOpen(false)} disabled={savingCustom}>
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={handleCreateCustomSubject} disabled={savingCustom}>
-              {savingCustom ? "Saving..." : "Save Subject"}
-            </Button>
-          </div>
-        }
-      >
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          <div>
-            <label style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>
-              Subject Name *
-            </label>
-            <Input
-              placeholder="e.g. Robotics & STEM, Spoken English, Vedic Math"
-              value={customForm.customName}
-              onChange={(e) => setCustomForm({ ...customForm, customName: e.target.value })}
-            />
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-            <div>
-              <label style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>
-                Subject Code (Optional)
-              </label>
-              <Input
-                placeholder="e.g. ROB-01"
-                value={customForm.customCode}
-                onChange={(e) => setCustomForm({ ...customForm, customCode: e.target.value })}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>
-                Periods Per Week
-              </label>
-              <Input
-                type="number"
-                min={1}
-                max={20}
-                value={customForm.periodsPerWeek}
-                onChange={(e) => setCustomForm({ ...customForm, periodsPerWeek: Number(e.target.value) })}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-            <div>
-              <label style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>
-                Applicable From Grade
-              </label>
-              <select
-                value={customForm.gradeFrom}
-                onChange={(e) => setCustomForm({ ...customForm, gradeFrom: Number(e.target.value) })}
-                style={{
-                  width: "100%",
-                  padding: "0.55rem 0.75rem",
-                  borderRadius: "var(--radius-md)",
-                  border: "1px solid var(--border-default)",
-                  background: "var(--bg-surface)",
-                  fontSize: "var(--text-sm)",
-                  color: "var(--text-primary)",
-                }}
-              >
-                {Array.from({ length: 10 }, (_, i) => i + 1).map((g) => (
-                  <option key={g} value={g}>Class {g}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>
-                Applicable To Grade
-              </label>
-              <select
-                value={customForm.gradeTo}
-                onChange={(e) => setCustomForm({ ...customForm, gradeTo: Number(e.target.value) })}
-                style={{
-                  width: "100%",
-                  padding: "0.55rem 0.75rem",
-                  borderRadius: "var(--radius-md)",
-                  border: "1px solid var(--border-default)",
-                  background: "var(--bg-surface)",
-                  fontSize: "var(--text-sm)",
-                  color: "var(--text-primary)",
-                }}
-              >
-                {Array.from({ length: 10 }, (_, i) => i + 1).map((g) => (
-                  <option key={g} value={g} disabled={g < customForm.gradeFrom}>Class {g}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-            <div>
-              <label style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>
-                Classification
-              </label>
-              <select
-                value={customForm.subjectType}
-                onChange={(e) => setCustomForm({ ...customForm, subjectType: e.target.value })}
-                style={{
-                  width: "100%",
-                  padding: "0.55rem 0.75rem",
-                  borderRadius: "var(--radius-md)",
-                  border: "1px solid var(--border-default)",
-                  background: "var(--bg-surface)",
-                  fontSize: "var(--text-sm)",
-                  color: "var(--text-primary)",
-                }}
-              >
-                <option value="ADDITIONAL">Additional Subject</option>
-                <option value="CO_CURRICULAR">Co-Curricular</option>
-                <option value="VOCATIONAL">Vocational / Skill</option>
-                <option value="LANGUAGE">Language</option>
-                <option value="CORE">Core Academic</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>
-                Selection Type
-              </label>
-              <select
-                value={customForm.selectionType}
-                onChange={(e) => setCustomForm({ ...customForm, selectionType: e.target.value })}
-                style={{
-                  width: "100%",
-                  padding: "0.55rem 0.75rem",
-                  borderRadius: "var(--radius-md)",
-                  border: "1px solid var(--border-default)",
-                  background: "var(--bg-surface)",
-                  fontSize: "var(--text-sm)",
-                  color: "var(--text-primary)",
-                }}
-              >
-                <option value="MANDATORY">Mandatory</option>
-                <option value="OPTIONAL">Optional</option>
-                <option value="ELECTIVE">Elective</option>
-              </select>
-            </div>
-          </div>
-
-          <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", paddingTop: "0.5rem" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "var(--text-xs)", fontWeight: 600 }}>
-              <input
-                type="checkbox"
-                checked={customForm.theoryEnabled}
-                onChange={(e) => setCustomForm({ ...customForm, theoryEnabled: e.target.checked })}
-              />
-              Theory Enabled
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "var(--text-xs)", fontWeight: 600 }}>
-              <input
-                type="checkbox"
-                checked={customForm.practicalEnabled}
-                onChange={(e) => setCustomForm({ ...customForm, practicalEnabled: e.target.checked })}
-              />
-              Practical / Lab
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "var(--text-xs)", fontWeight: 600 }}>
-              <input
-                type="checkbox"
-                checked={customForm.internalAssessmentEnabled}
-                onChange={(e) => setCustomForm({ ...customForm, internalAssessmentEnabled: e.target.checked })}
-              />
-              Internal Assessment
-            </label>
-          </div>
-        </div>
-      </Modal>
+        savingCustom={savingCustom}
+        handleCreateCustomSubject={handleCreateCustomSubject}
+        customForm={customForm}
+        setCustomForm={setCustomForm}
+      />
     </div>
   );
 }

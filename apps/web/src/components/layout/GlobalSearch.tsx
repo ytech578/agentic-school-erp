@@ -3,11 +3,12 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { 
   Search, Users, GraduationCap, DollarSign, X, Calendar, 
-  BookOpen, FileText, Settings, Sparkles, MessageSquare, ArrowRight, Layers, Loader2 
+  BookOpen, FileText, Settings, Sparkles, MessageSquare, ArrowRight, Layers, Loader2, Shield 
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth.store";
 import { apiClient } from "@/lib/axios";
+import { isRouteAllowedForRole } from "@/lib/role-routes";
 
 interface SearchItem {
   id: string;
@@ -22,15 +23,18 @@ interface SearchItem {
 const SYSTEM_SEARCH_ITEMS: SearchItem[] = [
   { id: "nav-dash", category: "Navigation", title: "Main Dashboard", subtitle: "Overview and institutional KPIs", url: "/dashboard", icon: BookOpen },
   { id: "nav-classes", category: "Academic", title: "Classes & Sections", subtitle: "Grade standards, sections and room allocation", url: "/classes", icon: Layers, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
-  { id: "nav-students", category: "Students", title: "Students Directory", subtitle: "Profiles, enrollments & attendance", url: "/students", icon: GraduationCap },
-  { id: "nav-staff", category: "Staff", title: "Staff Directory", subtitle: "Faculty, assignments & payroll", url: "/staff", icon: Users },
-  { id: "nav-fees", category: "Finance", title: "Fees & Invoices", subtitle: "Fee structures, payments & receipts", url: "/fees", icon: DollarSign },
+  { id: "nav-students", category: "Students", title: "Students Directory", subtitle: "Profiles, enrollments & attendance", url: "/students", icon: GraduationCap, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
+  { id: "nav-attendance", category: "Academic", title: "Daily Attendance", subtitle: "Mark & view student attendance", url: "/attendance", icon: Calendar, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
+  { id: "nav-timetable", category: "Academic", title: "Master Timetable", subtitle: "Weekly schedules and periods", url: "/timetable", icon: Calendar, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
+  { id: "nav-exams", category: "Academic", title: "Exams & Grading", subtitle: "Report cards, marks & grading rules", url: "/exams", icon: FileText, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
+  { id: "nav-copilot", category: "AI Copilot", title: "Teacher AI Copilot", subtitle: "Lesson planning & exam paper helper", url: "/teacher-copilot", icon: Sparkles, roles: ["TEACHER", "SCHOOL_ADMIN", "SUPER_ADMIN"] },
+  { id: "nav-ai", category: "AI Copilot", title: "AI Assistant", subtitle: "Curriculum and automated assistant", url: "/ai", icon: Sparkles, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
+  { id: "nav-staff", category: "Staff", title: "Staff Directory", subtitle: "Faculty, assignments & payroll", url: "/staff", icon: Users, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
+  { id: "nav-fees", category: "Finance", title: "Fees & Invoices", subtitle: "Fee structures, payments & receipts", url: "/fees", icon: DollarSign, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
   { id: "nav-parent-fees", category: "Finance", title: "Parent Fee Portal", subtitle: "Online UPI & card payment gateway", url: "/parent-fees", icon: DollarSign, roles: ["PARENT"] },
-  { id: "nav-attendance", category: "Academic", title: "Daily Attendance", subtitle: "Mark & view student attendance", url: "/attendance", icon: Calendar },
-  { id: "nav-timetable", category: "Academic", title: "Master Timetable", subtitle: "Weekly schedules and periods", url: "/timetable", icon: Calendar },
-  { id: "nav-exams", category: "Academic", title: "Exams & Grading", subtitle: "Report cards, marks & grading rules", url: "/exams", icon: FileText },
+  { id: "nav-leaves", category: "Academic", title: "My Leaves & Records", subtitle: "Teacher attendance and leave requests", url: "/hr", icon: Calendar, roles: ["TEACHER"] },
+  { id: "nav-principal", category: "Navigation", title: "Principal Command", subtitle: "Executive oversight and approvals", url: "/principal", icon: Shield, roles: ["SUPER_ADMIN", "PRINCIPAL"] },
   { id: "nav-messages", category: "Navigation", title: "Messages & Circulars", subtitle: "Broadcasts, alerts and notifications", url: "/messages", icon: MessageSquare },
-  { id: "nav-copilot", category: "AI Copilot", title: "Teacher AI Copilot", subtitle: "Lesson planning & assignment helper", url: "/teacher-copilot/assignments", icon: Sparkles },
   { id: "nav-settings", category: "Navigation", title: "System Settings", subtitle: "School profiles, roles & permissions", url: "/settings", icon: Settings },
 ];
 
@@ -52,7 +56,7 @@ export default function GlobalSearch({ isOpen, onClose }: { isOpen: boolean; onC
     }
   }, [isOpen]);
 
-  // Live entity querying for Students and Staff
+  // Live entity querying for Students and Staff (strictly role-authorized)
   useEffect(() => {
     const trimmed = query.trim();
     if (trimmed.length < 2) {
@@ -63,47 +67,65 @@ export default function GlobalSearch({ isOpen, onClose }: { isOpen: boolean; onC
 
     const timer = setTimeout(async () => {
       setIsSearching(true);
-      const isElevated = ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"].includes(user?.role || "");
+      const userRole = user?.role;
       try {
         const promises: Promise<any>[] = [];
-        if (isElevated) {
+        const canSearchStudents = isRouteAllowedForRole("/students", userRole);
+        const canSearchStaff = isRouteAllowedForRole("/staff", userRole);
+
+        if (canSearchStudents) {
           promises.push(
-            apiClient.get("/students", { params: { search: trimmed, limit: 4 } }).catch(() => ({ data: { data: { items: [] } } })),
-            apiClient.get("/staff", { params: { search: trimmed, limit: 4 } }).catch(() => ({ data: { data: { items: [] } } }))
+            apiClient.get("/students", { params: { search: trimmed, limit: 4 } })
+              .then((res) => ({ type: "students", data: res.data }))
+              .catch(() => ({ type: "students", data: null }))
           );
         }
 
-        const [studentsRes, staffRes] = await Promise.all(promises);
-
-        const dynamicItems: SearchItem[] = [];
-
-        if (studentsRes?.data?.data?.items) {
-          studentsRes.data.data.items.forEach((s: any) => {
-            const classInfo = s.enrollments?.[0]?.section?.class?.name
-              ? `${s.enrollments[0].section.class.name} - ${s.enrollments[0].section.name}`
-              : "Enrolled";
-            dynamicItems.push({
-              id: `live-std-${s.id}`,
-              category: "Students",
-              title: `${s.user?.firstName || ''} ${s.user?.lastName || ''}`.trim() || s.admissionNumber,
-              subtitle: `Admission No: ${s.admissionNumber} • ${classInfo}`,
-              url: `/students/${s.id}`,
-              icon: GraduationCap,
-            });
-          });
+        if (canSearchStaff) {
+          promises.push(
+            apiClient.get("/staff", { params: { search: trimmed, limit: 4 } })
+              .then((res) => ({ type: "staff", data: res.data }))
+              .catch(() => ({ type: "staff", data: null }))
+          );
         }
 
-        if (staffRes?.data?.data?.items) {
-          staffRes.data.data.items.forEach((st: any) => {
-            dynamicItems.push({
-              id: `live-stf-${st.id}`,
-              category: "Staff",
-              title: `${st.user?.firstName || ''} ${st.user?.lastName || ''}`.trim() || st.employeeId,
-              subtitle: `Employee ID: ${st.employeeId} • ${st.department?.name || st.user?.role || 'Staff'}`,
-              url: `/staff/${st.id}`,
-              icon: Users,
+        if (promises.length === 0) {
+          setLiveResults([]);
+          return;
+        }
+
+        const responses = await Promise.all(promises);
+        const dynamicItems: SearchItem[] = [];
+
+        for (const resp of responses) {
+          if (resp?.type === "students" && resp.data?.data?.items) {
+            resp.data.data.items.forEach((s: any) => {
+              const classInfo = s.enrollments?.[0]?.section?.class?.name
+                ? `${s.enrollments[0].section.class.name} - ${s.enrollments[0].section.name}`
+                : "Enrolled";
+              dynamicItems.push({
+                id: `live-std-${s.id}`,
+                category: "Students",
+                title: `${s.user?.firstName || ''} ${s.user?.lastName || ''}`.trim() || s.admissionNumber,
+                subtitle: `Admission No: ${s.admissionNumber} • ${classInfo}`,
+                url: `/students/${s.id}`,
+                icon: GraduationCap,
+              });
             });
-          });
+          }
+
+          if (resp?.type === "staff" && resp.data?.data?.items) {
+            resp.data.data.items.forEach((st: any) => {
+              dynamicItems.push({
+                id: `live-stf-${st.id}`,
+                category: "Staff",
+                title: `${st.user?.firstName || ''} ${st.user?.lastName || ''}`.trim() || st.employeeId,
+                subtitle: `Employee ID: ${st.employeeId} • ${st.department?.name || st.user?.role || 'Staff'}`,
+                url: `/staff/${st.id}`,
+                icon: Users,
+              });
+            });
+          }
         }
 
         setLiveResults(dynamicItems);
@@ -119,15 +141,42 @@ export default function GlobalSearch({ isOpen, onClose }: { isOpen: boolean; onC
 
   const filteredItems = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const userRole = user?.role;
+
+    // Filter available static navigation items by route permissions and role whitelist
     const available = SYSTEM_SEARCH_ITEMS.filter((item) => {
-      if (item.roles && user?.role && !item.roles.includes(user.role)) {
+      if (!isRouteAllowedForRole(item.url, userRole)) {
+        return false;
+      }
+      if (item.roles && userRole && !item.roles.includes(userRole)) {
         return false;
       }
       return true;
     });
 
+    // Strictly deduplicate items by URL and ID to prevent duplicates
+    const deduplicateItems = (items: SearchItem[]): SearchItem[] => {
+      const seenUrls = new Set<string>();
+      const seenIds = new Set<string>();
+      const result: SearchItem[] = [];
+
+      for (const item of items) {
+        if (!isRouteAllowedForRole(item.url, userRole)) {
+          continue;
+        }
+
+        const normalizedUrl = item.url.trim().toLowerCase();
+        if (!seenUrls.has(normalizedUrl) && !seenIds.has(item.id)) {
+          seenUrls.add(normalizedUrl);
+          seenIds.add(item.id);
+          result.push(item);
+        }
+      }
+      return result;
+    };
+
     if (!q) {
-      return available.slice(0, 7);
+      return deduplicateItems(available).slice(0, 8);
     }
 
     const matchedNav = available.filter(
@@ -137,8 +186,8 @@ export default function GlobalSearch({ isOpen, onClose }: { isOpen: boolean; onC
         item.category.toLowerCase().includes(q)
     );
 
-    // Combine static navigation items with live backend entities
-    return [...liveResults, ...matchedNav];
+    // Combine static navigation items with live backend entities, strictly deduplicated
+    return deduplicateItems([...liveResults, ...matchedNav]);
   }, [query, user?.role, liveResults]);
 
   const handleSelect = (url: string) => {

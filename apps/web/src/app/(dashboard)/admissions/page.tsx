@@ -3,10 +3,10 @@
 import { useState, useEffect } from "react";
 import { apiClient } from "@/lib/axios";
 import { Button } from "@/components/ui/Button";
-import { Plus, CheckCircle, Sparkles, Loader2, X } from "lucide-react";
+import { Plus, CheckCircle, Sparkles, Loader2, X, MessageSquare } from "lucide-react";
+import AdmissionsHelpdeskWidget from "@/components/admissions/AdmissionsHelpdeskWidget";
 
-
-type Tab = "dashboard" | "enquiries" | "applications";
+type Tab = "dashboard" | "enquiries" | "applications" | "concierge";
 
 export default function AdmissionsPage() {
   const [tab, setTab] = useState<Tab>("dashboard");
@@ -136,7 +136,20 @@ export default function AdmissionsPage() {
           <h1 style={{ fontSize: "var(--text-2xl)", fontWeight: "var(--font-bold)", color: "var(--text-primary)", marginBottom: "0.25rem" }}>Admissions CRM</h1>
           <p style={{ color: "var(--text-secondary)", fontSize: "var(--text-sm)" }}>Manage enquiries, applications, and student enrollment.</p>
         </div>
-        <div style={{ display: "flex", gap: "0.75rem" }}>
+        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+          <Button
+            onClick={() => setTab("concierge")}
+            variant={tab === "concierge" ? "primary" : "outline"}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              background: tab === "concierge" ? "linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)" : undefined,
+              color: tab === "concierge" ? "#FFFFFF" : undefined,
+            }}
+          >
+            <Sparkles size={15} /> 24/7 AI Concierge
+          </Button>
           <Button onClick={() => setTab("enquiries")} variant="secondary">View Enquiries</Button>
           <Button onClick={() => setShowAppForm(true)}>
             <Plus size={16} style={{ marginRight: "0.5rem" }} /> New Application
@@ -145,16 +158,21 @@ export default function AdmissionsPage() {
       </div>
 
       <div style={{ display: "flex", borderBottom: "1px solid var(--border-default)", gap: "1rem" }}>
-        {["dashboard", "enquiries", "applications"].map((t) => (
-          <button key={t} onClick={() => setTab(t as Tab)}
+        {[
+          { key: "dashboard", label: "Dashboard" },
+          { key: "enquiries", label: "Enquiries CRM" },
+          { key: "applications", label: "Applications" },
+          { key: "concierge", label: "24/7 AI Concierge 🤖" },
+        ].map((t) => (
+          <button key={t.key} onClick={() => setTab(t.key as Tab)}
             style={{
               padding: "0.75rem 1rem", background: "none", border: "none", cursor: "pointer",
-              fontSize: "var(--text-sm)", fontWeight: tab === t ? "var(--font-semibold)" : "var(--font-medium)",
-              color: tab === t ? "var(--brand-primary)" : "var(--text-secondary)",
-              borderBottom: tab === t ? "2px solid var(--brand-primary)" : "2px solid transparent",
-              transition: "all var(--duration-fast)", textTransform: "capitalize"
+              fontSize: "var(--text-sm)", fontWeight: tab === t.key ? "var(--font-semibold)" : "var(--font-medium)",
+              color: tab === t.key ? "var(--brand-primary)" : "var(--text-secondary)",
+              borderBottom: tab === t.key ? "2px solid var(--brand-primary)" : "2px solid transparent",
+              transition: "all var(--duration-fast)",
             }}>
-            {t}
+            {t.label}
           </button>
         ))}
       </div>
@@ -371,6 +389,18 @@ export default function AdmissionsPage() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* 24/7 AI MULTILINGUAL CONCIERGE TAB */}
+      {tab === "concierge" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <AdmissionsHelpdeskWidget
+            onEnquiryCreated={() => {
+              fetchEnquiries();
+              fetchAnalytics();
+            }}
+          />
         </div>
       )}
 

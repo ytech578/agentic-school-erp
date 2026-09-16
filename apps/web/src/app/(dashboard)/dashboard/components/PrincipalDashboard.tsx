@@ -214,16 +214,48 @@ export function PrincipalDashboard({ user }: { user: any }) {
                   <div key={i} style={{ padding: "0.875rem", borderRadius: "var(--radius-lg)", background: "var(--bg-app)", border: "1px solid var(--border-default)" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
                       <span style={{ fontWeight: 700, fontSize: "var(--text-xs)", color: "var(--text-primary)" }}>{sub.name}</span>
-                      <span style={{ fontSize: "10px", fontWeight: 700, padding: "0.15rem 0.4rem", borderRadius: "var(--radius-full)", background: "rgba(239, 68, 68, 0.1)", color: "var(--status-danger)" }}>
+                      <span style={{ fontSize: "10px", fontWeight: 700, padding: "0.15rem 0.4rem", borderRadius: "var(--radius-full)", background: sub.status === "ON LEAVE" ? "rgba(245, 158, 11, 0.1)" : "rgba(239, 68, 68, 0.1)", color: sub.status === "ON LEAVE" ? "#D97706" : "var(--status-danger)" }}>
                         {sub.status}
                       </span>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "11px", color: "var(--status-success)", fontWeight: 600, marginTop: "0.35rem" }}>
+                    {sub.leaveReason && (
+                      <p style={{ fontSize: "10px", color: "var(--text-secondary)", margin: "0.1rem 0 0.35rem" }}>
+                        Reason: {sub.leaveReason}
+                      </p>
+                    )}
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "11px", color: "var(--status-success)", fontWeight: 600, marginTop: "0.25rem" }}>
                       <UserCheck size={13} />
                       Substitute: {sub.recommendedSubstitute}
                     </div>
-                    <Button size="sm" variant="secondary" onClick={() => router.push('/timetable')} style={{ width: "100%", marginTop: "0.6rem", fontSize: "11px", padding: "0.35rem" }}>
-                      Confirm Substitution
+                    {sub.periods && sub.periods.length > 0 && (
+                      <div style={{ marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                        {sub.periods.map((p: any, pIdx: number) => (
+                          <div key={pIdx} style={{ fontSize: "10px", padding: "0.3rem 0.5rem", background: "var(--bg-surface)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-default)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span><strong>P{p.periodNumber}</strong> ({p.className}): {p.subject}</span>
+                            <span style={{ color: "#4F46E5", fontWeight: 700 }}>Cover: {p.substituteName}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <Button
+                      size="sm"
+                      variant={sub.isConfirmed ? "secondary" : "primary"}
+                      onClick={() => router.push('/principal?tab=substitutions')}
+                      style={{
+                        width: "100%",
+                        marginTop: "0.6rem",
+                        fontSize: "11px",
+                        padding: "0.35rem",
+                        background: sub.isConfirmed ? "rgba(16,185,129,0.15)" : undefined,
+                        color: sub.isConfirmed ? "var(--status-success)" : undefined,
+                        border: sub.isConfirmed ? "1px solid rgba(16,185,129,0.3)" : undefined,
+                      }}
+                    >
+                      {sub.isConfirmed ? (
+                        <><CheckCircle2 size={13} style={{ marginRight: "0.3rem", display: "inline" }} /> Confirmed & Notified</>
+                      ) : (
+                        "Manage & Confirm Substitutions"
+                      )}
                     </Button>
                   </div>
                 ))}

@@ -6,10 +6,12 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   Request,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AIService } from './ai.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
@@ -23,14 +25,23 @@ export class AIController {
   constructor(private service: AIService) {}
 
   @Post('chat')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @ApiOperation({ summary: 'Send a message to the AI assistant' })
-  async chat(@Request() req: any, @Body() body: { message: string; conversationId?: string }) {
+  async chat(
+    @Request() req: any,
+    @Body() body: {
+      message: string;
+      conversationId?: string;
+      attachments?: Array<{ name: string; type: string; size: number; base64: string }>;
+    },
+  ) {
     return this.service.sendMessage({
       userId: req.user.id,
       schoolId: req.user.schoolId,
       user: req.user,
       conversationId: body.conversationId,
       message: body.message,
+      attachments: body.attachments,
     });
   }
 
@@ -128,9 +139,23 @@ export class AIController {
 
   @Post('copilot/lesson-plan')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
-  @ApiOperation({ summary: 'Generate a lesson plan' })
-  async generateLessonPlan(@Body() body: { topic: string; grade: string; duration: string }) {
-    const result = await this.service.generateLessonPlan(body.topic, body.grade, body.duration);
+  @ApiOperation({ summary: 'Generate a structured lesson plan with TLM kit and curriculum alignment' })
+  async generateLessonPlan(
+    @Body()
+    body: {
+      topic: string;
+      grade: string;
+      duration: string;
+      subject?: string;
+      includeTlm?: boolean;
+      curriculum?: string;
+    },
+  ) {
+    const result = await this.service.generateLessonPlan(body.topic, body.grade, body.duration, {
+      subject: body.subject,
+      includeTlm: body.includeTlm !== false,
+      curriculum: body.curriculum,
+    });
     return { result };
   }
 
@@ -152,9 +177,21 @@ export class AIController {
 
   @Post('query')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  @ApiOperation({ summary: 'Execute a natural language data query' })
-  async executeDataQuery(@Body() body: { prompt: string }, @Request() req: any) {
-    const result = await this.service.executeDataQuery(req.user.schoolId, body.prompt, req.user.id);
+  @ApiOperation({ summary: 'Execute a natural language data query with optional multimodal attachments' })
+  async executeDataQuery(
+    @Body()
+    body: {
+      prompt: string;
+      attachments?: Array<{ name: string; type: string; size: number; base64: string }>;
+    },
+    @Request() req: any,
+  ) {
+    const result = await this.service.executeDataQuery(
+      req.user.schoolId,
+      body.prompt,
+      req.user.id,
+      body.attachments,
+    );
     return { result };
   }
 
@@ -164,5 +201,89 @@ export class AIController {
   async getAnomalies(@Request() req: any) {
     const anomalies = await this.service.getSchoolAnomalies(req.user.schoolId);
     return { anomalies };
+  }
+
+  @Post('copilot/question-paper')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
+  @ApiOperation({ summary: 'Generate a structured question paper and marking scheme' })
+  async generateQuestionPaper(
+    @Body()
+    body: {
+      grade: string;
+      subject: string;
+      totalMarks?: number;
+      duration?: string;
+      difficulty?: string;
+      topics?: string;
+      includeAnswerKey?: boolean;
+      board?: string;
+      schoolName?: string;
+    },
+    @Request() req: any,
+  ) {
+    const result = await this.service.generateQuestionPaper(req.user.schoolId, body);
+    return { result };
+  }
+
+  @Get('retention/early-warning')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  @ApiOperation({ summary: 'Get predictive early-warning retention risk students' })
+  async getEarlyWarningRiskStudents(
+    @Query('classId') classId?: string,
+    @Query('riskLevel') riskLevel?: string,
+    @Request() req?: any,
+  ) {
+    return this.service.getEarlyWarningRiskStudents(req.user.schoolId, { classId, riskLevel });
+  }
+
+  @Post('retention/intervention-plan')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  @ApiOperation({ summary: 'Generate individualized MTSS intervention plan for a student' })
+  async generateInterventionPlan(
+    @Body() body: { studentId: string },
+    @Request() req: any,
+  ) {
+    return this.service.generateStudentInterventionPlan(req.user.schoolId, body.studentId);
+  }
+
+  @Post('helpdesk/chat')
+  @ApiOperation({ summary: '24/7 Multilingual Admissions Concierge & Tour Guide Chat' })
+  async chatHelpdesk(
+    @Body()
+    body: {
+      message: string;
+      language?: string;
+      sessionId?: string;
+      parentName?: string;
+      phone?: string;
+      email?: string;
+      classApplied?: string;
+      studentName?: string;
+    },
+    @Request() req: any,
+  ) {
+    return this.service.chatHelpdesk(req.user.schoolId, body);
+  }
+
+  @Get('student/remedial')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'STUDENT', 'PARENT')
+  @ApiOperation({ summary: 'Get personalized student academic remedial plan & learning gaps' })
+  async getStudentRemedialPlan(@Request() req: any) {
+    return this.service.getStudentRemedialPlan(req.user.schoolId, req.user.id);
+  }
+
+  @Post('student/practice')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'STUDENT', 'PARENT')
+  @ApiOperation({ summary: 'Generate adaptive diagnostic practice questions for a topic' })
+  async generateAdaptivePractice(
+    @Body() body: { subject: string; topic: string },
+    @Request() req: any,
+  ) {
+    return this.service.generateAdaptivePractice(
+      req.user.schoolId,
+      req.user.id,
+      body.subject,
+      body.topic,
+    );
   }
 }

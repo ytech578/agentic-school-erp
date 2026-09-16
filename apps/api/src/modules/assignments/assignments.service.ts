@@ -181,7 +181,9 @@ export class AssignmentsService {
         status: 'ACTIVE',
         ...(assignment.sectionId
           ? { sectionId: assignment.sectionId }
-          : { classId: assignment.classId }),
+          : assignment.classId
+            ? { section: { classId: assignment.classId } }
+            : {}),
       },
       include: {
         student: {
@@ -194,19 +196,39 @@ export class AssignmentsService {
     });
 
     const subMap = new Map(submissions.map((s) => [s.studentId, s]));
+    const seenStudentIds = new Set<string>();
+    const roster: any[] = [];
 
-    const roster = enrollments.map((e) => {
+    for (const e of enrollments) {
+      seenStudentIds.add(e.studentId);
       const sub = subMap.get(e.studentId);
-      return {
+      roster.push({
         studentId: e.studentId,
-        rollNumber: e.rollNumber,
-        studentName: `${e.student.user.firstName} ${e.student.user.lastName}`,
+        rollNumber: e.rollNumber || null,
+        studentName: `${e.student?.user?.firstName || ''} ${e.student?.user?.lastName || ''}`.trim() || 'Student',
         status: sub?.status || 'PENDING',
         marksObtained: sub?.marksObtained !== null && sub?.marksObtained !== undefined ? Number(sub.marksObtained) : null,
         feedback: sub?.feedback || '',
         submittedAt: sub?.submittedAt || null,
-      };
-    });
+      });
+    }
+
+    // Also include any submissions from students who submitted even if not in the active enrollment query
+    for (const sub of submissions) {
+      if (!seenStudentIds.has(sub.studentId)) {
+        seenStudentIds.add(sub.studentId);
+        const roll = sub.student?.enrollments?.[0]?.rollNumber || null;
+        roster.push({
+          studentId: sub.studentId,
+          rollNumber: roll,
+          studentName: `${sub.student?.user?.firstName || ''} ${sub.student?.user?.lastName || ''}`.trim() || 'Student',
+          status: sub.status || 'SUBMITTED',
+          marksObtained: sub.marksObtained !== null && sub.marksObtained !== undefined ? Number(sub.marksObtained) : null,
+          feedback: sub.feedback || '',
+          submittedAt: sub.submittedAt || null,
+        });
+      }
+    }
 
     return {
       assignment,

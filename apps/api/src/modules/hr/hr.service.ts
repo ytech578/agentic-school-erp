@@ -162,30 +162,70 @@ export class HRService {
   async getStaffAttendanceReport(schoolId: string, date?: string) {
     const validSchoolId = requireSchoolId(schoolId);
     const targetDate = date ? new Date(date) : new Date();
-    targetDate.setHours(0, 0, 0, 0);
+    const targetStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 0, 0, 0);
+    const targetEnd = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 23, 59, 59, 999);
 
-    const allStaff = await this.prisma.staff.findMany({
-      where: { schoolId: validSchoolId, isActive: true },
-      include: {
-        user: { select: { firstName: true, lastName: true, email: true } },
-        attendanceRecords: {
-          where: { date: targetDate },
-          take: 1,
+    const [allStaff, approvedLeaves] = await Promise.all([
+      this.prisma.staff.findMany({
+        where: { schoolId: validSchoolId, isActive: true },
+        include: {
+          user: { select: { firstName: true, lastName: true, email: true } },
+          attendanceRecords: {
+            where: { date: { gte: targetStart, lte: targetEnd } },
+            take: 1,
+          },
+          department: { select: { name: true } },
+          designation: { select: { name: true } },
         },
-        department: { select: { name: true } },
-        designation: { select: { name: true } },
-      },
-    });
+      }),
+      this.prisma.leaveRequest.findMany({
+        where: {
+          schoolId: validSchoolId,
+          status: 'APPROVED',
+          startDate: { lte: targetEnd },
+          endDate: { gte: targetStart },
+        },
+      }),
+    ]);
 
-    return allStaff.map((s) => ({
-      id: s.id,
-      employeeId: s.employeeId,
-      name: `${s.user.firstName} ${s.user.lastName}`,
-      email: s.user.email,
-      department: s.department?.name || 'N/A',
-      designation: s.designation?.name || 'N/A',
-      attendanceStatus: (s.attendanceRecords as any[])[0]?.status || 'NOT_MARKED',
-    }));
+    const leaveMap = new Map<string, any>();
+    for (const l of approvedLeaves) {
+      leaveMap.set(l.staffId, l);
+    }
+
+    return allStaff.map((s) => {
+      const rawAttendance = (s.attendanceRecords as any[])[0]?.status;
+      const approvedLeave = leaveMap.get(s.id);
+
+      let attendanceStatus: string = 'NOT_MARKED';
+      let leaveReason: string | undefined = undefined;
+      let leaveType: string | undefined = undefined;
+
+      if (approvedLeave) {
+        attendanceStatus = 'ON_LEAVE';
+        leaveReason = approvedLeave.reason || 'Approved Leave';
+        leaveType = approvedLeave.leaveType;
+      } else if (rawAttendance === 'EXCUSED') {
+        attendanceStatus = 'ON_LEAVE';
+        leaveReason = (s.attendanceRecords as any[])[0]?.remarks || 'Excused / On Leave';
+      } else if (rawAttendance === 'PRESENT') {
+        attendanceStatus = 'PRESENT';
+      } else if (rawAttendance === 'ABSENT') {
+        attendanceStatus = 'ABSENT';
+      }
+
+      return {
+        id: s.id,
+        employeeId: s.employeeId,
+        name: `${s.user.firstName} ${s.user.lastName}`,
+        email: s.user.email,
+        department: s.department?.name || 'N/A',
+        designation: s.designation?.name || 'N/A',
+        attendanceStatus,
+        leaveReason,
+        leaveType,
+      };
+    });
   }
 
   async markStaffAttendance(

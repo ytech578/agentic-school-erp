@@ -92,7 +92,7 @@ export function TeacherDashboard({ user }: { user: any }) {
             Welcome, {user?.firstName || "Teacher"}
           </h2>
           <p style={{ color: "#D1FAE5", fontSize: "var(--text-sm)", lineHeight: 1.6, margin: 0 }}>
-            You have <strong>{classesTodayCount} classes</strong> scheduled today. Use integrated AI CoPilot to prepare lesson plans, draft student remarks, and grade assignments effortlessly.
+            You have <strong>{classesTodayCount} classes</strong> scheduled today{data?.coveredSubstitutionsCount > 0 ? ` (including ${data.coveredSubstitutionsCount} substitution cover class${data.coveredSubstitutionsCount > 1 ? 'es' : ''})` : ''}. Use integrated AI CoPilot to prepare lesson plans, draft student remarks, and grade assignments effortlessly.
           </p>
         </div>
 
@@ -145,6 +145,40 @@ export function TeacherDashboard({ user }: { user: any }) {
           </Button>
         </div>
       </div>
+
+      {/* Substitution Duty Alert Banner (When teacher is assigned cover periods) */}
+      {data?.coveredSubstitutionsCount > 0 && (
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.85rem",
+          background: "rgba(245, 158, 11, 0.08)",
+          border: "1px solid rgba(245, 158, 11, 0.35)",
+          padding: "0.9rem 1.25rem",
+          borderRadius: "var(--radius-xl)",
+        }}>
+          <div style={{
+            width: "36px",
+            height: "36px",
+            borderRadius: "50%",
+            background: "rgba(245, 158, 11, 0.15)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}>
+            <CalendarCheck size={18} color="#D97706" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: "var(--text-sm)", color: "var(--text-primary)" }}>
+              Assigned Substitution Cover Duties Active Today
+            </div>
+            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: "0.15rem" }}>
+              The Principal Command Center has assigned you to cover {data.coveredSubstitutionsCount} class{data.coveredSubstitutionsCount > 1 ? "es" : ""} today. The covered periods have been merged into your teaching timeline below.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Primary KPI Cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "1.25rem" }}>
@@ -199,68 +233,91 @@ export function TeacherDashboard({ user }: { user: any }) {
           <CardContent style={{ padding: "0 1.25rem 1.25rem" }}>
             {todaySchedule.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                {todaySchedule.map((slot: any, idx: number) => (
-                  <div
-                    key={slot.id || idx}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "0.875rem 1rem",
-                      borderRadius: "var(--radius-lg)",
-                      background: idx === 0 ? "var(--brand-blue-subtle)" : "var(--bg-app)",
-                      border: idx === 0 ? "1px solid var(--brand-blue)" : "1px solid var(--border-default)",
-                      transition: "all 0.2s ease",
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.875rem" }}>
-                      <div style={{
-                        width: "36px",
-                        height: "36px",
-                        borderRadius: "var(--radius-md)",
-                        background: idx === 0 ? "var(--brand-primary)" : "var(--bg-surface)",
-                        color: idx === 0 ? "#FFFFFF" : "var(--text-secondary)",
-                        border: idx === 0 ? "none" : "1px solid var(--border-default)",
+                {todaySchedule.map((slot: any, idx: number) => {
+                  const isSub = !!slot.isSubstitution;
+                  return (
+                    <div
+                      key={slot.id || idx}
+                      style={{
                         display: "flex",
                         alignItems: "center",
-                        justifyContent: "center",
-                        fontWeight: 700,
-                        fontSize: "var(--text-xs)",
-                      }}>
-                        P{slot.period}
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: "var(--text-sm)", color: "var(--text-primary)" }}>
-                          {slot.className}
+                        justifyContent: "space-between",
+                        padding: "0.875rem 1rem",
+                        borderRadius: "var(--radius-lg)",
+                        background: isSub ? "rgba(245, 158, 11, 0.08)" : (idx === 0 ? "var(--brand-blue-subtle)" : "var(--bg-app)"),
+                        border: isSub ? "1px solid rgba(245, 158, 11, 0.35)" : (idx === 0 ? "1px solid var(--brand-blue)" : "1px solid var(--border-default)"),
+                        transition: "all 0.2s ease",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.875rem" }}>
+                        <div style={{
+                          width: "36px",
+                          height: "36px",
+                          borderRadius: "var(--radius-md)",
+                          background: isSub ? "#D97706" : (idx === 0 ? "var(--brand-primary)" : "var(--bg-surface)"),
+                          color: isSub || idx === 0 ? "#FFFFFF" : "var(--text-secondary)",
+                          border: isSub || idx === 0 ? "none" : "1px solid var(--border-default)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontWeight: 700,
+                          fontSize: "var(--text-xs)",
+                        }}>
+                          P{slot.period}
                         </div>
-                        <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: "0.15rem" }}>
-                          {slot.subject} • {slot.room}
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                            <span style={{ fontWeight: 700, fontSize: "var(--text-sm)", color: "var(--text-primary)" }}>
+                              {slot.className}
+                            </span>
+                            {isSub && (
+                              <span style={{
+                                fontSize: "10px",
+                                fontWeight: 700,
+                                padding: "0.15rem 0.5rem",
+                                borderRadius: "var(--radius-full)",
+                                background: "rgba(245, 158, 11, 0.18)",
+                                color: "#D97706",
+                                border: "1px solid rgba(245, 158, 11, 0.3)",
+                              }}>
+                                Cover Class • For {slot.substituteFor || "Absent Faculty"}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: "0.15rem" }}>
+                            {slot.subject} • {slot.room}
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--text-primary)" }}>
-                          {slot.startTime} - {slot.endTime}
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--text-primary)" }}>
+                            {slot.startTime} - {slot.endTime}
+                          </div>
+                          {idx === 0 && !isSub && (
+                            <span style={{ fontSize: "10px", fontWeight: 700, color: "var(--brand-primary)", textTransform: "uppercase" }}>
+                              Current / Next
+                            </span>
+                          )}
+                          {isSub && (
+                            <span style={{ fontSize: "10px", fontWeight: 700, color: "#D97706", textTransform: "uppercase" }}>
+                              Substitution Cover
+                            </span>
+                          )}
                         </div>
-                        {idx === 0 && (
-                          <span style={{ fontSize: "10px", fontWeight: 700, color: "var(--brand-primary)", textTransform: "uppercase" }}>
-                            Current / Next
-                          </span>
-                        )}
+                        <Button
+                          size="sm"
+                          variant={isSub ? "secondary" : (idx === 0 ? "primary" : "outline")}
+                          onClick={() => router.push('/attendance')}
+                          style={{ fontSize: "11px", padding: "0.35rem 0.65rem" }}
+                        >
+                          Roll Call
+                        </Button>
                       </div>
-                      <Button
-                        size="sm"
-                        variant={idx === 0 ? "primary" : "outline"}
-                        onClick={() => router.push('/attendance')}
-                        style={{ fontSize: "11px", padding: "0.35rem 0.65rem" }}
-                      >
-                        Roll Call
-                      </Button>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-secondary)" }}>

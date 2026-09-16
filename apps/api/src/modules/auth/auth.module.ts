@@ -7,6 +7,7 @@ import { AuthService } from './auth.service';
 import { UsersModule } from '../users/users.module';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
+import { JwtRefreshGuard } from './guards/jwt-refresh.guard';
 import { EmailModule } from '../../services/email/email.module';
 
 @Module({
@@ -26,7 +27,7 @@ import { EmailModule } from '../../services/email/email.module';
     EmailModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, JwtRefreshStrategy],
+  providers: [AuthService, JwtStrategy, JwtRefreshStrategy, JwtRefreshGuard],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}

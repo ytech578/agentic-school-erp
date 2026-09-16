@@ -1,6 +1,8 @@
 import {
   Controller,
   Get,
+  Post,
+  Body,
   UseGuards,
   Request,
   ForbiddenException,
@@ -55,6 +57,26 @@ export class DashboardController {
     }
     const schoolId = requireSchoolId(tenant.schoolId, 'Principal dashboard');
     return await this.dashboardService.getPrincipalDashboard(schoolId);
+  }
+
+  @Post('principal/substitutions/confirm')
+  @Roles('SUPER_ADMIN', 'PRINCIPAL', 'SCHOOL_ADMIN')
+  async confirmFacultySubstitutions(
+    @Request() req: any,
+    @Body() body: { originalStaffId: string; date?: string; periods: any[] },
+  ) {
+    const tenant = getTenantContext(req.user);
+    if (tenant.isGlobal && !tenant.schoolId) {
+      throw new ForbiddenException(
+        'Substitution confirmation is school-scoped to a specific campus.',
+      );
+    }
+    const schoolId = requireSchoolId(tenant.schoolId, 'Confirm substitutions');
+    return await this.dashboardService.confirmFacultySubstitutions(
+      schoolId,
+      tenant.userId,
+      body,
+    );
   }
 
   @Get('teacher')

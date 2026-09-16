@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { 
   BookOpen, MessageSquare, Mail, Sparkles, Loader2, Copy, Check, 
   Download, FileText, CheckCircle2, AlertCircle, ArrowRight,
-  Wand2, Maximize2, Minimize2
+  Wand2, Maximize2, Minimize2, Printer
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -13,107 +13,11 @@ import { apiClient } from "@/lib/axios";
 import { Button } from "@/components/ui/Button";
 import Link from "next/link";
 
-type CopilotTab = "lesson" | "remark" | "parent";
+import { cleanLatexMath, formatCopilotMarkdown } from "@/lib/latex-formatter";
+import PrintableQuestionPaperModal from "@/components/exams/PrintableQuestionPaperModal";
+import PrintableLessonPlanModal from "@/components/teacher/PrintableLessonPlanModal";
 
-// ─── Mathematical LaTeX & Markdown Sanitizer ──────────────────────────────
-function cleanLatexMath(latex: string): string {
-  let m = latex.trim();
-  
-  // Replace Greek letters and math symbols with standard Unicode
-  m = m.replace(/\\times/g, "×");
-  m = m.replace(/\\cdot/g, "·");
-  m = m.replace(/\\div/g, "÷");
-  m = m.replace(/\\pm/g, "±");
-  m = m.replace(/\\mp/g, "∓");
-  m = m.replace(/\\neq/g, "≠");
-  m = m.replace(/\\approx/g, "≈");
-  m = m.replace(/\\leq?/g, "≤");
-  m = m.replace(/\\geq?/g, "≥");
-  m = m.replace(/\\infty/g, "∞");
-  m = m.replace(/\\Delta/g, "Δ");
-  m = m.replace(/\\delta/g, "δ");
-  m = m.replace(/\\pi/g, "π");
-  m = m.replace(/\\theta/g, "θ");
-  m = m.replace(/\\alpha/g, "α");
-  m = m.replace(/\\beta/g, "β");
-  m = m.replace(/\\gamma/g, "γ");
-  m = m.replace(/\\lambda/g, "λ");
-  m = m.replace(/\\mu/g, "μ");
-  m = m.replace(/\\sigma/g, "σ");
-  m = m.replace(/\\omega/g, "ω");
-  m = m.replace(/\\Sigma/g, "Σ");
-  m = m.replace(/\\sum/g, "∑");
-  m = m.replace(/\\degree|\^\s*\\circ/g, "°");
-
-  // \frac{a}{b} or \dfrac{a}{b} -> (a / b)
-  m = m.replace(/\\(?:d)?frac\{([^{}]+)\}\{([^{}]+)\}/g, "($1 / $2)");
-
-  // \sqrt{a} -> √(a)
-  m = m.replace(/\\sqrt\{([^{}]+)\}/g, "√($1)");
-  m = m.replace(/\\sqrt\[(\d+)\]\{([^{}]+)\}/g, "($2)^(1/$1)");
-
-  // \text{...}, \mathrm{...}, \mathbf{...}, \mathit{...}
-  m = m.replace(/\\(?:text|mathrm|mathbf|mathit)\{([^{}]+)\}/g, "$1");
-
-  // Superscripts
-  m = m.replace(/\^2(?!\d)/g, "²");
-  m = m.replace(/\^3(?!\d)/g, "³");
-  m = m.replace(/\^0(?!\d)/g, "⁰");
-  m = m.replace(/\^1(?!\d)/g, "¹");
-  m = m.replace(/\^\{2\}/g, "²");
-  m = m.replace(/\^\{3\}/g, "³");
-  m = m.replace(/\^\{([^{}]+)\}/g, "^($1)");
-
-  // Subscripts
-  m = m.replace(/_0(?!\d)/g, "₀");
-  m = m.replace(/_1(?!\d)/g, "₁");
-  m = m.replace(/_2(?!\d)/g, "₂");
-  m = m.replace(/_3(?!\d)/g, "₃");
-  m = m.replace(/_\{0\}/g, "₀");
-  m = m.replace(/_\{1\}/g, "₁");
-  m = m.replace(/_\{2\}/g, "₂");
-  m = m.replace(/_\{([^{}]+)\}/g, "_$1");
-
-  // Braces & grouping
-  m = m.replace(/\\left\(/g, "(");
-  m = m.replace(/\\right\)/g, ")");
-  m = m.replace(/\\left\[/g, "[");
-  m = m.replace(/\\right\]/g, "]");
-  m = m.replace(/\\left\\\{/g, "{");
-  m = m.replace(/\\right\\\}/g, "}");
-  m = m.replace(/\\[,;!]/g, " ");
-  m = m.replace(/\\q?quad/g, "  ");
-  m = m.replace(/\\([a-zA-Z]+)/g, "$1");
-
-  return m;
-}
-
-function formatCopilotMarkdown(content: string): string {
-  if (!content) return "";
-  let text = content.replace(/\r\n/g, "\n");
-
-  // 1. Normalize <br>, <br/>, <br /> so rehypeRaw parses them safely without breaking Markdown tables
-  text = text.replace(/<br\s*\/?>/gi, "<br />");
-
-  // 2. Format block LaTeX equations $$ ... $$
-  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (_, math) => {
-    return `\n\n> 📐 **Formula:** ${cleanLatexMath(math)}\n\n`;
-  });
-
-  // 3. Format inline LaTeX math $ ... $ (while preserving currency like $50 or $100)
-  text = text.replace(/(?<![\w\\\$])\$([^\$\n]+?)\$(?![\w\$])/g, (match, math) => {
-    if (/^\s*\d+(\.\d+)?(\s*(USD|INR|EUR|\/))?\s*$/i.test(math)) {
-      return match;
-    }
-    return cleanLatexMath(math);
-  });
-
-  // 4. Ensure tables have empty line before and after so GFM table parser triggers reliably
-  text = text.replace(/([^\n])\n(\|[^\n]+\|\n\|[\s:-|]+\|)/g, "$1\n\n$2");
-  text = text.replace(/(\|[^\n]+\|)\n([^\n|])/g, "$1\n\n$2");
-
-  return text;
-}
+type CopilotTab = "lesson" | "remark" | "parent" | "paper";
 
 export default function TeacherCopilotPage() {
   const [activeTab, setActiveTab] = useState<CopilotTab>("lesson");
@@ -123,6 +27,7 @@ export default function TeacherCopilotPage() {
   const [grade, setGrade] = useState("Grade 8");
   const [duration, setDuration] = useState("45 mins");
   const [curriculum, setCurriculum] = useState("CBSE / General");
+  const [includeTlm, setIncludeTlm] = useState(true);
   
   // Remark State
   const [studentName, setStudentName] = useState("");
@@ -135,6 +40,20 @@ export default function TeacherCopilotPage() {
   const [parentContext, setParentContext] = useState("");
   const [updateChannel, setUpdateChannel] = useState<"whatsapp" | "email" | "sms">("whatsapp");
 
+  // Exam Question Paper State
+  const [paperGrade, setPaperGrade] = useState("Class 10");
+  const [paperSubject, setPaperSubject] = useState("Mathematics");
+  const [paperTotalMarks, setPaperTotalMarks] = useState(80);
+  const [paperDuration, setPaperDuration] = useState("3 Hours");
+  const [paperDifficulty, setPaperDifficulty] = useState("BALANCED");
+  const [paperTopics, setPaperTopics] = useState("Quadratic Equations, Polynomials, Coordinate Geometry");
+  const [paperIncludeAnswerKey, setPaperIncludeAnswerKey] = useState(true);
+  const [paperBoard, setPaperBoard] = useState("CBSE");
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [showLessonPlanPrintModal, setShowLessonPlanPrintModal] = useState(false);
+  const [copiedStudentHandout, setCopiedStudentHandout] = useState(false);
+  const [schoolName, setSchoolName] = useState<string>("");
+
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -142,6 +61,19 @@ export default function TeacherCopilotPage() {
 
   // In-Place Same Window Expansion State
   const [isExpanded, setIsExpanded] = useState(false);
+
+  // Fetch active school name for question paper letterhead and prompts
+  useEffect(() => {
+    apiClient
+      .get("/schools/current")
+      .then((res) => {
+        const name = res.data?.data?.name || res.data?.name;
+        if (name) setSchoolName(name);
+      })
+      .catch(() => {
+        // Graceful fallback to default institution
+      });
+  }, []);
 
   // Listen for Escape key to collapse expanded view
   useEffect(() => {
@@ -162,6 +94,14 @@ export default function TeacherCopilotPage() {
     { title: "Shakespeare: Merchant of Venice", grade: "Grade 10", duration: "60 mins" },
     { title: "Indian Freedom Movement 1947", grade: "Grade 8", duration: "45 mins" },
     { title: "Python Basics: Conditionals", grade: "Grade 9", duration: "45 mins" },
+  ];
+
+  // Quick Question Paper Presets (Strictly Nursery - Grade 10)
+  const paperPresets = [
+    { grade: "Class 10", subject: "Mathematics", marks: 80, duration: "3 Hours", topics: "Quadratic Equations, Real Numbers, Triangles, Statistics" },
+    { grade: "Class 9", subject: "Science", marks: 80, duration: "3 Hours", topics: "Matter in Our Surroundings, Force & Laws of Motion, Cell Biology" },
+    { grade: "Class 8", subject: "Social Science", marks: 50, duration: "1.5 Hours", topics: "Resources, Modern Indian History, Indian Constitution" },
+    { grade: "Class 6", subject: "English", marks: 50, duration: "1.5 Hours", topics: "Reading Comprehension, Prepositions, Story Writing" },
   ];
 
   // Quick Remark Traits
@@ -197,8 +137,11 @@ export default function TeacherCopilotPage() {
         endpoint = "/ai/copilot/lesson-plan";
         payload = { 
           topic: customPromptOverride || topic, 
-          grade: `${grade} (${curriculum})`, 
-          duration 
+          grade, 
+          duration,
+          includeTlm,
+          subject: topic,
+          curriculum
         };
       } else if (activeTab === "remark") {
         endpoint = "/ai/copilot/remark";
@@ -213,9 +156,23 @@ export default function TeacherCopilotPage() {
           studentProfile: parentStudent || "Student", 
           context: `${parentContext} [${channelNote}]` 
         };
+      } else if (activeTab === "paper") {
+        endpoint = "/ai/copilot/question-paper";
+        payload = { 
+          grade: paperGrade, 
+          subject: paperSubject, 
+          totalMarks: Number(paperTotalMarks), 
+          duration: paperDuration, 
+          difficulty: paperDifficulty, 
+          topics: customPromptOverride || paperTopics, 
+          includeAnswerKey: paperIncludeAnswerKey, 
+          board: paperBoard,
+          schoolName: schoolName || undefined,
+        };
       }
 
-      const response = await apiClient.post(endpoint, payload);
+      // Comprehensive 120s timeout ensures deep reasoning models finish complex CBSE papers reliably
+      const response = await apiClient.post(endpoint, payload, { timeout: 120000 });
       const data = response.data.data || response.data;
       setResult(data.result);
     } catch (error: any) {
@@ -239,6 +196,16 @@ export default function TeacherCopilotPage() {
     }
   };
 
+  const copyStudentHandout = () => {
+    if (!cleanResult) return;
+    const worksheetHeaderRegex = /(?:^|\n)(?:---+|\*\*\*+)?\s*(#{1,3}\s*(?:📄\s*)?(?:Student\s+Classroom\s+Activity\s+Handout|Student\s+Activity\s+Handout|Student\s+Worksheet)[^\n]*)/i;
+    const match = cleanResult.match(worksheetHeaderRegex);
+    const handout = match && match.index !== undefined ? cleanResult.slice(match.index).trim() : cleanResult;
+    navigator.clipboard.writeText(handout);
+    setCopiedStudentHandout(true);
+    setTimeout(() => setCopiedStudentHandout(false), 2000);
+  };
+
   const downloadMarkdown = () => {
     if (!cleanResult) return;
     const blob = new Blob([cleanResult], { type: "text/markdown;charset=utf-8;" });
@@ -255,9 +222,132 @@ export default function TeacherCopilotPage() {
 
   // Custom markdown styling components
   const markdownComponents = {
-    h1: ({ node, ...props }: any) => <h1 style={{ fontSize: "var(--text-2xl)", fontWeight: 800, color: "var(--text-primary)", marginTop: "1.25rem", marginBottom: "0.75rem" }} {...props} />,
-    h2: ({ node, ...props }: any) => <h2 style={{ fontSize: "var(--text-xl)", fontWeight: 700, color: "var(--brand-primary)", marginTop: "1.25rem", marginBottom: "0.5rem", borderBottom: "1px solid var(--border-subtle)", paddingBottom: "0.35rem" }} {...props} />,
-    h3: ({ node, ...props }: any) => <h3 style={{ fontSize: "var(--text-base)", fontWeight: 700, color: "var(--text-primary)", marginTop: "1rem", marginBottom: "0.375rem" }} {...props} />,
+    h1: ({ node, children, ...props }: any) => {
+      const text = typeof children === "string" ? children : Array.isArray(children) ? children.join("") : "";
+      const isAnswerKey = /marking\s*scheme|answer\s*key/i.test(text);
+      if (isAnswerKey) {
+        return (
+          <div style={{ marginTop: "2rem", marginBottom: "1rem" }}>
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "0.75rem 1rem",
+              borderRadius: "var(--radius-lg)",
+              background: "rgba(99, 102, 241, 0.08)",
+              border: "1.5px dashed var(--brand-primary)",
+              marginBottom: "0.75rem"
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ fontSize: "1.2rem" }}>📝</span>
+                <span style={{ fontWeight: 700, color: "var(--brand-primary)", fontSize: "var(--text-sm)" }}>
+                  Evaluator Marking Scheme & Scoring Key
+                </span>
+              </div>
+              <span style={{
+                fontSize: "11px",
+                fontWeight: 700,
+                background: "var(--brand-primary)",
+                color: "#FFFFFF",
+                padding: "2px 8px",
+                borderRadius: "999px",
+                letterSpacing: "0.03em"
+              }}>
+                Starts on New Page in Print / PDF
+              </span>
+            </div>
+            <h1 style={{ fontSize: "var(--text-2xl)", fontWeight: 800, color: "var(--text-primary)", marginBottom: "0.75rem" }} {...props}>
+              {children}
+            </h1>
+          </div>
+        );
+      }
+      return <h1 style={{ fontSize: "var(--text-2xl)", fontWeight: 800, color: "var(--text-primary)", marginTop: "1.25rem", marginBottom: "0.75rem" }} {...props}>{children}</h1>;
+    },
+    h2: ({ node, children, ...props }: any) => {
+      const text = typeof children === "string" ? children : Array.isArray(children) ? children.join("") : "";
+      const isTlm = /TLM|Teaching Learning Material/i.test(text);
+      if (isTlm) {
+        return (
+          <div style={{
+            marginTop: "1.75rem",
+            marginBottom: "1rem",
+            padding: "0.875rem 1.25rem",
+            borderRadius: "var(--radius-lg)",
+            background: "linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(59, 130, 246, 0.08))",
+            border: "1.5px solid rgba(99, 102, 241, 0.35)",
+            boxShadow: "0 4px 15px rgba(99, 102, 241, 0.08)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "0.5rem"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
+              <span style={{ fontSize: "1.35rem" }}>📦</span>
+              <h2 style={{ fontSize: "var(--text-xl)", fontWeight: 800, color: "var(--text-primary)", margin: 0 }} {...props}>
+                {children}
+              </h2>
+            </div>
+            <span style={{
+              fontSize: "11px",
+              fontWeight: 700,
+              background: "linear-gradient(135deg, #6366F1, #3B82F6)",
+              color: "#FFFFFF",
+              padding: "3px 10px",
+              borderRadius: "999px",
+              letterSpacing: "0.04em",
+              textTransform: "uppercase"
+            }}>
+              Pedagogical Hands-on Kit
+            </span>
+          </div>
+        );
+      }
+      return <h2 style={{ fontSize: "var(--text-xl)", fontWeight: 700, color: "var(--brand-primary)", marginTop: "1.25rem", marginBottom: "0.5rem", borderBottom: "1px solid var(--border-subtle)", paddingBottom: "0.35rem" }} {...props}>{children}</h2>;
+    },
+    h3: ({ node, children, ...props }: any) => {
+      const text = typeof children === "string" ? children : Array.isArray(children) ? children.join("") : "";
+      const isTlm = /TLM|Teaching Learning Material/i.test(text);
+      if (isTlm) {
+        return (
+          <div style={{
+            marginTop: "1.75rem",
+            marginBottom: "1rem",
+            padding: "0.875rem 1.25rem",
+            borderRadius: "var(--radius-lg)",
+            background: "linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(59, 130, 246, 0.08))",
+            border: "1.5px solid rgba(99, 102, 241, 0.35)",
+            boxShadow: "0 4px 15px rgba(99, 102, 241, 0.08)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "0.5rem"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
+              <span style={{ fontSize: "1.35rem" }}>📦</span>
+              <h3 style={{ fontSize: "var(--text-lg)", fontWeight: 800, color: "var(--text-primary)", margin: 0 }} {...props}>
+                {children}
+              </h3>
+            </div>
+            <span style={{
+              fontSize: "11px",
+              fontWeight: 700,
+              background: "linear-gradient(135deg, #6366F1, #3B82F6)",
+              color: "#FFFFFF",
+              padding: "3px 10px",
+              borderRadius: "999px",
+              letterSpacing: "0.04em",
+              textTransform: "uppercase"
+            }}>
+              Pedagogical Hands-on Kit
+            </span>
+          </div>
+        );
+      }
+      return <h3 style={{ fontSize: "var(--text-base)", fontWeight: 700, color: "var(--text-primary)", marginTop: "1rem", marginBottom: "0.375rem" }} {...props}>{children}</h3>;
+    },
     h4: ({ node, ...props }: any) => <h4 style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--text-secondary)", marginTop: "0.75rem", marginBottom: "0.25rem" }} {...props} />,
     p: ({ node, ...props }: any) => <p style={{ marginBottom: "0.875rem", lineHeight: 1.7 }} {...props} />,
     table: ({ node, ...props }: any) => (
@@ -443,6 +533,7 @@ export default function TeacherCopilotPage() {
           { id: "lesson", label: "Lesson Planner", icon: BookOpen, desc: "Objectives, timelines & exercises" },
           { id: "remark", label: "Remark Generator", icon: MessageSquare, desc: "Personalized report remarks" },
           { id: "parent", label: "Parent Update Drafter", icon: Mail, desc: "WhatsApp & email notices" },
+          { id: "paper", label: "Exam Blueprinter", icon: FileText, desc: "K-10 papers & marking keys" },
         ].map((tab) => {
           const isActive = activeTab === tab.id;
           const Icon = tab.icon;
@@ -516,6 +607,7 @@ export default function TeacherCopilotPage() {
                 {activeTab === "lesson" && <><BookOpen size={20} style={{ color: "var(--brand-primary)" }} /> Plan a Lesson</>}
                 {activeTab === "remark" && <><MessageSquare size={20} style={{ color: "var(--brand-primary)" }} /> Generate Student Remark</>}
                 {activeTab === "parent" && <><Mail size={20} style={{ color: "var(--brand-primary)" }} /> Draft Parent Update</>}
+                {activeTab === "paper" && <><FileText size={20} style={{ color: "var(--brand-primary)" }} /> Blueprint & Question Paper</>}
               </h2>
               <span style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", fontWeight: 500 }}>
                 AI Model: Gemini 2.0 Flash
@@ -654,9 +746,94 @@ export default function TeacherCopilotPage() {
                     <option value="CBSE / General">CBSE / NCERT Core</option>
                     <option value="ICSE">ICSE Curriculum</option>
                     <option value="State Board">State Board Syllabus</option>
-                    <option value="Cambridge / IGCSE">Cambridge / IGCSE</option>
-                    <option value="IB (PYP/MYP)">IB Diploma / Middle Years</option>
                   </select>
+                </div>
+
+                {/* TLM Kit Interactive Toggle */}
+                <div style={{
+                  padding: "0.875rem 1rem",
+                  borderRadius: "var(--radius-lg)",
+                  border: includeTlm ? "1.5px solid rgba(99, 102, 241, 0.45)" : "1px solid var(--border-default)",
+                  background: includeTlm ? "rgba(99, 102, 241, 0.05)" : "var(--bg-app)",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  justifyContent: "space-between",
+                  gap: "0.75rem",
+                  transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                  boxShadow: includeTlm ? "0 2px 10px rgba(99, 102, 241, 0.08)" : "none",
+                }}>
+                  <div style={{ display: "flex", gap: "0.75rem", flex: 1 }}>
+                    <div style={{
+                      width: "36px",
+                      height: "36px",
+                      borderRadius: "var(--radius-md)",
+                      background: includeTlm ? "linear-gradient(135deg, #6366F1, #3B82F6)" : "var(--border-default)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#FFFFFF",
+                      fontSize: "18px",
+                      flexShrink: 0,
+                      boxShadow: includeTlm ? "0 4px 12px rgba(99, 102, 241, 0.25)" : "none",
+                      transition: "all 0.2s ease",
+                    }}>
+                      📦
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--text-primary)" }}>
+                          Include TLM Kit & Activity Guide
+                        </span>
+                        {includeTlm && (
+                          <span style={{
+                            fontSize: "10px",
+                            fontWeight: 700,
+                            padding: "2px 7px",
+                            borderRadius: "999px",
+                            background: "linear-gradient(135deg, #6366F1, #8B5CF6)",
+                            color: "#FFFFFF",
+                            letterSpacing: "0.03em"
+                          }}>
+                            Recommended
+                          </span>
+                        )}
+                      </div>
+                      <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", margin: 0, lineHeight: 1.45 }}>
+                        Generates low/no-cost physical manipulatives, visual organizers, digital PhET simulations, classroom deployment steps, and inclusive adaptations.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={includeTlm}
+                    onClick={() => setIncludeTlm(!includeTlm)}
+                    style={{
+                      width: "44px",
+                      height: "24px",
+                      borderRadius: "999px",
+                      background: includeTlm ? "var(--brand-primary)" : "var(--border-default)",
+                      border: "none",
+                      cursor: "pointer",
+                      position: "relative",
+                      flexShrink: 0,
+                      marginTop: "4px",
+                      transition: "background 0.2s ease",
+                      padding: 0,
+                    }}
+                  >
+                    <span style={{
+                      position: "absolute",
+                      top: "2px",
+                      left: includeTlm ? "22px" : "2px",
+                      width: "20px",
+                      height: "20px",
+                      borderRadius: "50%",
+                      background: "#FFFFFF",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                      transition: "left 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                    }} />
+                  </button>
                 </div>
               </div>
             )}
@@ -920,6 +1097,242 @@ export default function TeacherCopilotPage() {
               </div>
             )}
 
+            {/* TAB 4: Question Paper & Exam Blueprinter */}
+            {activeTab === "paper" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+                {/* Preset Chips */}
+                <div>
+                  <label style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.5rem", display: "block" }}>
+                    Curriculum Exemplar Blueprints (K–10)
+                  </label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "0.375rem" }}>
+                    {paperPresets.map((preset) => (
+                      <button
+                        key={preset.topics}
+                        type="button"
+                        onClick={() => {
+                          setPaperGrade(preset.grade);
+                          setPaperSubject(preset.subject);
+                          setPaperTotalMarks(preset.marks);
+                          setPaperDuration(preset.duration);
+                          setPaperTopics(preset.topics);
+                        }}
+                        style={{
+                          fontSize: "var(--text-xs)",
+                          padding: "0.45rem 0.75rem",
+                          borderRadius: "var(--radius-md)",
+                          border: "1px solid var(--border-default)",
+                          background: paperTopics === preset.topics ? "var(--brand-blue-subtle)" : "var(--bg-app)",
+                          color: paperTopics === preset.topics ? "var(--brand-primary)" : "var(--text-secondary)",
+                          cursor: "pointer",
+                          fontWeight: 500,
+                          textAlign: "left",
+                          transition: "all 0.15s ease",
+                        }}
+                        onMouseOver={(e) => (e.currentTarget.style.borderColor = "var(--brand-primary)")}
+                        onMouseOut={(e) => (e.currentTarget.style.borderColor = "var(--border-default)")}
+                      >
+                        <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>{preset.grade} • {preset.subject} ({preset.marks}M)</span> — {preset.topics}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                  <div>
+                    <label style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--text-primary)", display: "block", marginBottom: "0.375rem" }}>
+                      Grade (Strictly Nursery – Class 10)
+                    </label>
+                    <select
+                      value={paperGrade}
+                      onChange={(e) => setPaperGrade(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "0.625rem 0.875rem",
+                        borderRadius: "var(--radius-lg)",
+                        border: "1px solid var(--border-default)",
+                        backgroundColor: "var(--bg-app)",
+                        color: "var(--text-primary)",
+                        fontSize: "var(--text-sm)",
+                        outline: "none",
+                      }}
+                    >
+                      {["Nursery", "Kindergarten (KG)", "Class 1", "Class 2", "Class 3", "Class 4", "Class 5", "Class 6", "Class 7", "Class 8", "Class 9", "Class 10"].map((g) => (
+                        <option key={g} value={g}>{g}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--text-primary)", display: "block", marginBottom: "0.375rem" }}>
+                      Subject
+                    </label>
+                    <select
+                      value={paperSubject}
+                      onChange={(e) => setPaperSubject(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "0.625rem 0.875rem",
+                        borderRadius: "var(--radius-lg)",
+                        border: "1px solid var(--border-default)",
+                        backgroundColor: "var(--bg-app)",
+                        color: "var(--text-primary)",
+                        fontSize: "var(--text-sm)",
+                        outline: "none",
+                      }}
+                    >
+                      {["Mathematics", "Science", "Social Science", "English Language & Lit", "Hindi", "Computer Science", "Environmental Studies (EVS)"].map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.5rem" }}>
+                  <div>
+                    <label style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: "0.35rem" }}>
+                      Total Marks
+                    </label>
+                    <select
+                      value={paperTotalMarks}
+                      onChange={(e) => setPaperTotalMarks(Number(e.target.value))}
+                      style={{
+                        width: "100%",
+                        padding: "0.5rem",
+                        borderRadius: "var(--radius-md)",
+                        border: "1px solid var(--border-default)",
+                        backgroundColor: "var(--bg-app)",
+                        color: "var(--text-primary)",
+                        fontSize: "var(--text-xs)",
+                        outline: "none",
+                      }}
+                    >
+                      <option value={25}>25 M (Unit Test)</option>
+                      <option value={50}>50 M (Periodic)</option>
+                      <option value={80}>80 M (Board / Mock)</option>
+                      <option value={100}>100 M (Annual Full)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: "0.35rem" }}>
+                      Time Allowed
+                    </label>
+                    <select
+                      value={paperDuration}
+                      onChange={(e) => setPaperDuration(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "0.5rem",
+                        borderRadius: "var(--radius-md)",
+                        border: "1px solid var(--border-default)",
+                        backgroundColor: "var(--bg-app)",
+                        color: "var(--text-primary)",
+                        fontSize: "var(--text-xs)",
+                        outline: "none",
+                      }}
+                    >
+                      <option value="45 Minutes">45 Mins</option>
+                      <option value="1.5 Hours">1.5 Hours</option>
+                      <option value="2 Hours">2 Hours</option>
+                      <option value="3 Hours">3 Hours</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: "0.35rem" }}>
+                      Difficulty Tier
+                    </label>
+                    <select
+                      value={paperDifficulty}
+                      onChange={(e) => setPaperDifficulty(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "0.5rem",
+                        borderRadius: "var(--radius-md)",
+                        border: "1px solid var(--border-default)",
+                        backgroundColor: "var(--bg-app)",
+                        color: "var(--text-primary)",
+                        fontSize: "var(--text-xs)",
+                        outline: "none",
+                      }}
+                    >
+                      <option value="EASY">Foundational</option>
+                      <option value="BALANCED">Balanced Standard</option>
+                      <option value="CHALLENGING">Analytical / HOTS</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: "0.35rem" }}>
+                      Board Standard
+                    </label>
+                    <select
+                      value={paperBoard}
+                      onChange={(e) => setPaperBoard(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "0.5rem",
+                        borderRadius: "var(--radius-md)",
+                        border: "1px solid var(--border-default)",
+                        backgroundColor: "var(--bg-app)",
+                        color: "var(--text-primary)",
+                        fontSize: "var(--text-xs)",
+                        outline: "none",
+                      }}
+                    >
+                      <option value="CBSE">CBSE / NCERT</option>
+                      <option value="State Board">State Board</option>
+                      <option value="ICSE">ICSE</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--text-primary)", display: "block", marginBottom: "0.375rem" }}>
+                    Syllabus Scope & Focus Chapters *
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="List chapters, themes, or specific competencies (e.g. Quadratic Equations, Real Numbers, Factorization, Linear Graphs)..."
+                    value={paperTopics}
+                    onChange={(e) => setPaperTopics(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "0.625rem 0.875rem",
+                      borderRadius: "var(--radius-lg)",
+                      border: "1px solid var(--border-default)",
+                      backgroundColor: "var(--bg-app)",
+                      color: "var(--text-primary)",
+                      fontSize: "var(--text-sm)",
+                      outline: "none",
+                    }}
+                  />
+                </div>
+
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  padding: "0.625rem 0.875rem",
+                  borderRadius: "var(--radius-lg)",
+                  background: "var(--bg-app)",
+                  border: "1px solid var(--border-default)",
+                }}>
+                  <input
+                    type="checkbox"
+                    id="includeAnswerKey"
+                    checked={paperIncludeAnswerKey}
+                    onChange={(e) => setPaperIncludeAnswerKey(e.target.checked)}
+                    style={{ width: "16px", height: "16px", accentColor: "var(--brand-primary)", cursor: "pointer" }}
+                  />
+                  <label htmlFor="includeAnswerKey" style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--text-primary)", cursor: "pointer" }}>
+                    Include Step-by-Step Marking Scheme & Evaluator Answer Key
+                  </label>
+                </div>
+              </div>
+            )}
+
             {/* Error Message */}
             {errorMessage && (
               <div style={{
@@ -947,7 +1360,8 @@ export default function TeacherCopilotPage() {
                   isLoading ||
                   (activeTab === "lesson" && !topic) ||
                   (activeTab === "remark" && !studentProfile) ||
-                  (activeTab === "parent" && (!parentStudent || !parentContext))
+                  (activeTab === "parent" && (!parentStudent || !parentContext)) ||
+                  (activeTab === "paper" && !paperTopics)
                 }
                 style={{
                   width: "100%",
@@ -961,7 +1375,15 @@ export default function TeacherCopilotPage() {
                 }}
                 leftIcon={isLoading ? <Loader2 className="animate-spin" size={18} /> : <Wand2 size={18} />}
               >
-                {isLoading ? "Generating with AI..." : "Generate Draft"}
+                {isLoading
+                  ? "Generating Copilot Intelligence..."
+                  : activeTab === "lesson"
+                  ? "Generate Lesson Plan"
+                  : activeTab === "remark"
+                  ? "Generate Remark"
+                  : activeTab === "parent"
+                  ? "Generate Parent Notice"
+                  : "Generate Exam Paper & Blueprint"}
               </Button>
             </div>
           </div>
@@ -1042,6 +1464,84 @@ export default function TeacherCopilotPage() {
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
               {result && (
                 <>
+                  {activeTab === "lesson" && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setShowLessonPlanPrintModal(true)}
+                        title="Print / Export Official Lesson Plan & TLM Kit"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.375rem",
+                          padding: "0.375rem 0.625rem",
+                          borderRadius: "var(--radius-md)",
+                          border: "1px solid rgba(99, 102, 241, 0.4)",
+                          background: "rgba(99, 102, 241, 0.15)",
+                          color: "var(--brand-primary)",
+                          fontSize: "var(--text-xs)",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                        onMouseOver={(e) => (e.currentTarget.style.background = "rgba(99, 102, 241, 0.25)")}
+                        onMouseOut={(e) => (e.currentTarget.style.background = "rgba(99, 102, 241, 0.15)")}
+                      >
+                        <Printer size={14} />
+                        Print / Export Plan
+                      </button>
+                      <button
+                        type="button"
+                        onClick={copyStudentHandout}
+                        title="Copy Student Handout & Exit Slip Only"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.375rem",
+                          padding: "0.375rem 0.625rem",
+                          borderRadius: "var(--radius-md)",
+                          border: "1px solid var(--border-default)",
+                          background: copiedStudentHandout ? "rgba(16, 185, 129, 0.15)" : "var(--bg-surface)",
+                          color: copiedStudentHandout ? "#10B981" : "var(--text-secondary)",
+                          fontSize: "var(--text-xs)",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                        onMouseOver={(e) => (e.currentTarget.style.borderColor = "var(--brand-primary)")}
+                        onMouseOut={(e) => (e.currentTarget.style.borderColor = "var(--border-default)")}
+                      >
+                        {copiedStudentHandout ? <Check size={14} /> : <FileText size={14} />}
+                        {copiedStudentHandout ? "Copied Handout!" : "Copy Handout"}
+                      </button>
+                    </>
+                  )}
+                  {activeTab === "paper" && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPrintModal(true)}
+                      title="Print Official Exam Sheet (A4)"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.375rem",
+                        padding: "0.375rem 0.625rem",
+                        borderRadius: "var(--radius-md)",
+                        border: "1px solid rgba(99, 102, 241, 0.4)",
+                        background: "rgba(99, 102, 241, 0.15)",
+                        color: "var(--brand-primary)",
+                        fontSize: "var(--text-xs)",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                      onMouseOver={(e) => (e.currentTarget.style.background = "rgba(99, 102, 241, 0.25)")}
+                      onMouseOut={(e) => (e.currentTarget.style.background = "rgba(99, 102, 241, 0.15)")}
+                    >
+                      <Printer size={14} />
+                      Print Exam Sheet
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={downloadMarkdown}
@@ -1297,6 +1797,32 @@ export default function TeacherCopilotPage() {
           </div>
         </div>
       </div>
+
+      {/* Printable Exam Sheet Modal */}
+      <PrintableQuestionPaperModal
+        isOpen={showPrintModal}
+        onClose={() => setShowPrintModal(false)}
+        paperContent={cleanResult}
+        grade={paperGrade}
+        subject={paperSubject}
+        totalMarks={Number(paperTotalMarks)}
+        duration={paperDuration}
+        schoolName={schoolName}
+        board={paperBoard}
+      />
+
+      {/* Printable Lesson Plan & TLM Kit Modal */}
+      <PrintableLessonPlanModal
+        isOpen={showLessonPlanPrintModal}
+        onClose={() => setShowLessonPlanPrintModal(false)}
+        lessonPlanContent={cleanResult}
+        topic={topic}
+        grade={grade}
+        subject={topic}
+        duration={duration}
+        curriculum={curriculum}
+        schoolName={schoolName}
+      />
     </div>
   );
 }
