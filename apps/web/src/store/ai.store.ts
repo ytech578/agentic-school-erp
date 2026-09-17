@@ -1,12 +1,43 @@
 import { create } from "zustand";
 import { apiClient } from "@/lib/axios";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+/** All possible terminal and non-terminal states the control plane can return */
+export type AgentActionStatus =
+  | "PROPOSED"
+  | "AWAITING_CONFIRMATION"
+  | "CONFIRMED"
+  | "EXECUTING"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "REJECTED"
+  | "EXPIRED"
+  | "CANCELLED";
+
+/** Extended pending action with full lifecycle fields */
 export interface PendingAction {
   actionId: string;
   type: string;
   label: string;
+  riskLevel?: "NONE" | "LOW" | "MEDIUM" | "HIGH";
+  status?: AgentActionStatus;
   requiresConfirmation?: boolean;
+  expiresAt?: string;
+  /** True when the server returned a cached SUCCEEDED result (idempotent) */
+  idempotent?: boolean;
   data?: Record<string, unknown>;
+}
+
+/** Structured result from executeAction */
+export interface ActionExecutionResult {
+  success: boolean;
+  /** Machine-readable status from the server */
+  status: AgentActionStatus | null;
+  /** User-facing message */
+  message: string;
+  /** Failure reason returned by the server (if any) */
+  failureReason?: string;
 }
 
 export interface AttachmentItem {
@@ -38,8 +69,49 @@ interface AIState {
   sendMessage: (text: string, attachments?: AttachmentItem[]) => Promise<void>;
   loadConversation: (id: string) => Promise<void>;
   clearConversation: () => void;
-  executeAction: (actionId: string) => Promise<{ success: boolean; message: string }>;
+  /**
+   * Confirms and executes a proposed action via the Agentic Control Plane.
+   * Returns the full execution result — never claims success unless the server
+   * returns status === 'SUCCEEDED'.
+   */
+  executeAction: (actionId: string) => Promise<ActionExecutionResult>;
+  /**
+   * Polls action status without executing — useful for checking if an
+   * already-submitted action completed.
+   */
+  getActionStatus: (actionId: string) => Promise<ActionExecutionResult>;
 }
+
+// ─── Human-readable messages for all states ───────────────────────────────────
+
+function statusToMessage(status: AgentActionStatus | null, failureReason?: string): string {
+  switch (status) {
+    case "SUCCEEDED":
+      return "Action completed successfully.";
+    case "FAILED":
+      return failureReason
+        ? `Action failed: ${failureReason.replace(/^[A-Z_]+: /, "")}`
+        : "Action failed. Please try again.";
+    case "REJECTED":
+      return "Action was rejected. You do not have permission to perform this action.";
+    case "EXPIRED":
+      return "This action has expired. Please start over.";
+    case "CANCELLED":
+      return "Action was cancelled.";
+    case "EXECUTING":
+      return "Action is currently being executed…";
+    case "AWAITING_CONFIRMATION":
+      return "Awaiting your confirmation.";
+    case "CONFIRMED":
+      return "Action confirmed — waiting to execute.";
+    case "PROPOSED":
+      return "Action proposed — please review and confirm.";
+    default:
+      return "Unknown action status.";
+  }
+}
+
+// ─── Store ────────────────────────────────────────────────────────────────────
 
 export const useAIStore = create<AIState>((set, get) => ({
   isOpen: false,
@@ -79,20 +151,76 @@ export const useAIStore = create<AIState>((set, get) => ({
       set((state) => ({
         messages: [
           ...state.messages,
-          { role: "assistant", content: "Sorry, I encountered an error. Please try again." },
+          {
+            role: "assistant",
+            content: "Sorry, I encountered an error. Please try again.",
+          },
         ],
         isLoading: false,
       }));
     }
   },
 
-  executeAction: async (actionId: string) => {
+  /**
+   * Phase 18 — Full status handling.
+   * Never claims success unless the server returns status === 'SUCCEEDED'.
+   * Shows failure reason for FAILED actions.
+   * Handles EXPIRED and REJECTED explicitly.
+   */
+  executeAction: async (actionId: string): Promise<ActionExecutionResult> => {
     try {
       const res = await apiClient.post(`/ai/action/${actionId}/confirm`);
-      const data = res.data.data || res.data;
-      return { success: data.status === 'SUCCEEDED', message: "Action completed successfully." };
+      const data: {
+        status?: AgentActionStatus;
+        actionId?: string;
+        failureReason?: string;
+      } = res.data.data || res.data;
+
+      const status = data.status ?? null;
+      const failureReason = data.failureReason;
+      const success = status === "SUCCEEDED";
+
+      return {
+        success,
+        status,
+        message: statusToMessage(status, failureReason),
+        failureReason,
+      };
+    } catch (error: unknown) {
+      // Extract error detail from axios response if available
+      const axiosError = error as { response?: { data?: { message?: string; error?: string } }; message?: string };
+      const serverMsg =
+        axiosError?.response?.data?.message ||
+        axiosError?.response?.data?.error ||
+        axiosError?.message ||
+        "Failed to execute action.";
+
+      return {
+        success: false,
+        status: null,
+        message: serverMsg,
+        failureReason: serverMsg,
+      };
+    }
+  },
+
+  getActionStatus: async (actionId: string): Promise<ActionExecutionResult> => {
+    try {
+      const res = await apiClient.get(`/ai/action/${actionId}`);
+      const data: {
+        status?: AgentActionStatus;
+        failureReason?: string;
+      } = res.data.data || res.data;
+
+      const status = data.status ?? null;
+      return {
+        success: status === "SUCCEEDED",
+        status,
+        message: statusToMessage(status, data.failureReason),
+        failureReason: data.failureReason,
+      };
     } catch {
-      return { success: false, message: "Failed to execute action." };
+      return { success: false, status: null, message: "Could not retrieve action status." };
     }
   },
 
@@ -101,7 +229,9 @@ export const useAIStore = create<AIState>((set, get) => ({
     try {
       const res = await apiClient.get(`/ai/conversations/${id}`);
       const data = res.data.data || res.data;
-      const msgs: AIMessage[] = (data.messages || []).map((m: { role: "user" | "assistant"; content: string }) => ({
+      const msgs: AIMessage[] = (
+        data.messages || []
+      ).map((m: { role: "user" | "assistant"; content: string }) => ({
         role: m.role === "user" ? "user" : "assistant",
         content: m.content,
       }));

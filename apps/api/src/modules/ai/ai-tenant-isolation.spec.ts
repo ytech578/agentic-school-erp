@@ -47,11 +47,16 @@ describe('AI Service — Tenant Isolation & Security (Phase 7)', () => {
     getOrThrow: jest.fn(),
   } as any;
 
+  const mockControlPlane = {
+    proposeAction: jest.fn(),
+    confirmAndExecute: jest.fn(),
+  } as any;
+
   let service: AIService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new AIService(mockPrisma, mockConfig);
+    service = new AIService(mockPrisma, mockConfig, mockControlPlane);
   });
 
   // ─── Test 1: sendMessage must fail-closed when schoolId is missing ─────────

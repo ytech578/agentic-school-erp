@@ -542,9 +542,35 @@ export default function AIFullPage() {
                     <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
                       <Zap size={20} color="var(--brand-primary)" />
                       <div>
-                        <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginBottom: "0.25rem" }}>
-                          Proposed Action
-                        </p>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
+                          <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
+                            Proposed Action
+                          </p>
+                          {msg.pendingAction.riskLevel && (
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                padding: "1px 6px",
+                                borderRadius: "4px",
+                                fontWeight: 600,
+                                background:
+                                  msg.pendingAction.riskLevel === "HIGH"
+                                    ? "rgba(239, 68, 68, 0.15)"
+                                    : msg.pendingAction.riskLevel === "MEDIUM"
+                                    ? "rgba(245, 158, 11, 0.15)"
+                                    : "rgba(16, 185, 129, 0.15)",
+                                color:
+                                  msg.pendingAction.riskLevel === "HIGH"
+                                    ? "#ef4444"
+                                    : msg.pendingAction.riskLevel === "MEDIUM"
+                                    ? "#f59e0b"
+                                    : "#10b981",
+                              }}
+                            >
+                              {msg.pendingAction.riskLevel} RISK
+                            </span>
+                          )}
+                        </div>
                         <p style={{ fontSize: "var(--text-sm)", fontWeight: "var(--font-semibold)", color: "var(--text-primary)" }}>
                           {msg.pendingAction.label}
                         </p>

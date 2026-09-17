@@ -383,31 +383,41 @@ General Rules:
         }
         tokens = response.usageMetadata?.totalTokenCount;
 
-        const userRole = data.user?.role || 'STUDENT';
-        const isAdmin = ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'].includes(userRole);
-        const isTeacher = userRole === 'TEACHER';
-
-        // ─── Native Gemini Function Calling / Tool Calling (FIX-03) ────────
+        // ─── Phase 12: Explicit multi-function call handling ────────────
+        // Phase 13: AIService is NOT the authority — never chooses role/tenant
         const functionCalls = typeof response.functionCalls === 'function' ? response.functionCalls() : [];
-        if (functionCalls && functionCalls.length > 0) {
+
+        if (functionCalls && functionCalls.length === 1) {
+          // Exactly one call — safe to propose
           const call = functionCalls[0];
           try {
             const ctx: AgentExecutionContext = {
               userId: data.user.id,
+              // Server-authoritative role from JWT — NEVER from AI output
               role: data.user.role,
               schoolId: effectiveSchoolId,
             };
-            const proposal = await this.controlPlane.proposeAction(ctx, call.name, call.args);
+            const proposal = await this.controlPlane.proposeAction(ctx, call.name, call.args as Record<string, unknown>);
             pendingAction = proposal.pendingAction;
-          } catch (error: any) {
-            this.logger.error(`Action proposal failed: ${error.message}`);
+          } catch (error: unknown) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.logger.error(`Action proposal failed: ${msg}`);
+            // Phase 13: Surface error to user — do NOT silently swallow
+            reply = `I was unable to prepare that action: ${msg.replace(/^[A-Z_]+: /, '')}. Please try again with more specific details.`;
           }
+        } else if (functionCalls && functionCalls.length > 1) {
+          // Multiple simultaneous mutations — explicitly rejected
+          // Do NOT silently execute only the first one
+          this.logger.warn(`Gemini returned ${functionCalls.length} function calls — rejecting multi-action request`);
+          reply = `I detected ${functionCalls.length} simultaneous actions in your request. For safety, please request one action at a time. Which action would you like to perform first?`;
         }
+        // functionCalls.length === 0 → proceed with text reply (no action)
 
       // Strip ALL action tags from the user-facing reply
       reply = reply ? reply.replace(/\[ACTION:[^\]]+\]/g, '').trim() : '';
       if (!reply && pendingAction) {
-        reply = `I have prepared the action to ${pendingAction.label.toLowerCase()}. Please review and confirm below:`;
+        const label = (pendingAction as Record<string, unknown>)['label'];
+        reply = `I have prepared the action to ${String(label ?? 'execute').toLowerCase()}. Please review and confirm below:`;
       }
 
       } catch (err: any) {
@@ -2823,133 +2833,4 @@ User request: "${prompt}"`;
       }],
     };
   }
-
-  // ─── Execute Automation Task ────────────────────────────────────────────
-  async executeAutomationTask(schoolId: string, userId: string, taskType: string, payload: any) {
-    const validSchoolId = requireSchoolId(schoolId);
-    let actionsCount = 0;
-
-    if (taskType === 'FEE_DEFAULTER' || taskType === 'ABSENCE_ALERT' || taskType === 'ATTENDANCE_WARNING') {
-      const recipientIds = (payload.items || []).map((item: any) => item.recipientId).filter(Boolean);
-      const validUsers = await this.prisma.user.findMany({
-        where: { id: { in: recipientIds }, schoolId: validSchoolId },
-        select: { id: true },
-      });
-      const validUserIdSet = new Set(validUsers.map((u) => u.id));
-
-      const BATCH_SIZE = 50;
-      for (let i = 0; i < payload.items.length; i += BATCH_SIZE) {
-        const batch = payload.items.slice(i, i + BATCH_SIZE);
-        const messages = batch
-          .filter((item: any) => validUserIdSet.has(item.recipientId))
-          .map((item: any) => ({
-            schoolId: validSchoolId,
-            senderId: userId,
-            recipientId: item.recipientId,
-            subject: payload.subject || taskType.replace(/_/g, ' '),
-            body: item.draftMessage,
-          }));
-        if (messages.length > 0) {
-          await this.prisma.message.createMany({ data: messages });
-          actionsCount += messages.length;
-        }
-      }
-    }
-
-    else if (taskType === 'TIMETABLE_COVER') {
-      for (const item of (payload.items || [])) {
-        if (item.suggestedSubstituteId && Array.isArray(item.slots) && item.slots.length > 0) {
-          const substituteStaff = await this.prisma.staff.findFirst({
-            where: { id: item.suggestedSubstituteId, schoolId: validSchoolId },
-          });
-
-          if (substituteStaff) {
-            const slotIds = item.slots.map((s: any) => s.id).filter(Boolean);
-            const result = await this.prisma.timetableSlot.updateMany({
-              where: { id: { in: slotIds }, schoolId: validSchoolId },
-              data: { staffId: item.suggestedSubstituteId },
-            });
-            actionsCount += result.count;
-          }
-        }
-      }
-    }
-
-    else if (taskType === 'LEAVE_RECOMMENDATION') {
-      for (const item of (payload.items || [])) {
-        const leave = await this.prisma.leaveRequest.findFirst({
-          where: { id: item.id, schoolId: validSchoolId },
-        });
-        if (leave) {
-          await this.prisma.leaveRequest.update({
-            where: { id: item.id },
-            data: { reviewNote: `[AI Recommendation: ${item.recommendation}] ${item.reasoning}` },
-          });
-          actionsCount++;
-        }
-      }
-    }
-
-    else if (taskType === 'REPORT_CARD_PUBLISH') {
-      const readyExams = (payload.items || []).filter((i: any) => i.isComplete);
-      for (const exam of readyExams) {
-        const examRecord = await this.prisma.exam.findFirst({
-          where: { id: exam.id, schoolId: validSchoolId },
-        });
-        if (!examRecord) continue;
-
-        const students = await this.prisma.student.findMany({
-          where: { schoolId: validSchoolId, isActive: true },
-          include: { user: { select: { id: true } } },
-          take: 100,
-        });
-        const messages = students.map((s: any) => ({
-          schoolId: validSchoolId,
-          senderId: userId,
-          recipientId: s.user.id,
-          subject: `Results Ready: ${exam.examName}`,
-          body: exam.draftMessage,
-        }));
-        if (messages.length > 0) {
-          await this.prisma.message.createMany({ data: messages });
-          actionsCount += messages.length;
-        }
-      }
-    }
-
-    else if (taskType === 'DAILY_DIGEST') {
-      const principal = await this.prisma.user.findFirst({
-        where: { schoolId: validSchoolId, role: { in: ['PRINCIPAL', 'SCHOOL_ADMIN'] }, status: 'ACTIVE' },
-      });
-      if (principal && payload.items?.[0]) {
-        await this.prisma.message.create({
-          data: {
-            schoolId: validSchoolId,
-            senderId: userId,
-            recipientId: principal.id,
-            subject: `Daily School Digest — ${new Date().toDateString()}`,
-            body: payload.items[0].draftMessage,
-          },
-        });
-        actionsCount = 1;
-      }
-    }
-
-    if (actionsCount > 0) {
-      await this.prisma.activityLog.create({
-        data: {
-          schoolId: validSchoolId,
-          userId,
-          action: 'UPDATE',
-          module: 'AI_AUTOMATION',
-          resourceType: taskType,
-          description: `Executed AI Automation task ${taskType} (${actionsCount} operations applied)`,
-          after: { taskType, actionsCount },
-        },
-      }).catch((err) => this.logger.warn(`Failed to write automation activity log: ${err.message}`));
-    }
-
-    return { success: true, actionsCount, taskType };
-  }
-
 }

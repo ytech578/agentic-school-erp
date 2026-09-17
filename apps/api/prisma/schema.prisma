@@ -1486,7 +1486,7 @@ model AgentAction {
   userId               String
   toolName             String
   arguments            Json
-  riskLevel            String
+  riskLevel            RiskLevel         @default(MEDIUM)
   status               AgentActionStatus @default(PROPOSED)
   requiresConfirmation Boolean           @default(false)
   label                String
