@@ -13,6 +13,7 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AIService } from './ai.service';
+import { AgentControlPlaneService } from './agent/agent-control-plane.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
@@ -22,7 +23,10 @@ import { Roles } from '../../core/decorators/roles.decorator';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('ai')
 export class AIController {
-  constructor(private service: AIService) {}
+  constructor(
+    private service: AIService,
+    private controlPlane: AgentControlPlaneService,
+  ) {}
 
   @Post('chat')
   @Throttle({ default: { limit: 20, ttl: 60000 } })
@@ -45,11 +49,11 @@ export class AIController {
     });
   }
 
-  @Post('action/execute')
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  @ApiOperation({ summary: 'Execute a confirmed AI action' })
-  async executeAction(@Request() req: any, @Body() body: { type: string; data: any }) {
-    return this.service.executeAIAction(req.user.schoolId, req.user.id, body, req.user.role);
+  @Post('action/:id/confirm')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
+  @ApiOperation({ summary: 'Confirm and execute an AI action' })
+  async confirmAction(@Param('id') id: string, @Request() req: any) {
+    return this.controlPlane.confirmAndExecute(id, req.user.id, req.user.schoolId);
   }
 
   @Post('alerts/run-monitoring')

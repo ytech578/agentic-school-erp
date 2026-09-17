@@ -2,9 +2,11 @@ import { create } from "zustand";
 import { apiClient } from "@/lib/axios";
 
 export interface PendingAction {
+  actionId: string;
   type: string;
   label: string;
-  data: Record<string, unknown>;
+  requiresConfirmation?: boolean;
+  data?: Record<string, unknown>;
 }
 
 export interface AttachmentItem {
@@ -36,7 +38,7 @@ interface AIState {
   sendMessage: (text: string, attachments?: AttachmentItem[]) => Promise<void>;
   loadConversation: (id: string) => Promise<void>;
   clearConversation: () => void;
-  executeAction: (action: { type: string; data: Record<string, unknown> }) => Promise<{ success: boolean; message: string }>;
+  executeAction: (actionId: string) => Promise<{ success: boolean; message: string }>;
 }
 
 export const useAIStore = create<AIState>((set, get) => ({
@@ -84,11 +86,11 @@ export const useAIStore = create<AIState>((set, get) => ({
     }
   },
 
-  executeAction: async (action: { type: string; data: Record<string, unknown> }) => {
+  executeAction: async (actionId: string) => {
     try {
-      const res = await apiClient.post("/ai/action/execute", action);
+      const res = await apiClient.post(`/ai/action/${actionId}/confirm`);
       const data = res.data.data || res.data;
-      return { success: data.success, message: data.message || "Action completed." };
+      return { success: data.status === 'SUCCEEDED', message: "Action completed successfully." };
     } catch {
       return { success: false, message: "Failed to execute action." };
     }

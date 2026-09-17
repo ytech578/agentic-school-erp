@@ -236,6 +236,7 @@ model School {
   activities            Activity[]
   agentAlerts           AgentAlert[]
   facultySubstitutions  FacultySubstitution[]
+  agentActions          AgentAction[]
 
   @@index([code])
   @@index([boardId])
@@ -1461,6 +1462,52 @@ model Message {
 
   @@index([recipientId, isRead])
   @@map("messages")
+}
+
+// ============================================================
+// AGENTIC CONTROL PLANE
+// ============================================================
+
+enum AgentActionStatus {
+  PROPOSED
+  AWAITING_CONFIRMATION
+  CONFIRMED
+  EXECUTING
+  SUCCEEDED
+  FAILED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+model AgentAction {
+  id                   String            @id @default(cuid())
+  schoolId             String
+  userId               String
+  toolName             String
+  arguments            Json
+  riskLevel            String
+  status               AgentActionStatus @default(PROPOSED)
+  requiresConfirmation Boolean           @default(false)
+  label                String
+  explanation          String?
+  idempotencyKey       String?           @unique
+  correlationId        String?
+  expiresAt            DateTime?
+  confirmedAt          DateTime?
+  confirmedBy          String?
+  executedAt           DateTime?
+  result               Json?
+  failureReason        String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id])
+
+  @@index([userId, status])
+  @@index([schoolId, status, createdAt])
+  @@index([idempotencyKey])
+  @@map("agent_actions")
 }
 
 // ============================================================

@@ -4,6 +4,8 @@ import { AuditAction, RiskLevel, EnquiryStatus } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
 import { generateNextSequence } from '../../core/database/sequence.util';
+import { AgentControlPlaneService } from './agent/agent-control-plane.service';
+import { AgentExecutionContext } from './agent/agent-types';
 import {
   GoogleGenerativeAI,
   HarmCategory,
@@ -84,6 +86,7 @@ export class AIService {
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
+    private controlPlane: AgentControlPlaneService,
   ) {
     const apiKey = this.config.get<string>('ai.geminiApiKey', '');
     if (apiKey) {
@@ -250,14 +253,14 @@ CRITICAL INSTRUCTIONS FOR ACTIONS AND COMMANDS:
 1. Approving Leave Requests:
    - When the user asks to "approve leave", "approve the pending leave request", or mentions a staff member's leave:
      - Check the "Pending Staff Leave Requests" above.
-     - If there is a pending leave: State the staff member's name, leave type, days, and reason, and ALWAYS append the action tag [ACTION:APPROVE_LEAVE:staffName] with the exact staff member name (e.g., [ACTION:APPROVE_LEAVE:Karan Singhania]).
+     - If there is a pending leave: State the staff member's name, leave type, days, and reason, and use the approve_leave tool.
      - If there are NO pending leave requests: State clearly that all staff leave requests are currently up to date and there are no pending requests awaiting approval right now.
 2. Creating Assignments:
    - When asked to create an assignment (e.g., "Create an assignment for Class 10 on Photosynthesis"):
-     - Confirm the assignment details and ALWAYS append [ACTION:CREATE_ASSIGNMENT:className:topic] (e.g., [ACTION:CREATE_ASSIGNMENT:Class 10:Photosynthesis]).
+     - Confirm the assignment details and use the create_assignment tool.
 3. Sending Announcements:
    - When asked to broadcast or send an announcement (e.g., "Send an announcement about tomorrow holiday"):
-     - Draft the announcement and append [ACTION:SEND_ANNOUNCEMENT:title] (e.g., [ACTION:SEND_ANNOUNCEMENT:School Holiday Tomorrow]).
+     - Draft the announcement and use the send_announcement tool.
 4. Top Students & Attendance:
    - When asked "Who are the top students by attendance?": List the top students directly from the live snapshot above.
 5. Fees & Dues:
@@ -388,129 +391,18 @@ General Rules:
         const functionCalls = typeof response.functionCalls === 'function' ? response.functionCalls() : [];
         if (functionCalls && functionCalls.length > 0) {
           const call = functionCalls[0];
-          if (call.name === 'approve_leave' && isAdmin) {
-            const rawStaffName = (call.args as any)?.staffName?.trim();
-            if (rawStaffName) {
-              let leave = await this.prisma.leaveRequest.findFirst({
-                where: {
-                  schoolId: effectiveSchoolId,
-                  status: 'PENDING',
-                  staff: {
-                    user: {
-                      OR: [
-                        { firstName: { contains: rawStaffName, mode: 'insensitive' } },
-                        { lastName: { contains: rawStaffName, mode: 'insensitive' } },
-                      ],
-                    },
-                  },
-                },
-                include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
-              });
-              if (!leave) {
-                leave = await this.prisma.leaveRequest.findFirst({
-                  where: { schoolId: effectiveSchoolId, status: 'PENDING' },
-                  include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
-                });
-              }
-              if (leave) {
-                pendingAction = {
-                  type: 'APPROVE_LEAVE',
-                  label: `Approve leave for ${leave.staff.user.firstName} ${leave.staff.user.lastName}`,
-                  data: { leaveId: leave.id },
-                };
-              }
-            }
-          } else if (call.name === 'create_assignment' && (isAdmin || isTeacher)) {
-            const { className: rawClassName, topic: rawTopic, dueDate } = (call.args as any) || {};
-            if (rawClassName && rawTopic) {
-              pendingAction = {
-                type: 'CREATE_ASSIGNMENT',
-                label: `Create assignment on topic "${rawTopic}" for ${rawClassName}`,
-                data: { className: rawClassName, topic: rawTopic, dueDate },
-              };
-            }
-          } else if (call.name === 'send_announcement' && isAdmin) {
-            const { title: rawTitle, message: rawMsg } = (call.args as any) || {};
-            if (rawTitle) {
-              pendingAction = {
-                type: 'SEND_ANNOUNCEMENT',
-                label: `Send announcement: "${rawTitle}"`,
-                data: { title: rawTitle, message: rawMsg },
-              };
-            }
+          try {
+            const ctx: AgentExecutionContext = {
+              userId: data.user.id,
+              role: data.user.role,
+              schoolId: effectiveSchoolId,
+            };
+            const proposal = await this.controlPlane.proposeAction(ctx, call.name, call.args);
+            pendingAction = proposal.pendingAction;
+          } catch (error: any) {
+            this.logger.error(`Action proposal failed: ${error.message}`);
           }
         }
-
-        // Fallback: Parse action tags from AI response with RBAC and schema checks
-        if (!pendingAction && reply) {
-          const approveLeaveMatch = reply.match(/\[ACTION:APPROVE_LEAVE:([^\]]+)\]/);
-          const createAssignmentMatch = reply.match(/\[ACTION:CREATE_ASSIGNMENT:([^\]]+):([^\]]+)\]/);
-          const sendAnnouncementMatch = reply.match(/\[ACTION:SEND_ANNOUNCEMENT:([^\]]+)\]/);
-
-        // APPROVE_LEAVE: Only admins can trigger leave approval
-        if (approveLeaveMatch && isAdmin) {
-          const rawStaffName = approveLeaveMatch[1]?.trim();
-          if (rawStaffName && /^[a-zA-Z0-9\s.\-_']{1,50}$/.test(rawStaffName)) {
-            let leave = null;
-            if (rawStaffName.toLowerCase() !== 'any' && rawStaffName.toLowerCase() !== 'pending') {
-              leave = await this.prisma.leaveRequest.findFirst({
-                where: {
-                  schoolId: effectiveSchoolId,
-                  status: 'PENDING',
-                  staff: {
-                    user: {
-                      OR: [
-                        { firstName: { contains: rawStaffName, mode: 'insensitive' } },
-                        { lastName: { contains: rawStaffName, mode: 'insensitive' } },
-                      ],
-                    },
-                  },
-                },
-                include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
-              });
-            }
-            if (!leave) {
-              leave = await this.prisma.leaveRequest.findFirst({
-                where: { schoolId: effectiveSchoolId, status: 'PENDING' },
-                include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
-              });
-            }
-            if (leave) {
-              pendingAction = {
-                type: 'APPROVE_LEAVE',
-                label: `Approve leave for ${leave.staff.user.firstName} ${leave.staff.user.lastName}`,
-                data: { leaveId: leave.id },
-              };
-            }
-          }
-        } else if (createAssignmentMatch && (isAdmin || isTeacher)) {
-          const rawClassName = createAssignmentMatch[1]?.trim();
-          const rawTopic = createAssignmentMatch[2]?.trim();
-          if (
-            rawClassName &&
-            rawTopic &&
-            /^[a-zA-Z0-9\s\-_()]{1,50}$/.test(rawClassName) &&
-            rawTopic.length >= 2 &&
-            rawTopic.length <= 150 &&
-            !/[<>{}]/.test(rawTopic)
-          ) {
-            pendingAction = {
-              type: 'CREATE_ASSIGNMENT',
-              label: `Create assignment on topic "${rawTopic}" for ${rawClassName}`,
-              data: { className: rawClassName, topic: rawTopic },
-            };
-          }
-        } else if (sendAnnouncementMatch && isAdmin) {
-          const rawTitle = sendAnnouncementMatch[1]?.trim();
-          if (rawTitle && rawTitle.length >= 2 && rawTitle.length <= 150 && !/[<>{}]/.test(rawTitle)) {
-            pendingAction = {
-              type: 'SEND_ANNOUNCEMENT',
-              label: `Send announcement: "${rawTitle}"`,
-              data: { title: rawTitle },
-            };
-          }
-        }
-      }
 
       // Strip ALL action tags from the user-facing reply
       reply = reply ? reply.replace(/\[ACTION:[^\]]+\]/g, '').trim() : '';
@@ -553,170 +445,6 @@ General Rules:
     }
 
     return { conversationId: conversation.id, reply, tokens, pendingAction };
-  }
-
-  // ─── Execute confirmed AI actions with Audit Logging ──────────────────────
-  async executeAIAction(schoolId: string, userId: string, action: { type: string; data: any }, userRole?: string) {
-    const validSchoolId = requireSchoolId(schoolId, 'Execute AI action');
-
-    // Security: Action-type allowlist — the server is the authority.
-    // The AI or frontend must NEVER dictate an unrecognised action type.
-    const ALLOWED_ACTION_TYPES = new Set(['APPROVE_LEAVE', 'CREATE_ASSIGNMENT', 'SEND_ANNOUNCEMENT']);
-    if (!ALLOWED_ACTION_TYPES.has(action.type)) {
-      throw new BadRequestException(
-        `Action type '${action.type}' is not a recognized AI action.`,
-      );
-    }
-
-    // Verify user role permissions
-    const user = await this.prisma.user.findFirst({
-      where: { id: userId, schoolId: validSchoolId },
-      select: { id: true, role: true, firstName: true, lastName: true },
-    });
-    if (!user) {
-      throw new ForbiddenException('User not authorized or tenant mismatch.');
-    }
-
-    const effectiveRole = userRole || user.role;
-    const isAdmin = ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'].includes(effectiveRole);
-
-    switch (action.type) {
-      case 'APPROVE_LEAVE': {
-        if (!isAdmin) {
-          throw new ForbiddenException('Only administrators can approve leave requests.');
-        }
-        let leaveId = action.data?.leaveId;
-        if (!leaveId) {
-          const firstPending = await this.prisma.leaveRequest.findFirst({
-            where: { schoolId: validSchoolId, status: 'PENDING' },
-          });
-          if (firstPending) leaveId = firstPending.id;
-        }
-        if (!leaveId) return { success: false, message: 'No pending leave request found to approve.' };
-        const leave = await this.prisma.leaveRequest.findFirst({
-          where: { id: leaveId, schoolId: validSchoolId },
-          include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
-        });
-        if (!leave) return { success: false, message: 'Leave request not found or unauthorized.' };
-        await this.prisma.leaveRequest.update({
-          where: { id: leave.id },
-          data: { status: 'APPROVED', reviewNote: '[Approved via AI Assistant]', reviewedAt: new Date(), reviewedBy: userId },
-        });
-
-        // Audit log entry
-        await this.prisma.activityLog.create({
-          data: {
-            schoolId: validSchoolId,
-            userId,
-            action: AuditAction.UPDATE,
-            module: 'AI_AGENT',
-            resourceId: leave.id,
-            resourceType: 'LeaveRequest',
-            description: `Approved leave request for staff ${leave.staff?.user?.firstName || ''} ${leave.staff?.user?.lastName || ''}`.trim(),
-            after: { leaveId: leave.id, status: 'APPROVED', reviewedBy: userId },
-          },
-        }).catch((err) => this.logger.warn(`Failed to write activity log: ${err.message}`));
-
-        return { success: true, message: 'Leave request approved successfully.' };
-      }
-      case 'CREATE_ASSIGNMENT': {
-        if (!isAdmin && effectiveRole !== 'TEACHER') {
-          throw new ForbiddenException('Only teachers and administrators can create assignments.');
-        }
-        const { className, topic, dueDate } = action.data || {};
-        if (!topic || typeof topic !== 'string' || topic.trim().length === 0) {
-          return { success: false, message: 'Assignment topic is required.' };
-        }
-        const cleanTopic = topic.trim().slice(0, 150);
-        let cls = className ? await this.prisma.class.findFirst({ where: { schoolId: validSchoolId, name: { contains: className.trim(), mode: 'insensitive' } } }) : null;
-        if (!cls) cls = await this.prisma.class.findFirst({ where: { schoolId: validSchoolId } });
-        let academicYear = await this.prisma.academicYear.findFirst({ where: { schoolId: validSchoolId, isActive: true } });
-        if (!academicYear) academicYear = await this.prisma.academicYear.findFirst({ where: { schoolId: validSchoolId } });
-        let teacher = await this.prisma.staff.findFirst({ where: { schoolId: validSchoolId, isActive: true } });
-        if (!teacher) teacher = await this.prisma.staff.findFirst({ where: { schoolId: validSchoolId } });
-        let subject = await this.prisma.subject.findFirst({ where: { schoolId: validSchoolId } });
-        if (!cls || !academicYear || !teacher || !subject) return { success: false, message: 'Could not resolve required class, academic year, staff, or subject.' };
-        
-        const assignment = await this.prisma.assignment.create({
-          data: {
-            schoolId: validSchoolId,
-            classId: cls.id,
-            staffId: teacher.id,
-            subjectId: subject.id,
-            academicYearId: academicYear.id,
-            title: cleanTopic,
-            description: `Assignment created by AI Assistant on topic: ${cleanTopic}`,
-            dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-            maxMarks: 10,
-          },
-        });
-
-        // Audit log entry
-        await this.prisma.activityLog.create({
-          data: {
-            schoolId: validSchoolId,
-            userId,
-            action: AuditAction.CREATE,
-            module: 'AI_AGENT',
-            resourceId: assignment.id,
-            resourceType: 'Assignment',
-            description: `Created assignment "${cleanTopic}" for Class ${cls.name}`,
-            after: { assignmentId: assignment.id, title: cleanTopic, classId: cls.id },
-          },
-        }).catch((err) => this.logger.warn(`Failed to write activity log: ${err.message}`));
-
-        return { success: true, message: `Assignment "${cleanTopic}" created successfully for Class ${cls.name}.` };
-      }
-      case 'SEND_ANNOUNCEMENT': {
-        if (!isAdmin) {
-          throw new ForbiddenException('Only administrators can send announcements.');
-        }
-        const { title, message } = action.data || {};
-        if (!title || typeof title !== 'string' || title.trim().length === 0) {
-          return { success: false, message: 'Announcement title is required.' };
-        }
-        const cleanTitle = title.trim().slice(0, 150);
-        const users = await this.prisma.user.findMany({
-          where: { schoolId: validSchoolId, status: 'ACTIVE' },
-          select: { id: true },
-        });
-        const BATCH_SIZE = 50;
-        let sent = 0;
-        for (let i = 0; i < users.length; i += BATCH_SIZE) {
-          const batch = users.slice(i, i + BATCH_SIZE).filter(u => u.id !== userId);
-          if (batch.length > 0) {
-            await this.prisma.message.createMany({
-              data: batch.map(u => ({
-                schoolId: validSchoolId,
-                senderId: userId,
-                recipientId: u.id,
-                subject: cleanTitle,
-                body: message || cleanTitle,
-              })),
-            });
-            sent += batch.length;
-          }
-        }
-
-        // Audit log entry
-        await this.prisma.activityLog.create({
-          data: {
-            schoolId: validSchoolId,
-            userId,
-            action: AuditAction.CREATE,
-            module: 'AI_AGENT',
-            resourceId: null,
-            resourceType: 'Message',
-            description: `Broadcasted announcement "${cleanTitle}" to ${sent} users`,
-            after: { title: cleanTitle, recipientCount: sent, senderId: userId },
-          },
-        }).catch((err) => this.logger.warn(`Failed to write activity log: ${err.message}`));
-
-        return { success: true, message: `Announcement sent to ${sent} users.` };
-      }
-      default:
-        return { success: false, message: 'Unknown action type' };
-    }
   }
 
   // ─── Get conversations list ───────────────────────────────────────────────
@@ -2493,22 +2221,24 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
         };
 
       } else if (intent === 'APPROVE_LEAVE') {
-        const result = await this.executeAIAction(schoolId, userId || '', {
-          type: 'APPROVE_LEAVE',
-          data: {},
-        });
+        const result = await this.controlPlane.proposeAction({
+          userId: userId || 'system',
+          role: 'PRINCIPAL',
+          schoolId,
+          isGlobal: false
+        }, 'approve_leave', {});
 
         actionExecuted = {
-          type: 'LEAVE_APPROVED',
-          title: 'Leave Request Approved',
+          type: 'APPROVE_LEAVE',
+          title: 'Leave Request Pending Approval',
           link: '/automation',
-          linkText: 'View Automation Hub',
+          linkText: 'View Pending Actions',
           details: {
-            'Result': result.message,
+            'Action ID': result.pendingAction.actionId,
           },
         };
 
-        textResponse = `### ✅ Leave Approved\n\n${result.message}`;
+        textResponse = `### 📝 Leave Request Pending\n\nI have prepared the leave request for your approval. Please confirm the action in your pending tasks.`;
 
       } else if (intent === 'ATTENDANCE_TREND') {
         const totalStudents = await this.prisma.student.count({ where: { schoolId, isActive: true } });
@@ -3101,14 +2831,12 @@ User request: "${prompt}"`;
 
     if (taskType === 'FEE_DEFAULTER' || taskType === 'ABSENCE_ALERT' || taskType === 'ATTENDANCE_WARNING') {
       const recipientIds = (payload.items || []).map((item: any) => item.recipientId).filter(Boolean);
-      // Validate recipients exist in the tenant
       const validUsers = await this.prisma.user.findMany({
         where: { id: { in: recipientIds }, schoolId: validSchoolId },
         select: { id: true },
       });
       const validUserIdSet = new Set(validUsers.map((u) => u.id));
 
-      // Batched messaging to avoid failures on large datasets
       const BATCH_SIZE = 50;
       for (let i = 0; i < payload.items.length; i += BATCH_SIZE) {
         const batch = payload.items.slice(i, i + BATCH_SIZE);
@@ -3131,7 +2859,6 @@ User request: "${prompt}"`;
     else if (taskType === 'TIMETABLE_COVER') {
       for (const item of (payload.items || [])) {
         if (item.suggestedSubstituteId && Array.isArray(item.slots) && item.slots.length > 0) {
-          // Verify substitute staff belongs to this tenant
           const substituteStaff = await this.prisma.staff.findFirst({
             where: { id: item.suggestedSubstituteId, schoolId: validSchoolId },
           });
@@ -3164,7 +2891,6 @@ User request: "${prompt}"`;
     }
 
     else if (taskType === 'REPORT_CARD_PUBLISH') {
-      // Notify students and parents for ready exams
       const readyExams = (payload.items || []).filter((i: any) => i.isComplete);
       for (const exam of readyExams) {
         const examRecord = await this.prisma.exam.findFirst({
@@ -3214,7 +2940,7 @@ User request: "${prompt}"`;
         data: {
           schoolId: validSchoolId,
           userId,
-          action: AuditAction.UPDATE,
+          action: 'UPDATE',
           module: 'AI_AUTOMATION',
           resourceType: taskType,
           description: `Executed AI Automation task ${taskType} (${actionsCount} operations applied)`,
@@ -3225,5 +2951,5 @@ User request: "${prompt}"`;
 
     return { success: true, actionsCount, taskType };
   }
-}
 
+}

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { BadRequestException } from '@nestjs/common';
 import { AIService } from './ai.service';
 import { PrismaService } from '../../core/database/prisma.service';
+import { AgentControlPlaneService } from './agent/agent-control-plane.service';
 
 describe('AIService Enterprise Agents (Question Paper, MTSS Retention, Helpdesk, Remedial Tutor)', () => {
   let service: AIService;
@@ -35,6 +36,10 @@ describe('AIService Enterprise Agents (Question Paper, MTSS Retention, Helpdesk,
           useValue: {
             get: jest.fn().mockImplementation((key: string, defaultValue?: any) => defaultValue || ''),
           },
+        },
+        { 
+          provide: AgentControlPlaneService, 
+          useValue: { proposeAction: jest.fn(), confirmAndExecute: jest.fn() } 
         },
       ],
     }).compile();

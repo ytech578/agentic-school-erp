@@ -102,47 +102,6 @@ describe('AI Service — Tenant Isolation & Security (Phase 7)', () => {
     });
   });
 
-  // ─── Test 2: executeAIAction must reject unknown action types ─────────────
-  describe('executeAIAction — action-type allowlist', () => {
-    it('throws BadRequestException for unknown action type', async () => {
-      await expect(
-        service.executeAIAction('school-123', 'user-1', { type: 'DROP_TABLE', data: {} }, 'PRINCIPAL'),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('throws BadRequestException for SQL-injection-style action type', async () => {
-      await expect(
-        service.executeAIAction('school-123', 'user-1', { type: "'; DROP TABLE users; --", data: {} }, 'PRINCIPAL'),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('throws BadRequestException for empty action type', async () => {
-      await expect(
-        service.executeAIAction('school-123', 'user-1', { type: '', data: {} }, 'PRINCIPAL'),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('accepts APPROVE_LEAVE (not BadRequest — proceeds to role check)', async () => {
-      mockPrisma.user.findFirst.mockResolvedValue(null);
-      await expect(
-        service.executeAIAction('school-123', 'user-1', { type: 'APPROVE_LEAVE', data: {} }, 'PRINCIPAL'),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('accepts CREATE_ASSIGNMENT (not BadRequest)', async () => {
-      mockPrisma.user.findFirst.mockResolvedValue(null);
-      await expect(
-        service.executeAIAction('school-123', 'user-1', { type: 'CREATE_ASSIGNMENT', data: {} }, 'PRINCIPAL'),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('accepts SEND_ANNOUNCEMENT (not BadRequest)', async () => {
-      mockPrisma.user.findFirst.mockResolvedValue(null);
-      await expect(
-        service.executeAIAction('school-123', 'user-1', { type: 'SEND_ANNOUNCEMENT', data: {} }, 'PRINCIPAL'),
-      ).rejects.toThrow(ForbiddenException);
-    });
-  });
 
   // ─── Test 3: requireSchoolId utility (fail-closed contract) ──────────────
   describe('requireSchoolId — fail-closed contract', () => {

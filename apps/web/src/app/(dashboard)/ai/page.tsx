@@ -168,9 +168,13 @@ export default function AIFullPage() {
   };
 
   const handleConfirmAction = async (action: PendingAction, msgIndex: number) => {
+    if (!action.actionId) {
+      toast.error("Invalid action ID.");
+      return;
+    }
     setExecutingAction(`${msgIndex}`);
     try {
-      const result = await executeAction(action);
+      const result = await executeAction(action.actionId);
       if (result.success) {
         toast.success(result.message);
         setDismissedActions((prev) => ({ ...prev, [msgIndex]: true }));
