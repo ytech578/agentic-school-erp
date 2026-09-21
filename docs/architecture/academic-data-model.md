@@ -616,3 +616,82 @@ Executed in migration `20260921120000_canonical_academic_schema`:
    - `academic-invariants.spec.ts`: 22 automated test scenarios verifying strict invariant enforcement in application services (`ClassesService`, `SchoolsService`, `CurriculumService`, `AcademicIntegrityService`).
    - `academic-migration.spec.ts`: Tests verifying backward compatibility of legacy queries, deterministic offering bridge resolution, and multi-year teacher assignment persistence.
 
+---
+
+## 10. Canonical Academic APIs & Tenant Enforcement (Change #8F)
+
+### 10.1 Architectural Pipeline & Security Model
+Every incoming academic request is server-authorized and evaluated through a strict 9-layer enforcement pipeline:
+```
+1. Authentication (JwtAuthGuard)
+   └── Validates bearer JWT; attaches verified user & tenant payload to req.user.
+2. Tenant Context (requireSchoolId)
+   └── Derives schoolId strictly from req.user.schoolId. Discards/rejects client-supplied schoolId injections.
+3. RBAC (RolesGuard)
+   └── Enforces role hierarchy (SUPER_ADMIN, SCHOOL_ADMIN, PRINCIPAL, TEACHER, etc.).
+4. Fine-Grained Permissions (PermissionsGuard + @Permissions)
+   └── Enforces least privilege (e.g. ACADEMIC_READ, ACADEMIC_MANAGE, ACADEMIC_ENROLL).
+5. Academic-Year Integrity
+   └── Validates target academic year belongs to tenant, and asserts session is not locked for structural mutations.
+6. Input Validation (class-validator DTOs with whitelist: true, transform: true)
+   └── Sanitizes payloads, enforces numeric boundaries [1..12], string formats, and dates.
+7. Domain Rules & Invariants
+   └── Enforces single CLASS_TEACHER per section/year, single active student enrollment per year, teacher school matching.
+8. Database Transactions & Constraints
+   └── Atomic operations with foreign key integrity, cascade rules, and unique constraints.
+9. Audit Logging (AuditLogInterceptor)
+   └── Automatically records user, tenant, action, and sanitized metadata in activity_logs.
+```
+
+### 10.2 Canonical API Catalog
+
+| Resource Area | Route | Method | Required Permission | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **Academic Years** | `/academic-years` | `GET` | `ACADEMIC_READ` | List all academic sessions for current school. |
+| | `/academic-years` | `POST` | `ACADEMIC_MANAGE` | Create new academic year with date boundary validation. |
+| | `/academic-years/:id` | `GET` | `ACADEMIC_READ` | Get academic year details. |
+| | `/academic-years/:id` | `PUT` | `ACADEMIC_MANAGE` | Update academic year name or date boundaries. |
+| | `/academic-years/:id/activate` | `PATCH` | `ACADEMIC_MANAGE` | Atomically activate session; deactivates previous active. |
+| | `/academic-years/:id/lock` | `PATCH` | `ACADEMIC_MANAGE` | Lock or unlock academic year to freeze historical records. |
+| **Classes & Sections** | `/classes` | `GET` | `ACADEMIC_READ` | List school classes with sections, teachers, & enrollments. |
+| | `/classes` | `POST` | `ACADEMIC_MANAGE` | Create class (enforces non-locked session & level [1..12]). |
+| | `/classes/:id` | `GET` | `ACADEMIC_READ` | Get class details by ID within tenant boundary. |
+| | `/classes/:id` | `PUT` | `ACADEMIC_MANAGE` | Update class name or numeric level. |
+| | `/classes/:id` | `DELETE` | `ACADEMIC_MANAGE` | Delete empty class. |
+| | `/classes/:classId/sections` | `GET` | `ACADEMIC_READ` | List sections belonging to class. |
+| | `/classes/:classId/sections` | `POST` | `ACADEMIC_MANAGE` | Create new section within class and academic session. |
+| | `/sections/:id` | `GET` | `ACADEMIC_READ` | Get section details by ID within tenant boundary. |
+| | `/sections/:id` | `PUT` | `ACADEMIC_MANAGE` | Update section name, capacity, room number. |
+| | `/sections/:id` | `DELETE` | `ACADEMIC_MANAGE` | Delete empty section (rejects if active enrollments exist). |
+| **Teacher Assignments** | `/academic/teacher-assignments` | `GET` | `ACADEMIC_READ` | List staff allocations filtered by staff, section, class, year. |
+| | `/academic/teacher-assignments` | `POST` | `ACADEMIC_MANAGE` | Assign staff to section/offering; enforces single class teacher. |
+| | `/academic/teacher-assignments/:id` | `GET` | `ACADEMIC_READ` | Get teacher assignment details. |
+| | `/academic/teacher-assignments/:id` | `PUT` | `ACADEMIC_MANAGE` | Update teacher assignment or class teacher designation. |
+| | `/academic/teacher-assignments/:id` | `DELETE` | `ACADEMIC_MANAGE` | Remove teacher allocation. |
+| **Student Enrollments** | `/academic/enrollments` | `GET` | `ACADEMIC_READ` | List student homeroom memberships filtered by class/section. |
+| | `/academic/enrollments` | `POST` | `ACADEMIC_MANAGE` | Enroll student into section; enforces single active session rule. |
+| | `/academic/enrollments/:id` | `GET` | `ACADEMIC_READ` | Get student enrollment details. |
+| | `/academic/enrollments/:id/status`| `PATCH` | `ACADEMIC_MANAGE` | Update enrollment status (ACTIVE, TRANSFERRED, DROPPED). |
+| | `/academic/enrollments/:id` | `DELETE` | `ACADEMIC_MANAGE` | Delete student enrollment record. |
+| **Boards & Curricula** | `/curriculum/boards` | `GET` | `ACADEMIC_READ` | List national/state educational boards. |
+| | `/curriculum/boards` | `POST` | `SUPER_ADMIN` | Create board master record. |
+| | `/curriculum/boards/:id` | `GET` | `ACADEMIC_READ` | Get board details. |
+| | `/curriculum` | `GET` | `ACADEMIC_READ` | List curricula frameworks for board. |
+| | `/curriculum` | `POST` | `SUPER_ADMIN` | Create curriculum framework. |
+| | `/curriculum/:id` | `GET` | `ACADEMIC_READ` | Get curriculum details and framework tree. |
+| | `/curriculum/:id/groups` | `GET` | `ACADEMIC_READ` | List subject groups in curriculum. |
+| | `/curriculum/:id/groups` | `POST` | `SUPER_ADMIN` | Create subject group with selection constraints. |
+| **Subject Offerings** | `/curriculum/offerings` | `GET` | `ACADEMIC_READ` | List canonical school offerings (aliased to `/school-offerings`).|
+| | `/curriculum/offerings` | `POST` | `ACADEMIC_MANAGE` | Create course offering for academic session and grade band. |
+| | `/curriculum/offerings/:id` | `GET` | `ACADEMIC_READ` | Get course offering details. |
+| | `/curriculum/offerings/:id` | `PUT` | `ACADEMIC_MANAGE` | Update periods per week, assessment config, marks. |
+| | `/curriculum/offerings/:id/status`| `PATCH` | `ACADEMIC_MANAGE` | Toggle offering active status. |
+| | `/curriculum/offerings/:id/enroll`| `POST` | `ACADEMIC_MANAGE` | Enroll student into specific subject offering. |
+| | `/curriculum/students/:sId/enrollments/:oId` | `DELETE` | `ACADEMIC_MANAGE` | Unenroll student from elective/course offering. |
+
+### 10.3 Legacy Backward Compatibility Adapters
+- **`/subjects`**: Maintained as an operational bridge for legacy components (Timetable, Exams). Translates school queries into active `Subject` records linked to `SchoolSubjectOffering`.
+- **`/schools/academic-years`**: Maintained as an alias to `/academic-years` so existing frontend modules function without regressions.
+- **`TeacherAssignment`**: Preserves optional `subjectId` relation while storing canonical `schoolSubjectOfferingId`, allowing legacy timetable slot resolvers to function uninterrupted.
+
+

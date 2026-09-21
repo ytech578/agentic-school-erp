@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -10,6 +11,12 @@ import {
   CreateSchoolOfferingDto,
   UpdateSchoolOfferingDto,
   EnrollStudentSubjectsDto,
+  CreateBoardDto,
+  UpdateBoardDto,
+  CreateCurriculumDto,
+  UpdateCurriculumDto,
+  CreateSubjectGroupDto,
+  UpdateSubjectGroupDto,
 } from './dto/curriculum.dto';
 import {
   OfferingSource,
@@ -54,6 +61,169 @@ export class CurriculumService {
         },
       },
       orderBy: { name: 'asc' },
+    });
+  }
+
+  async getBoardById(id: string) {
+    const board = await this.prisma.board.findUnique({
+      where: { id },
+      include: {
+        curriculums: {
+          orderBy: { version: 'desc' },
+        },
+      },
+    });
+    if (!board) throw new NotFoundException('Board not found');
+    return board;
+  }
+
+  async createBoard(dto: CreateBoardDto) {
+    const existing = await this.prisma.board.findUnique({
+      where: { code: dto.code.trim().toUpperCase() },
+    });
+    if (existing) {
+      throw new ConflictException(`Board code '${dto.code}' already exists`);
+    }
+    return this.prisma.board.create({
+      data: {
+        name: dto.name.trim(),
+        code: dto.code.trim().toUpperCase(),
+        category: (dto.category as any) || 'CBSE',
+        description: dto.description?.trim(),
+      },
+    });
+  }
+
+  async updateBoard(id: string, dto: UpdateBoardDto) {
+    const existing = await this.prisma.board.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Board not found');
+    return this.prisma.board.update({
+      where: { id },
+      data: {
+        name: dto.name?.trim(),
+        code: dto.code ? dto.code.trim().toUpperCase() : undefined,
+        category: dto.category as any,
+        description: dto.description !== undefined ? dto.description?.trim() : undefined,
+        isActive: dto.isActive,
+      },
+    });
+  }
+
+  async getCurriculumById(id: string) {
+    const curriculum = await this.prisma.curriculum.findUnique({
+      where: { id },
+      include: {
+        board: true,
+        subjectGroups: {
+          orderBy: { sortOrder: 'asc' },
+          include: { subjects: true },
+        },
+      },
+    });
+    if (!curriculum) throw new NotFoundException('Curriculum not found');
+    return curriculum;
+  }
+
+  async createCurriculum(dto: CreateCurriculumDto) {
+    const board = await this.prisma.board.findUnique({ where: { id: dto.boardId } });
+    if (!board) throw new NotFoundException('Parent Board not found');
+
+    const existing = await this.prisma.curriculum.findFirst({
+      where: { boardId: dto.boardId, code: dto.code.trim().toUpperCase() },
+    });
+    if (existing) {
+      throw new ConflictException(`Curriculum code '${dto.code}' already exists for this board`);
+    }
+
+    return this.prisma.curriculum.create({
+      data: {
+        boardId: dto.boardId,
+        name: dto.name.trim(),
+        code: dto.code.trim().toUpperCase(),
+        version: dto.version.trim(),
+        description: dto.description?.trim(),
+        isActive: true,
+      },
+      include: { board: true },
+    });
+  }
+
+  async updateCurriculum(id: string, dto: UpdateCurriculumDto) {
+    const existing = await this.prisma.curriculum.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Curriculum not found');
+    return this.prisma.curriculum.update({
+      where: { id },
+      data: {
+        name: dto.name?.trim(),
+        version: dto.version?.trim(),
+        description: dto.description !== undefined ? dto.description?.trim() : undefined,
+        isActive: dto.isActive,
+      },
+    });
+  }
+
+  async getSubjectGroups(curriculumId: string) {
+    return this.prisma.subjectGroup.findMany({
+      where: { curriculumId },
+      include: {
+        subjects: { where: { isActive: true }, include: { globalSubject: true } },
+      },
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+  async getSubjectGroupById(id: string) {
+    const group = await this.prisma.subjectGroup.findUnique({
+      where: { id },
+      include: {
+        curriculum: true,
+        subjects: { include: { globalSubject: true } },
+      },
+    });
+    if (!group) throw new NotFoundException('Subject group not found');
+    return group;
+  }
+
+  async createSubjectGroup(curriculumId: string, dto: CreateSubjectGroupDto) {
+    const curriculum = await this.prisma.curriculum.findUnique({ where: { id: curriculumId } });
+    if (!curriculum) throw new NotFoundException('Curriculum not found');
+
+    const existing = await this.prisma.subjectGroup.findFirst({
+      where: { curriculumId, code: dto.code.trim().toUpperCase() },
+    });
+    if (existing) {
+      throw new ConflictException(`Subject group code '${dto.code}' already exists in this curriculum`);
+    }
+
+    const count = await this.prisma.subjectGroup.count({ where: { curriculumId } });
+
+    return this.prisma.subjectGroup.create({
+      data: {
+        curriculumId,
+        name: dto.name.trim(),
+        code: dto.code.trim().toUpperCase(),
+        description: dto.description?.trim(),
+        minSelection: dto.minSelection ?? dto.minSubjects ?? 0,
+        maxSelection: dto.maxSelection ?? dto.maxSubjects,
+        isRequired: dto.isRequired ?? true,
+        sortOrder: dto.sortOrder ?? count + 1,
+      },
+    });
+  }
+
+  async updateSubjectGroup(id: string, dto: UpdateSubjectGroupDto) {
+    const existing = await this.prisma.subjectGroup.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Subject group not found');
+    return this.prisma.subjectGroup.update({
+      where: { id },
+      data: {
+        name: dto.name?.trim(),
+        description: dto.description !== undefined ? dto.description?.trim() : undefined,
+        minSelection: dto.minSelection ?? dto.minSubjects,
+        maxSelection: dto.maxSelection ?? dto.maxSubjects,
+        isRequired: dto.isRequired,
+        sortOrder: dto.sortOrder,
+      },
     });
   }
 
@@ -312,6 +482,12 @@ export class CurriculumService {
       );
     }
 
+    if (activeYear.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${activeYear.name}' is locked. Structural changes are not permitted.`,
+      );
+    }
+
     const school = await this.prisma.school.findUnique({
       where: { id: validSchoolId },
     });
@@ -427,6 +603,33 @@ export class CurriculumService {
     });
   }
 
+  async getSchoolOfferingById(schoolId: string, id: string) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const offering = await this.prisma.schoolSubjectOffering.findFirst({
+      where: { id, schoolId: validSchoolId },
+      include: {
+        globalSubject: true,
+        curriculumSubject: true,
+        legacySubject: true,
+        academicYear: true,
+        _count: {
+          select: {
+            studentEnrollments: { where: { status: 'ACTIVE' } },
+            teacherAssignments: true,
+          },
+        },
+      },
+    });
+
+    if (!offering) {
+      throw new NotFoundException(
+        `School subject offering with ID "${id}" not found`,
+      );
+    }
+
+    return offering;
+  }
+
   async updateSchoolOffering(
     schoolId: string,
     id: string,
@@ -435,11 +638,18 @@ export class CurriculumService {
     const validSchoolId = requireSchoolId(schoolId);
     const offering = await this.prisma.schoolSubjectOffering.findFirst({
       where: { id, schoolId: validSchoolId },
+      include: { academicYear: true },
     });
 
     if (!offering) {
       throw new NotFoundException(
         `School subject offering with ID "${id}" not found`,
+      );
+    }
+
+    if (offering.academicYear?.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${offering.academicYear.name}' is locked. Structural changes are not permitted.`,
       );
     }
 
@@ -456,15 +666,47 @@ export class CurriculumService {
     });
   }
 
-  async deleteSchoolOffering(schoolId: string, id: string) {
+  async toggleOfferingStatus(schoolId: string, id: string, isOffered: boolean) {
     const validSchoolId = requireSchoolId(schoolId);
     const offering = await this.prisma.schoolSubjectOffering.findFirst({
       where: { id, schoolId: validSchoolId },
+      include: { academicYear: true },
     });
 
     if (!offering) {
       throw new NotFoundException(
         `School subject offering with ID "${id}" not found`,
+      );
+    }
+
+    if (offering.academicYear?.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${offering.academicYear.name}' is locked. Structural changes are not permitted.`,
+      );
+    }
+
+    return this.prisma.schoolSubjectOffering.update({
+      where: { id: offering.id },
+      data: { isOffered },
+    });
+  }
+
+  async deleteSchoolOffering(schoolId: string, id: string) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const offering = await this.prisma.schoolSubjectOffering.findFirst({
+      where: { id, schoolId: validSchoolId },
+      include: { academicYear: true },
+    });
+
+    if (!offering) {
+      throw new NotFoundException(
+        `School subject offering with ID "${id}" not found`,
+      );
+    }
+
+    if (offering.academicYear?.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${offering.academicYear.name}' is locked. Structural changes are not permitted.`,
       );
     }
 
@@ -589,6 +831,12 @@ export class CurriculumService {
       throw new BadRequestException('No active Academic Year found');
     }
 
+    if (activeYear.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${activeYear.name}' is locked. Structural changes are not permitted.`,
+      );
+    }
+
     // Verify all requested offering IDs belong to this school and are active
     const offerings = await this.prisma.schoolSubjectOffering.findMany({
       where: {
@@ -660,6 +908,45 @@ export class CurriculumService {
     });
 
     return this.getStudentEnrollments(validSchoolId, studentId);
+  }
+
+  async unenrollStudentSubject(
+    schoolId: string,
+    studentId: string,
+    offeringId: string,
+  ) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const student = await this.prisma.student.findFirst({
+      where: { id: studentId, schoolId: validSchoolId },
+    });
+    if (!student) {
+      throw new NotFoundException(`Student with ID "${studentId}" not found`);
+    }
+
+    const enrollment = await this.prisma.studentSubjectEnrollment.findFirst({
+      where: {
+        studentId,
+        schoolSubjectOfferingId: offeringId,
+        schoolSubjectOffering: { schoolId: validSchoolId },
+      },
+      include: { academicYear: true },
+    });
+
+    if (!enrollment) {
+      throw new NotFoundException('Student subject enrollment not found');
+    }
+
+    if (enrollment.academicYear?.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${enrollment.academicYear.name}' is locked. Structural changes are not permitted.`,
+      );
+    }
+
+    await this.prisma.studentSubjectEnrollment.delete({
+      where: { id: enrollment.id },
+    });
+
+    return { success: true, message: 'Student subject enrollment removed' };
   }
 
   // -------------------------------------------------------------
