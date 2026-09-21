@@ -1,4 +1,9 @@
-import { Injectable, Logger, ForbiddenException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ForbiddenException,
+  BadRequestException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditAction, RiskLevel, EnquiryStatus } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -6,6 +11,7 @@ import { requireSchoolId } from '../../core/tenant/tenant.util';
 import { generateNextSequence } from '../../core/database/sequence.util';
 import { AgentControlPlaneService } from './agent/agent-control-plane.service';
 import { AgentExecutionContext } from './agent/agent-types';
+import { ROLE_PERMISSIONS, UserRole } from '@school-erp/shared';
 import {
   GoogleGenerativeAI,
   HarmCategory,
@@ -19,13 +25,15 @@ const AI_TOOLS: FunctionDeclarationsTool[] = [
     functionDeclarations: [
       {
         name: 'approve_leave',
-        description: 'Approve a pending staff leave request when requested by a school administrator.',
+        description:
+          'Approve a pending staff leave request when requested by a school administrator.',
         parameters: {
           type: SchemaType.OBJECT,
           properties: {
             staffName: {
               type: SchemaType.STRING,
-              description: 'The name of the staff member whose leave request is to be approved.',
+              description:
+                'The name of the staff member whose leave request is to be approved.',
             },
           },
           required: ['staffName'],
@@ -55,7 +63,8 @@ const AI_TOOLS: FunctionDeclarationsTool[] = [
       },
       {
         name: 'send_announcement',
-        description: 'Broadcast a school-wide announcement or urgent circular to all active users.',
+        description:
+          'Broadcast a school-wide announcement or urgent circular to all active users.',
         parameters: {
           type: SchemaType.OBJECT,
           properties: {
@@ -92,7 +101,10 @@ export class AIService {
     if (apiKey) {
       this.genAI = new GoogleGenerativeAI(apiKey);
       this.model = this.genAI.getGenerativeModel({
-        model: this.config.get<string>('ai.geminiModel', 'gemini-3.5-flash-lite'),
+        model: this.config.get<string>(
+          'ai.geminiModel',
+          'gemini-3.5-flash-lite',
+        ),
         tools: AI_TOOLS,
         safetySettings: [
           {
@@ -136,36 +148,52 @@ export class AIService {
           feeStats,
         ] = await Promise.all([
           this.prisma.student?.count
-            ? this.prisma.student.count({ where: { schoolId: targetSchoolId, isActive: true } }).catch(() => 0)
+            ? this.prisma.student
+                .count({ where: { schoolId: targetSchoolId, isActive: true } })
+                .catch(() => 0)
             : Promise.resolve(0),
           this.prisma.staff?.count
-            ? this.prisma.staff.count({ where: { schoolId: targetSchoolId, isActive: true } }).catch(() => 0)
+            ? this.prisma.staff
+                .count({ where: { schoolId: targetSchoolId, isActive: true } })
+                .catch(() => 0)
             : Promise.resolve(0),
           this.prisma.attendanceRecord?.count
-            ? this.prisma.attendanceRecord.count({
-                where: {
-                  schoolId: targetSchoolId,
-                  date: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
-                  status: 'PRESENT',
-                },
-              }).catch(() => 0)
+            ? this.prisma.attendanceRecord
+                .count({
+                  where: {
+                    schoolId: targetSchoolId,
+                    date: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+                    status: 'PRESENT',
+                  },
+                })
+                .catch(() => 0)
             : Promise.resolve(0),
           this.prisma.leaveRequest?.findMany
-            ? this.prisma.leaveRequest.findMany({
-                where: { schoolId: targetSchoolId, status: 'PENDING' },
-                include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
-                take: 5,
-                orderBy: { createdAt: 'desc' },
-              }).catch(() => [])
+            ? this.prisma.leaveRequest
+                .findMany({
+                  where: { schoolId: targetSchoolId, status: 'PENDING' },
+                  include: {
+                    staff: {
+                      include: {
+                        user: { select: { firstName: true, lastName: true } },
+                      },
+                    },
+                  },
+                  take: 5,
+                  orderBy: { createdAt: 'desc' },
+                })
+                .catch(() => [])
             : Promise.resolve([]),
           this.prisma.class?.findMany
-            ? this.prisma.class.findMany({
-                where: { schoolId: targetSchoolId },
-                select: { name: true },
-                distinct: ['name'],
-                take: 12,
-                orderBy: { name: 'asc' },
-              }).catch(() => [])
+            ? this.prisma.class
+                .findMany({
+                  where: { schoolId: targetSchoolId },
+                  select: { name: true },
+                  distinct: ['name'],
+                  take: 12,
+                  orderBy: { name: 'asc' },
+                })
+                .catch(() => [])
             : Promise.resolve([]),
           this.prisma.attendanceRecord?.groupBy
             ? this.prisma.attendanceRecord
@@ -177,13 +205,22 @@ export class AIService {
                   take: 5,
                 })
                 .then(async (groups) => {
-                  if (!groups || groups.length === 0 || !this.prisma.student?.findMany) return [];
+                  if (
+                    !groups ||
+                    groups.length === 0 ||
+                    !this.prisma.student?.findMany
+                  )
+                    return [];
                   const studentIds = groups.map((g) => g.studentId);
                   const students = await this.prisma.student.findMany({
                     where: { id: { in: studentIds } },
-                    include: { user: { select: { firstName: true, lastName: true } } },
+                    include: {
+                      user: { select: { firstName: true, lastName: true } },
+                    },
                   });
-                  const studentMap = new Map(students.map((s) => [s.id, s.user]));
+                  const studentMap = new Map(
+                    students.map((s) => [s.id, s.user]),
+                  );
                   return groups.map((g, idx) => {
                     const u = studentMap.get(g.studentId);
                     return `${idx + 1}. ${u?.firstName || 'Student'} ${u?.lastName || ''} (${g._count.id} days present)`;
@@ -192,10 +229,16 @@ export class AIService {
                 .catch(() => [])
             : Promise.resolve([]),
           this.prisma.feePayment?.aggregate
-            ? this.prisma.feePayment.aggregate({
-                where: { schoolId: targetSchoolId },
-                _sum: { totalAmount: true, paidAmount: true, outstandingAmount: true },
-              }).catch(() => null)
+            ? this.prisma.feePayment
+                .aggregate({
+                  where: { schoolId: targetSchoolId },
+                  _sum: {
+                    totalAmount: true,
+                    paidAmount: true,
+                    outstandingAmount: true,
+                  },
+                })
+                .catch(() => null)
             : Promise.resolve(null),
         ]);
 
@@ -237,7 +280,9 @@ ${topStudentsList}
 • Fee Dues Summary: Outstanding Dues: ${outstandingFees}, Total Collected: ${collectedFees}.
 `;
       } catch (err: any) {
-        this.logger.warn(`Failed to build live operational data: ${err.message}`);
+        this.logger.warn(
+          `Failed to build live operational data: ${err.message}`,
+        );
         liveOperationalData = '';
       }
     }
@@ -286,11 +331,23 @@ General Rules:
     };
     conversationId?: string;
     message: string;
-    attachments?: Array<{ name: string; type: string; size: number; base64: string }>;
-  }): Promise<{ conversationId: string; reply: string; tokens?: number; pendingAction?: any }> {
+    attachments?: Array<{
+      name: string;
+      type: string;
+      size: number;
+      base64: string;
+    }>;
+  }): Promise<{
+    conversationId: string;
+    reply: string;
+    tokens?: number;
+    pendingAction?: any;
+  }> {
     // Sanitize user message against raw action injection
     const rawMessage = data.message || '';
-    const sanitizedUserMessage = rawMessage.replace(/\[ACTION:[^\]]*\]/gi, '').trim();
+    const sanitizedUserMessage = rawMessage
+      .replace(/\[ACTION:[^\]]*\]/gi, '')
+      .trim();
 
     // Security: Fail-closed on schoolId. Never fall back to findFirst() — that would
     // cross-tenant-leak another school's data. SUPER_ADMIN must send x-school-id.
@@ -303,9 +360,13 @@ General Rules:
     // Security: scope by userId AND schoolId to prevent cross-tenant conversation access
     let conversation = data.conversationId
       ? await this.prisma.aIConversation.findFirst({
-        where: { id: data.conversationId, userId: data.userId, schoolId: effectiveSchoolId },
-        include: { messages: { orderBy: { createdAt: 'asc' }, take: 20 } },
-      })
+          where: {
+            id: data.conversationId,
+            userId: data.userId,
+            schoolId: effectiveSchoolId,
+          },
+          include: { messages: { orderBy: { createdAt: 'asc' }, take: 20 } },
+        })
       : null;
 
     if (!conversation) {
@@ -338,10 +399,15 @@ General Rules:
       reply = this.getMockResponse(sanitizedUserMessage || rawMessage);
     } else {
       try {
-        const systemPrompt = await this.buildSystemPrompt(data.user, effectiveSchoolId);
+        const systemPrompt = await this.buildSystemPrompt(
+          data.user,
+          effectiveSchoolId,
+        );
         const history = (conversation.messages ?? []).map((m: any) => ({
           role: m.role === 'user' ? 'user' : 'model',
-          parts: [{ text: (m.content || '').replace(/\[ACTION:[^\]]*\]/gi, '') }],
+          parts: [
+            { text: (m.content || '').replace(/\[ACTION:[^\]]*\]/gi, '') },
+          ],
         }));
 
         const chat = this.model.startChat({
@@ -361,9 +427,18 @@ General Rules:
 
         let messagePayload: any = sanitizedUserMessage || rawMessage;
         if (data.attachments && data.attachments.length > 0) {
-          const parts: any[] = [{ text: sanitizedUserMessage || rawMessage || 'Please review this attached file.' }];
+          const parts: any[] = [
+            {
+              text:
+                sanitizedUserMessage ||
+                rawMessage ||
+                'Please review this attached file.',
+            },
+          ];
           for (const att of data.attachments) {
-            const rawBase64 = att.base64.includes('base64,') ? att.base64.split('base64,')[1] : att.base64;
+            const rawBase64 = att.base64.includes('base64,')
+              ? att.base64.split('base64,')[1]
+              : att.base64;
             parts.push({
               inlineData: {
                 mimeType: att.type || 'application/octet-stream',
@@ -385,7 +460,10 @@ General Rules:
 
         // ─── Phase 12: Explicit multi-function call handling ────────────
         // Phase 13: AIService is NOT the authority — never chooses role/tenant
-        const functionCalls = typeof response.functionCalls === 'function' ? response.functionCalls() : [];
+        const functionCalls =
+          typeof response.functionCalls === 'function'
+            ? response.functionCalls()
+            : [];
 
         if (functionCalls && functionCalls.length === 1) {
           // Exactly one call — safe to propose
@@ -396,8 +474,13 @@ General Rules:
               // Server-authoritative role from JWT — NEVER from AI output
               role: data.user.role,
               schoolId: effectiveSchoolId,
+              permissions: ROLE_PERMISSIONS[data.user.role as UserRole] ?? [],
             };
-            const proposal = await this.controlPlane.proposeAction(ctx, call.name, call.args as Record<string, unknown>);
+            const proposal = await this.controlPlane.proposeAction(
+              ctx,
+              call.name,
+              call.args as Record<string, unknown>,
+            );
             pendingAction = proposal.pendingAction;
           } catch (error: unknown) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -408,18 +491,19 @@ General Rules:
         } else if (functionCalls && functionCalls.length > 1) {
           // Multiple simultaneous mutations — explicitly rejected
           // Do NOT silently execute only the first one
-          this.logger.warn(`Gemini returned ${functionCalls.length} function calls — rejecting multi-action request`);
+          this.logger.warn(
+            `Gemini returned ${functionCalls.length} function calls — rejecting multi-action request`,
+          );
           reply = `I detected ${functionCalls.length} simultaneous actions in your request. For safety, please request one action at a time. Which action would you like to perform first?`;
         }
         // functionCalls.length === 0 → proceed with text reply (no action)
 
-      // Strip ALL action tags from the user-facing reply
-      reply = reply ? reply.replace(/\[ACTION:[^\]]+\]/g, '').trim() : '';
-      if (!reply && pendingAction) {
-        const label = (pendingAction as Record<string, unknown>)['label'];
-        reply = `I have prepared the action to ${String(label ?? 'execute').toLowerCase()}. Please review and confirm below:`;
-      }
-
+        // Strip ALL action tags from the user-facing reply
+        reply = reply ? reply.replace(/\[ACTION:[^\]]+\]/g, '').trim() : '';
+        if (!reply && pendingAction) {
+          const label = (pendingAction as Record<string, unknown>)['label'];
+          reply = `I have prepared the action to ${String(label ?? 'execute').toLowerCase()}. Please review and confirm below:`;
+        }
       } catch (err: any) {
         this.logger.error('Gemini API error', err?.message);
         if (err?.status === 429 || err?.message?.includes('429')) {
@@ -514,7 +598,9 @@ General Rules:
           isRead: false,
         })),
       });
-      this.logger.log(`Stored ${anomalies.length} proactive alerts for school: ${schoolId}`);
+      this.logger.log(
+        `Stored ${anomalies.length} proactive alerts for school: ${schoolId}`,
+      );
     }
   }
 
@@ -543,7 +629,10 @@ General Rules:
   }
 
   // ─── IMPROVEMENT 3: Multi-Agent Admission Workflow ────────────────────────
-  async runAdmissionWorkflow(applicationId: string, schoolId: string): Promise<{
+  async runAdmissionWorkflow(
+    applicationId: string,
+    schoolId: string,
+  ): Promise<{
     agentResults: { agent: string; status: string; output: string }[];
   }> {
     const application = await this.prisma.admissionApplication.findFirst({
@@ -551,17 +640,26 @@ General Rules:
     });
 
     if (!application) {
-      return { agentResults: [{ agent: 'System', status: 'error', output: 'Application not found.' }] };
+      return {
+        agentResults: [
+          {
+            agent: 'System',
+            status: 'error',
+            output: 'Application not found.',
+          },
+        ],
+      };
     }
 
-    const agentResults: { agent: string; status: string; output: string }[] = [];
+    const agentResults: { agent: string; status: string; output: string }[] =
+      [];
 
     // ── Agent 1: Communications — Draft welcome email ──────────────────────
     try {
       let welcomeEmail = `Dear ${application.parentName},\n\nThank you for applying to our school for ${application.studentName} (Class ${application.classApplied}). We have received your application and it is under review. We will contact you shortly.\n\nBest regards,\nAdmissions Team`;
       if (this.model) {
         const r = await this.model.generateContent(
-          `Draft a warm, professional welcome email for a new school admission application. Student: ${application.studentName}, Class Applied: ${application.classApplied}, Parent: ${application.parentName}. Keep it under 80 words. Plain text only.`
+          `Draft a warm, professional welcome email for a new school admission application. Student: ${application.studentName}, Class Applied: ${application.classApplied}, Parent: ${application.parentName}. Keep it under 80 words. Plain text only.`,
         );
         welcomeEmail = r.response.text().trim();
       }
@@ -571,7 +669,11 @@ General Rules:
         output: welcomeEmail,
       });
     } catch (err: any) {
-      agentResults.push({ agent: 'Communications Agent', status: 'error', output: 'Failed to draft welcome email.' });
+      agentResults.push({
+        agent: 'Communications Agent',
+        status: 'error',
+        output: 'Failed to draft welcome email.',
+      });
     }
 
     // ── Agent 2: Scheduler — Propose interview slot ────────────────────────
@@ -582,7 +684,12 @@ General Rules:
       while (nextWeekday.getDay() === 0 || nextWeekday.getDay() === 6) {
         nextWeekday.setDate(nextWeekday.getDate() + 1);
       }
-      const dateStr = nextWeekday.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      const dateStr = nextWeekday.toLocaleDateString('en-IN', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
       const slotOutput = `Proposed Interview Slot: ${dateStr} at 10:00 AM\n\nThis slot has been selected based on school calendar availability. An interview invitation can be sent to ${application.parentEmail || application.parentPhone}.`;
 
       // Update the application with interview date
@@ -600,7 +707,11 @@ General Rules:
         output: slotOutput,
       });
     } catch (err: any) {
-      agentResults.push({ agent: 'Scheduling Agent', status: 'error', output: 'Failed to schedule interview.' });
+      agentResults.push({
+        agent: 'Scheduling Agent',
+        status: 'error',
+        output: 'Failed to schedule interview.',
+      });
     }
 
     // ── Agent 3: Finance — Class-Specific Fee estimate ────────────────────
@@ -672,12 +783,16 @@ General Rules:
         const items = feeStructure.items;
         const total = items.reduce((sum, f) => sum + Number(f.amount), 0);
         const breakdown = items
-          .map(f => `• ${f.feeHead.name} (${f.frequency.toLowerCase()}): ₹${Number(f.amount).toLocaleString()}`)
+          .map(
+            (f) =>
+              `• ${f.feeHead.name} (${f.frequency.toLowerCase()}): ₹${Number(f.amount).toLocaleString()}`,
+          )
           .join('\n');
-        
+
         const quarterlyInstallment = Math.round(total / 4);
 
-        feeEstimate = `Estimated Fee Structure for ${application.classApplied}:\n\n` +
+        feeEstimate =
+          `Estimated Fee Structure for ${application.classApplied}:\n\n` +
           `Structure: ${feeStructure.name}\n` +
           `${breakdown}\n\n` +
           `• Total Annual Fee: ₹${total.toLocaleString()}\n` +
@@ -692,7 +807,11 @@ General Rules:
         output: feeEstimate,
       });
     } catch (err: any) {
-      agentResults.push({ agent: 'Finance Agent', status: 'error', output: 'Failed to generate fee estimate.' });
+      agentResults.push({
+        agent: 'Finance Agent',
+        status: 'error',
+        output: 'Failed to generate fee estimate.',
+      });
     }
 
     return { agentResults };
@@ -996,7 +1115,9 @@ CRITICAL FORMATTING RULES:
     const grade = (params.grade || 'Class 10').trim();
 
     // Strict K-10 Grade Boundary Enforcement
-    if (/\b(11|12|11th|12th|xi|xii|junior college|intermediate)\b/i.test(grade)) {
+    if (
+      /\b(11|12|11th|12th|xi|xii|junior college|intermediate)\b/i.test(grade)
+    ) {
       throw new BadRequestException(
         'Curriculum strictly restricted to Nursery through Grade 10. Senior secondary grades (11/12) are not supported.',
       );
@@ -1006,7 +1127,11 @@ CRITICAL FORMATTING RULES:
     const totalMarks = Number(params.totalMarks) || 80;
     const duration =
       params.duration ||
-      (totalMarks <= 25 ? '45 Minutes' : totalMarks <= 50 ? '1.5 Hours' : '3 Hours');
+      (totalMarks <= 25
+        ? '45 Minutes'
+        : totalMarks <= 50
+          ? '1.5 Hours'
+          : '3 Hours');
     const difficulty = params.difficulty || 'BALANCED';
     const topics = params.topics || 'Comprehensive Term Syllabus';
     const board = params.board || 'CBSE';
@@ -1017,7 +1142,8 @@ CRITICAL FORMATTING RULES:
       where: { id: validSchoolId },
       select: { name: true, code: true },
     });
-    const schoolName = params.schoolName?.trim() || school?.name || 'Academic Institute';
+    const schoolName =
+      params.schoolName?.trim() || school?.name || 'Academic Institute';
 
     const buildFallbackPaper = () => {
       let paper = `# ${schoolName.toUpperCase()}
@@ -1382,7 +1508,9 @@ CRITICAL RULES:
         riskLevel,
         tier,
         primaryDrivers:
-          drivers.length > 0 ? drivers : ['Consistent engagement and performance'],
+          drivers.length > 0
+            ? drivers
+            : ['Consistent engagement and performance'],
       };
     });
 
@@ -1445,12 +1573,14 @@ CRITICAL RULES:
       throw new BadRequestException('Student not found in this school.');
     }
 
-    const studentName = `${student.user.firstName} ${student.user.lastName}`.trim();
+    const studentName =
+      `${student.user.firstName} ${student.user.lastName}`.trim();
     const activeClass = student.enrollments[0]
       ? `${student.enrollments[0].section.class.name} (${student.enrollments[0].section.name})`
       : 'Class 10';
 
-    const buildFallbackPlan = () => `## 🛡️ Multi-Tiered System of Supports (MTSS) Intervention Plan
+    const buildFallbackPlan =
+      () => `## 🛡️ Multi-Tiered System of Supports (MTSS) Intervention Plan
 **Student:** ${studentName} | **Admission No:** ${student.admissionNumber} | **Class:** ${activeClass}
 **Generated Date:** ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} | **Review Cycle:** 30-Day Bi-Weekly Milestone
 
@@ -1566,7 +1696,9 @@ Do NOT use raw HTML tags or unescaped LaTeX symbols.`;
       payload.phone || message.match(/(?:\+91|0)?[6-9]\d{9}/)?.[0];
     const parentName =
       payload.parentName ||
-      message.match(/(?:my name is|i am|this is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i)?.[1];
+      message.match(
+        /(?:my name is|i am|this is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i,
+      )?.[1];
 
     if (phoneMatch) {
       try {
@@ -1599,7 +1731,9 @@ Do NOT use raw HTML tags or unescaped LaTeX symbols.`;
           enquiryId = enquiry.id;
         }
       } catch (err: any) {
-        this.logger.warn(`Failed to auto-capture admissions lead: ${err.message}`);
+        this.logger.warn(
+          `Failed to auto-capture admissions lead: ${err.message}`,
+        );
       }
     }
 
@@ -1799,7 +1933,8 @@ Format in clean Markdown without raw HTML or unescaped LaTeX.`;
       throw new BadRequestException('Student profile not found.');
     }
 
-    const studentName = `${student.user.firstName} ${student.user.lastName}`.trim();
+    const studentName =
+      `${student.user.firstName} ${student.user.lastName}`.trim();
     const className = student.enrollments[0]?.section.class.name || 'Class 10';
 
     // Analyze marks
@@ -1832,8 +1967,8 @@ Format in clean Markdown without raw HTML or unescaped LaTeX.`;
           pct < 50
             ? 'NEEDS_INTENSIVE_REMEDIAL'
             : pct < 70
-            ? 'NEEDS_PRACTICE'
-            : 'MASTERED',
+              ? 'NEEDS_PRACTICE'
+              : 'MASTERED',
       };
     });
 
@@ -1846,10 +1981,10 @@ Format in clean Markdown without raw HTML or unescaped LaTeX.`;
         weakTopic: s.subject.toLowerCase().includes('math')
           ? 'Quadratic Equations & Linear Graphs'
           : s.subject.toLowerCase().includes('science')
-          ? 'Chemical Reactions & Optics'
-          : s.subject.toLowerCase().includes('english')
-          ? 'Grammar (Subject-Verb Agreement & Tenses)'
-          : 'Core Analytical Concepts',
+            ? 'Chemical Reactions & Optics'
+            : s.subject.toLowerCase().includes('english')
+              ? 'Grammar (Subject-Verb Agreement & Tenses)'
+              : 'Core Analytical Concepts',
         recommendedAction:
           '30-minute interactive diagnostic practice & flashcard review',
       }));
@@ -2027,14 +2162,52 @@ Return strictly valid JSON with this exact structure:
 
   private classifyIntentHeuristic(prompt: string): string {
     const lower = (prompt || '').toLowerCase();
-    if (lower.includes('admission') || lower.includes('applicant') || lower.includes('register student') || lower.includes('new student')) return 'CREATE_ADMISSION';
-    if (lower.includes('assignment') || lower.includes('homework')) return 'ASSIGNMENT_AUDIT';
-    if (lower.includes('leave') || lower.includes('approve leave')) return 'APPROVE_LEAVE';
-    if (lower.includes('exam') || lower.includes('test') || lower.includes('assessment')) return 'CREATE_EXAM';
-    if (lower.includes('attendance') || lower.includes('present') || lower.includes('absent')) return 'ATTENDANCE_TREND';
-    if (lower.includes('fee') || lower.includes('overdue') || lower.includes('defaulter') || lower.includes('payment') || lower.includes('collection')) return 'FEE_OVERVIEW';
-    if (lower.includes('announcement') || lower.includes('broadcast') || lower.includes('notice') || lower.includes('holiday') || lower.includes('circular')) return 'SEND_ANNOUNCEMENT';
-    if (lower.includes('stat') || lower.includes('demographic') || lower.includes('total student') || lower.includes('count')) return 'STUDENT_STATS';
+    if (
+      lower.includes('admission') ||
+      lower.includes('applicant') ||
+      lower.includes('register student') ||
+      lower.includes('new student')
+    )
+      return 'CREATE_ADMISSION';
+    if (lower.includes('assignment') || lower.includes('homework'))
+      return 'ASSIGNMENT_AUDIT';
+    if (lower.includes('leave') || lower.includes('approve leave'))
+      return 'APPROVE_LEAVE';
+    if (
+      lower.includes('exam') ||
+      lower.includes('test') ||
+      lower.includes('assessment')
+    )
+      return 'CREATE_EXAM';
+    if (
+      lower.includes('attendance') ||
+      lower.includes('present') ||
+      lower.includes('absent')
+    )
+      return 'ATTENDANCE_TREND';
+    if (
+      lower.includes('fee') ||
+      lower.includes('overdue') ||
+      lower.includes('defaulter') ||
+      lower.includes('payment') ||
+      lower.includes('collection')
+    )
+      return 'FEE_OVERVIEW';
+    if (
+      lower.includes('announcement') ||
+      lower.includes('broadcast') ||
+      lower.includes('notice') ||
+      lower.includes('holiday') ||
+      lower.includes('circular')
+    )
+      return 'SEND_ANNOUNCEMENT';
+    if (
+      lower.includes('stat') ||
+      lower.includes('demographic') ||
+      lower.includes('total student') ||
+      lower.includes('count')
+    )
+      return 'STUDENT_STATS';
     return 'GENERAL_QUERY';
   }
 
@@ -2043,7 +2216,12 @@ Return strictly valid JSON with this exact structure:
     schoolId: string,
     prompt: string,
     userId?: string,
-    attachments?: Array<{ name: string; type: string; size: number; base64: string }>,
+    attachments?: Array<{
+      name: string;
+      type: string;
+      size: number;
+      base64: string;
+    }>,
   ) {
     try {
       // Step 1: Semantic Routing with Heuristic Fallback
@@ -2094,19 +2272,36 @@ Return ONLY a valid JSON object with these keys:
 
 Return ONLY raw JSON, without markdown formatting or code blocks.`;
 
-            const extractResult = await this.model.generateContent(extractPrompt);
-            const jsonStr = extractResult.response.text().trim().replace(/```json|```/g, '');
+            const extractResult =
+              await this.model.generateContent(extractPrompt);
+            const jsonStr = extractResult.response
+              .text()
+              .trim()
+              .replace(/```json|```/g, '');
             extracted = JSON.parse(jsonStr);
           } catch {}
         }
 
-        const nameMatch = prompt.match(/(?:for|student|name|admit)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i);
-        const classMatch = prompt.match(/(?:class|grade)\s+(\d{1,2}(?:th)?(?:\s*\(?[A-Za-z]+\)?)?)/i);
+        const nameMatch = prompt.match(
+          /(?:for|student|name|admit)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i,
+        );
+        const classMatch = prompt.match(
+          /(?:class|grade)\s+(\d{1,2}(?:th)?(?:\s*\(?[A-Za-z]+\)?)?)/i,
+        );
         const phoneMatch = prompt.match(/(?:\+?91)?[6-9]\d{9}/);
-        const parentMatch = prompt.match(/(?:father|parent|mother)(?:\s+name)?(?:\s+is)?\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i);
+        const parentMatch = prompt.match(
+          /(?:father|parent|mother)(?:\s+name)?(?:\s+is)?\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i,
+        );
 
-        const isPlaceholder = (val?: string) => !val || ['n/a', 'na', 'null', 'none', 'unknown', 'new student'].includes(val.trim().toLowerCase());
-        const candidateName = (!isPlaceholder(extracted?.studentName) ? extracted?.studentName : null) || (nameMatch ? nameMatch[1] : null);
+        const isPlaceholder = (val?: string) =>
+          !val ||
+          ['n/a', 'na', 'null', 'none', 'unknown', 'new student'].includes(
+            val.trim().toLowerCase(),
+          );
+        const candidateName =
+          (!isPlaceholder(extracted?.studentName)
+            ? extracted?.studentName
+            : null) || (nameMatch ? nameMatch[1] : null);
 
         // If no real applicant name was supplied, do NOT create dummy records!
         if (!candidateName) {
@@ -2119,9 +2314,18 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
         }
 
         const studentName = candidateName;
-        const classApplied = (!isPlaceholder(extracted?.classApplied) ? extracted?.classApplied : null) || (classMatch ? `Class ${classMatch[1]}` : 'Class 10');
-        const parentName = (!isPlaceholder(extracted?.parentName) ? extracted?.parentName : null) || (parentMatch ? parentMatch[1] : 'Parent / Guardian');
-        const parentPhone = (!isPlaceholder(extracted?.parentPhone) ? extracted?.parentPhone : null) || (phoneMatch ? phoneMatch[0] : 'N/A');
+        const classApplied =
+          (!isPlaceholder(extracted?.classApplied)
+            ? extracted?.classApplied
+            : null) || (classMatch ? `Class ${classMatch[1]}` : 'Class 10');
+        const parentName =
+          (!isPlaceholder(extracted?.parentName)
+            ? extracted?.parentName
+            : null) || (parentMatch ? parentMatch[1] : 'Parent / Guardian');
+        const parentPhone =
+          (!isPlaceholder(extracted?.parentPhone)
+            ? extracted?.parentPhone
+            : null) || (phoneMatch ? phoneMatch[0] : 'N/A');
         const gender = extracted?.gender === 'FEMALE' ? 'FEMALE' : 'MALE';
 
         let academicYear = await this.prisma.academicYear.findFirst({
@@ -2145,7 +2349,12 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
           });
         }
 
-        const appNo = await generateNextSequence(this.prisma, schoolId, 'APP', new Date().getFullYear());
+        const appNo = await generateNextSequence(
+          this.prisma,
+          schoolId,
+          'APP',
+          new Date().getFullYear(),
+        );
 
         const createdApp = await this.prisma.admissionApplication.create({
           data: {
@@ -2160,7 +2369,9 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
             dateOfBirth: new Date(new Date().getFullYear() - 16, 0, 1),
             gender,
             status: 'SUBMITTED',
-            interviewNotes: extracted?.notes || `Registered via Principal Command: "${prompt}"`,
+            interviewNotes:
+              extracted?.notes ||
+              `Registered via Principal Command: "${prompt}"`,
           },
         });
 
@@ -2168,9 +2379,15 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
         let workflowSummary = '';
         try {
           const wf = await this.runAdmissionWorkflow(createdApp.id, schoolId);
-          workflowSummary = `\n\n### 🤖 Autonomous Verification Pipeline:\n` +
-            wf.agentResults.map(r => `• **${r.agent}**: ${r.status === 'success' ? '✓ Completed' : '✗ Pending'}`).join('\n');
-        } catch { }
+          workflowSummary =
+            `\n\n### 🤖 Autonomous Verification Pipeline:\n` +
+            wf.agentResults
+              .map(
+                (r) =>
+                  `• **${r.agent}**: ${r.status === 'success' ? '✓ Completed' : '✗ Pending'}`,
+              )
+              .join('\n');
+        } catch {}
 
         actionExecuted = {
           type: 'ADMISSION_CREATED',
@@ -2183,19 +2400,23 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
             'Class / Stream': classApplied,
             'Father / Guardian': parentName,
             'Contact Phone': parentPhone,
-            'Status': 'Submitted & Ready for Review',
+            Status: 'Submitted & Ready for Review',
           },
         };
 
         textResponse = `### ✅ Admission Successfully Created!\n\nI have registered the admission application for **${studentName}** into **${classApplied}**.\n\n- **Application Number:** \`${appNo}\`\n- **Parent/Guardian:** ${parentName}\n- **Contact:** ${parentPhone}\n- **Status:** \`SUBMITTED\`${workflowSummary}\n\nYou can view and manage this candidate in the Admissions Hub.`;
-
-      } else if (intent === 'ASSIGNMENT_AUDIT' || intent === 'CREATE_ASSIGNMENT') {
-        const totalAssignments = await this.prisma.assignment.count({ where: { schoolId } });
+      } else if (
+        intent === 'ASSIGNMENT_AUDIT' ||
+        intent === 'CREATE_ASSIGNMENT'
+      ) {
+        const totalAssignments = await this.prisma.assignment.count({
+          where: { schoolId },
+        });
         const activeAssignments = await this.prisma.assignment.count({
-          where: { schoolId, dueDate: { gte: new Date() } }
+          where: { schoolId, dueDate: { gte: new Date() } },
         });
         const totalSubmissions = await this.prisma.assignmentSubmission.count({
-          where: { assignment: { schoolId } }
+          where: { assignment: { schoolId } },
         });
 
         const recentAssignments = await this.prisma.assignment.findMany({
@@ -2209,9 +2430,14 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
           chartData = {
             type: 'bar',
             title: 'Assignment Submissions by Class',
-            labels: recentAssignments.map(a => `${a.class?.name || 'Class'} - ${a.title.slice(0, 12)}`),
+            labels: recentAssignments.map(
+              (a) => `${a.class?.name || 'Class'} - ${a.title.slice(0, 12)}`,
+            ),
             datasets: [
-              { label: 'Submissions', data: recentAssignments.map(a => a._count.submissions) },
+              {
+                label: 'Submissions',
+                data: recentAssignments.map((a) => a._count.submissions),
+              },
             ],
           };
         }
@@ -2229,14 +2455,18 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
             'Submissions Evaluated': String(totalSubmissions),
           },
         };
-
       } else if (intent === 'APPROVE_LEAVE') {
-        const result = await this.controlPlane.proposeAction({
-          userId: userId || 'system',
-          role: 'PRINCIPAL',
-          schoolId,
-          isGlobal: false
-        }, 'approve_leave', {});
+        const result = await this.controlPlane.proposeAction(
+          {
+            userId: userId || 'system',
+            role: 'PRINCIPAL',
+            schoolId,
+            isGlobal: false,
+            permissions: ROLE_PERMISSIONS['PRINCIPAL'] ?? [],
+          },
+          'approve_leave',
+          {},
+        );
 
         actionExecuted = {
           type: 'APPROVE_LEAVE',
@@ -2249,34 +2479,45 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
         };
 
         textResponse = `### 📝 Leave Request Pending\n\nI have prepared the leave request for your approval. Please confirm the action in your pending tasks.`;
-
       } else if (intent === 'ATTENDANCE_TREND') {
-        const totalStudents = await this.prisma.student.count({ where: { schoolId, isActive: true } });
+        const totalStudents = await this.prisma.student.count({
+          where: { schoolId, isActive: true },
+        });
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const presentToday = await this.prisma.attendanceRecord.count({
-          where: { schoolId, date: { gte: today }, status: 'PRESENT' }
+          where: { schoolId, date: { gte: today }, status: 'PRESENT' },
         });
 
-        const percentage = totalStudents > 0 ? Math.round((presentToday / totalStudents) * 100) : 0;
+        const percentage =
+          totalStudents > 0
+            ? Math.round((presentToday / totalStudents) * 100)
+            : 0;
         textResponse = `### 📊 Today's Attendance Overview\n\nOverall school attendance is currently at **${percentage}%** (${presentToday} of ${totalStudents} active students present today).`;
 
         chartData = {
           type: 'line',
           title: '7-Day Attendance Trend',
           labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Today'],
-          datasets: [{ label: 'Attendance %', data: [92, 94, 91, 89, 93, 85, percentage] }]
+          datasets: [
+            {
+              label: 'Attendance %',
+              data: [92, 94, 91, 89, 93, 85, percentage],
+            },
+          ],
         };
-
       } else if (intent === 'FEE_OVERVIEW') {
         const pendingCount = await this.prisma.feePayment.count({
-          where: { schoolId, paymentStatus: { in: ['PENDING', 'OVERDUE'] } }
+          where: { schoolId, paymentStatus: { in: ['PENDING', 'OVERDUE'] } },
         });
         const overduePayments = await this.prisma.feePayment.findMany({
           where: { schoolId, paymentStatus: 'OVERDUE' },
-          select: { totalAmount: true }
+          select: { totalAmount: true },
         });
-        const totalOverdue = overduePayments.reduce((sum, p) => sum + Number(p.totalAmount), 0);
+        const totalOverdue = overduePayments.reduce(
+          (sum, p) => sum + Number(p.totalAmount),
+          0,
+        );
 
         textResponse = `### 💰 Fee Collection & Overdue Summary\n\n- **Pending Payments:** ${pendingCount} invoices\n- **Total Overdue Amount:** ₹${totalOverdue.toLocaleString()}\n- **Action Required:** Follow up with flagged parents or trigger automated WhatsApp/SMS reminders in the Automation Hub.`;
 
@@ -2284,16 +2525,30 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
           type: 'bar',
           title: 'Fee Status Breakdown',
           labels: ['Paid', 'Pending', 'Overdue'],
-          datasets: [{ label: 'Students', data: [450, pendingCount - overduePayments.length, overduePayments.length] }]
+          datasets: [
+            {
+              label: 'Students',
+              data: [
+                450,
+                pendingCount - overduePayments.length,
+                overduePayments.length,
+              ],
+            },
+          ],
         };
-
       } else if (intent === 'STUDENT_STATS') {
-        const total = await this.prisma.student.count({ where: { schoolId, isActive: true } });
+        const total = await this.prisma.student.count({
+          where: { schoolId, isActive: true },
+        });
         const classes = await this.prisma.class.count({ where: { schoolId } });
         textResponse = `### 🎓 Student Enrollment Stats\n\nThe school currently has **${total} active students** distributed across **${classes} classes**.`;
-
       } else if (intent === 'SEND_ANNOUNCEMENT') {
-        const cleanPrompt = prompt.replace(/(?:broadcast|send|announce|notice|circular)\s*(?:a|the|to all|notice)?/gi, '').trim();
+        const cleanPrompt = prompt
+          .replace(
+            /(?:broadcast|send|announce|notice|circular)\s*(?:a|the|to all|notice)?/gi,
+            '',
+          )
+          .trim();
         if (!cleanPrompt || cleanPrompt.length < 5) {
           return {
             intent: 'SEND_ANNOUNCEMENT',
@@ -2310,7 +2565,10 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
           try {
             const genPrompt = `Draft a concise school announcement headline and message based on this request: "${prompt}". Return ONLY a JSON object with "title" and "message". Do not include markdown code blocks, just raw JSON.`;
             const genResult = await this.model.generateContent(genPrompt);
-            const jsonStr = genResult.response.text().trim().replace(/```json|```/g, '');
+            const jsonStr = genResult.response
+              .text()
+              .trim()
+              .replace(/```json|```/g, '');
             const parsed = JSON.parse(jsonStr);
             title = parsed.title || title;
             message = parsed.message || cleanPrompt;
@@ -2321,24 +2579,24 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
 
         const users = await this.prisma.user.findMany({
           where: { schoolId, status: 'ACTIVE' },
-          select: { id: true }
+          select: { id: true },
         });
 
         const BATCH_SIZE = 50;
         let totalSent = 0;
-        const filteredUsers = users.filter(u => u.id !== userId);
+        const filteredUsers = users.filter((u) => u.id !== userId);
 
         for (let i = 0; i < filteredUsers.length; i += BATCH_SIZE) {
           const batch = filteredUsers.slice(i, i + BATCH_SIZE);
           if (batch.length > 0 && userId) {
             await this.prisma.message.createMany({
-              data: batch.map(u => ({
+              data: batch.map((u) => ({
                 schoolId,
                 senderId: userId,
                 recipientId: u.id,
                 subject: title,
-                body: message
-              }))
+                body: message,
+              })),
             });
             totalSent += batch.length;
           }
@@ -2350,13 +2608,12 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
           link: '/messages',
           linkText: 'View Messages',
           details: {
-            'Title': title,
-            'Recipients': `${totalSent} active school users`,
+            Title: title,
+            Recipients: `${totalSent} active school users`,
           },
         };
 
         textResponse = `### 📢 Announcement Broadcasted Successfully\n\n**Subject:** ${title}\n\n${message}\n\n*Delivered to ${totalSent} recipients across the school.*`;
-
       } else {
         if (this.model) {
           try {
@@ -2368,7 +2625,9 @@ User request: "${prompt}"`;
             if (attachments && attachments.length > 0) {
               const parts: any[] = [{ text: fallbackPrompt }];
               for (const att of attachments) {
-                const rawBase64 = att.base64.includes('base64,') ? att.base64.split('base64,')[1] : att.base64;
+                const rawBase64 = att.base64.includes('base64,')
+                  ? att.base64.split('base64,')[1]
+                  : att.base64;
                 parts.push({
                   inlineData: {
                     mimeType: att.type || 'application/octet-stream',
@@ -2378,7 +2637,8 @@ User request: "${prompt}"`;
               }
               contentPayload = parts;
             }
-            const fallbackResult = await this.model.generateContent(contentPayload);
+            const fallbackResult =
+              await this.model.generateContent(contentPayload);
             textResponse = fallbackResult.response.text();
           } catch {
             textResponse = `### 🏫 Executive Operations Response\n\n**Processed Instruction:** "${prompt}"\n\n- **Status:** Command ingested into Principal Command Center.\n- **School Telemetry:** Real-time metrics across academics, attendance, and finances are fully synchronized.\n- **Quick Actions:** You can trigger direct admissions, send emergency circulars, approve teacher leaves, or inspect at-risk students using the command actions below.`;
@@ -2389,12 +2649,12 @@ User request: "${prompt}"`;
       }
 
       return { intent, textResponse, chartData, actionExecuted };
-
     } catch (err: any) {
       this.logger.error('Execute data query error', err?.message);
       return {
         intent: 'ERROR',
-        textResponse: 'Sorry, I encountered an error while processing your command.',
+        textResponse:
+          'Sorry, I encountered an error while processing your command.',
         chartData: null,
         actionExecuted: null,
       };
@@ -2407,11 +2667,13 @@ User request: "${prompt}"`;
 
     try {
       // Check 1: Very low attendance today
-      const totalStudents = await this.prisma.student.count({ where: { schoolId, isActive: true } });
+      const totalStudents = await this.prisma.student.count({
+        where: { schoolId, isActive: true },
+      });
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const presentToday = await this.prisma.attendanceRecord.count({
-        where: { schoolId, date: { gte: today }, status: 'PRESENT' }
+        where: { schoolId, date: { gte: today }, status: 'PRESENT' },
       });
 
       if (totalStudents > 0) {
@@ -2431,9 +2693,12 @@ User request: "${prompt}"`;
       // Check 2: High overdue fees
       const overduePayments = await this.prisma.feePayment.findMany({
         where: { schoolId, paymentStatus: 'OVERDUE' },
-        select: { totalAmount: true }
+        select: { totalAmount: true },
       });
-      const totalOverdue = overduePayments.reduce((sum, p) => sum + Number(p.totalAmount), 0);
+      const totalOverdue = overduePayments.reduce(
+        (sum, p) => sum + Number(p.totalAmount),
+        0,
+      );
 
       if (totalOverdue > 50000) {
         anomalies.push({
@@ -2449,7 +2714,12 @@ User request: "${prompt}"`;
       // Check 3: Real timetable gaps (BUG FIX — was previously hardcoded)
       const dayOfWeek = today.getDay() === 0 ? 7 : today.getDay();
       const approvedLeaves = await this.prisma.leaveRequest.count({
-        where: { schoolId, status: 'APPROVED', startDate: { lte: new Date() }, endDate: { gte: new Date() } },
+        where: {
+          schoolId,
+          status: 'APPROVED',
+          startDate: { lte: new Date() },
+          endDate: { gte: new Date() },
+        },
       });
       const totalClasses = await this.prisma.timetableSlot.count({
         where: { schoolId, dayOfWeek, isActive: true },
@@ -2480,7 +2750,6 @@ User request: "${prompt}"`;
           actionRoute: '/hr',
         });
       }
-
     } catch (err: any) {
       this.logger.error('Get anomalies error', err?.message);
     }
@@ -2496,40 +2765,51 @@ User request: "${prompt}"`;
   async generateFeeDefaulterPreview(schoolId: string) {
     const validSchoolId = requireSchoolId(schoolId);
     const defaulters = await this.prisma.feePayment.findMany({
-      where: { schoolId: validSchoolId, paymentStatus: { in: ['PENDING', 'OVERDUE'] } },
+      where: {
+        schoolId: validSchoolId,
+        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+      },
       include: {
         student: {
           include: {
             user: { select: { firstName: true, lastName: true } },
-            guardians: { select: { firstName: true, lastName: true, phone: true } }
-          }
-        }
+            guardians: {
+              select: { firstName: true, lastName: true, phone: true },
+            },
+          },
+        },
       },
       take: 30,
       orderBy: { outstandingAmount: 'desc' },
     });
 
-    const items = await Promise.all(defaulters.map(async (p) => {
-      const guardian = p.student.guardians[0];
-      const guardianName = guardian ? `${guardian.firstName} ${guardian.lastName}` : 'Parent/Guardian';
-      const studentName = `${p.student.user.firstName} ${p.student.user.lastName}`;
-      let message = `Dear ${guardianName}, this is a reminder that a fee payment of Rs.${Number(p.outstandingAmount).toLocaleString()} is outstanding for ${studentName}. Please clear the dues at the earliest to avoid disruption to studies.`;
-      if (this.model) {
-        try {
-          const r = await this.model.generateContent(`Draft a polite, professional fee reminder message for a parent. Student: ${studentName}, Outstanding amount: Rs.${Number(p.outstandingAmount).toLocaleString()}, Parent: ${guardianName}. Keep it under 60 words. Plain text only.`);
-          message = r.response.text().trim();
-        } catch (_) { }
-      }
-      return {
-        id: p.id,
-        studentName,
-        guardianName,
-        outstandingAmount: Number(p.outstandingAmount),
-        status: p.paymentStatus,
-        draftMessage: message,
-        recipientId: p.studentId,
-      };
-    }));
+    const items = await Promise.all(
+      defaulters.map(async (p) => {
+        const guardian = p.student.guardians[0];
+        const guardianName = guardian
+          ? `${guardian.firstName} ${guardian.lastName}`
+          : 'Parent/Guardian';
+        const studentName = `${p.student.user.firstName} ${p.student.user.lastName}`;
+        let message = `Dear ${guardianName}, this is a reminder that a fee payment of Rs.${Number(p.outstandingAmount).toLocaleString()} is outstanding for ${studentName}. Please clear the dues at the earliest to avoid disruption to studies.`;
+        if (this.model) {
+          try {
+            const r = await this.model.generateContent(
+              `Draft a polite, professional fee reminder message for a parent. Student: ${studentName}, Outstanding amount: Rs.${Number(p.outstandingAmount).toLocaleString()}, Parent: ${guardianName}. Keep it under 60 words. Plain text only.`,
+            );
+            message = r.response.text().trim();
+          } catch (_) {}
+        }
+        return {
+          id: p.id,
+          studentName,
+          guardianName,
+          outstandingAmount: Number(p.outstandingAmount),
+          status: p.paymentStatus,
+          draftMessage: message,
+          recipientId: p.studentId,
+        };
+      }),
+    );
 
     return { taskType: 'FEE_DEFAULTER', count: items.length, items };
   }
@@ -2542,21 +2822,28 @@ User request: "${prompt}"`;
     threeDaysAgo.setHours(0, 0, 0, 0);
 
     const absentRecords = await this.prisma.attendanceRecord.findMany({
-      where: { schoolId: validSchoolId, status: 'ABSENT', date: { gte: threeDaysAgo } },
+      where: {
+        schoolId: validSchoolId,
+        status: 'ABSENT',
+        date: { gte: threeDaysAgo },
+      },
       include: {
         student: {
           include: {
             user: { select: { firstName: true, lastName: true } },
-            guardians: { select: { id: true, firstName: true, lastName: true } }
-          }
-        }
+            guardians: {
+              select: { id: true, firstName: true, lastName: true },
+            },
+          },
+        },
       },
     });
 
     // Group by student
     const studentAbsences: Record<string, any> = {};
     for (const r of absentRecords) {
-      if (!studentAbsences[r.studentId]) studentAbsences[r.studentId] = { student: r.student, count: 0 };
+      if (!studentAbsences[r.studentId])
+        studentAbsences[r.studentId] = { student: r.student, count: 0 };
       studentAbsences[r.studentId].count++;
     }
 
@@ -2565,15 +2852,21 @@ User request: "${prompt}"`;
         .filter((s: any) => s.count >= 3)
         .slice(0, 30)
         .map(async (s: any) => {
-          const studentName = `${s.student.user?.firstName || ''} ${s.student.user?.lastName || ''}`.trim() || 'Student';
+          const studentName =
+            `${s.student.user?.firstName || ''} ${s.student.user?.lastName || ''}`.trim() ||
+            'Student';
           const guardian = s.student.guardians[0];
-          const guardianName = guardian ? `${guardian.firstName} ${guardian.lastName}` : 'Parent/Guardian';
+          const guardianName = guardian
+            ? `${guardian.firstName} ${guardian.lastName}`
+            : 'Parent/Guardian';
           let message = `Dear ${guardianName}, we are concerned that ${studentName} has been absent for ${s.count} consecutive school days. Please contact the school if there is an issue we can help with.`;
           if (this.model) {
             try {
-              const r = await this.model.generateContent(`Draft a caring, professional absence alert for a parent. Student: ${studentName}, Consecutive absences: ${s.count} days. Keep it under 60 words. Plain text only.`);
+              const r = await this.model.generateContent(
+                `Draft a caring, professional absence alert for a parent. Student: ${studentName}, Consecutive absences: ${s.count} days. Keep it under 60 words. Plain text only.`,
+              );
               message = r.response.text().trim();
-            } catch (_) { }
+            } catch (_) {}
           }
           return {
             id: s.student.id,
@@ -2583,7 +2876,7 @@ User request: "${prompt}"`;
             draftMessage: message,
             recipientId: s.student.id,
           };
-        })
+        }),
     );
 
     return { taskType: 'ABSENCE_ALERT', count: items.length, items };
@@ -2593,80 +2886,120 @@ User request: "${prompt}"`;
   async generateTimetableCoverPreview(schoolId: string) {
     const validSchoolId = requireSchoolId(schoolId);
     const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    const todayStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      0,
+      0,
+      0,
+    );
+    const todayEnd = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      23,
+      59,
+      59,
+    );
     const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay();
 
-    const [approvedLeaves, todayTimetableSlots, allActiveStaff] = await Promise.all([
-      this.prisma.leaveRequest.findMany({
-        where: { schoolId: validSchoolId, status: 'APPROVED', startDate: { lte: todayEnd }, endDate: { gte: todayStart } },
-        include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
-      }),
-      this.prisma.timetableSlot.findMany({
-        where: { schoolId: validSchoolId, dayOfWeek, isActive: true },
-        include: { class: true, subject: true },
-      }),
-      this.prisma.staff.findMany({
-        where: { schoolId: validSchoolId, isActive: true },
-        include: {
-          user: { select: { firstName: true, lastName: true } },
-          teacherAssignments: { include: { subject: true } },
-        },
-      }),
-    ]);
+    const [approvedLeaves, todayTimetableSlots, allActiveStaff] =
+      await Promise.all([
+        this.prisma.leaveRequest.findMany({
+          where: {
+            schoolId: validSchoolId,
+            status: 'APPROVED',
+            startDate: { lte: todayEnd },
+            endDate: { gte: todayStart },
+          },
+          include: {
+            staff: {
+              include: {
+                user: { select: { firstName: true, lastName: true } },
+              },
+            },
+          },
+        }),
+        this.prisma.timetableSlot.findMany({
+          where: { schoolId: validSchoolId, dayOfWeek, isActive: true },
+          include: { class: true, subject: true },
+        }),
+        this.prisma.staff.findMany({
+          where: { schoolId: validSchoolId, isActive: true },
+          include: {
+            user: { select: { firstName: true, lastName: true } },
+            teacherAssignments: { include: { subject: true } },
+          },
+        }),
+      ]);
 
     const onLeaveStaffIds = new Set(approvedLeaves.map((l) => l.staffId));
-    const eligibleStaffPool = allActiveStaff.filter((s) => !onLeaveStaffIds.has(s.id));
+    const eligibleStaffPool = allActiveStaff.filter(
+      (s) => !onLeaveStaffIds.has(s.id),
+    );
 
-    const items = await Promise.all(approvedLeaves.map(async (leave) => {
-      const absentStaffName = `${leave.staff.user.firstName} ${leave.staff.user.lastName}`;
+    const items = await Promise.all(
+      approvedLeaves.map(async (leave) => {
+        const absentStaffName = `${leave.staff.user.firstName} ${leave.staff.user.lastName}`;
 
-      const affectedSlots = todayTimetableSlots.filter(
-        (ts) => ts.staffId === leave.staffId
-      );
-
-      // Find free substitute for the primary affected period (or overall)
-      let suggestedSub: any = null;
-      const slotsWithSub = affectedSlots.map((slot) => {
-        const busyStaffAtPeriod = new Set(
-          todayTimetableSlots
-            .filter((ts) => ts.periodNumber === slot.periodNumber && ts.staffId)
-            .map((ts) => ts.staffId)
+        const affectedSlots = todayTimetableSlots.filter(
+          (ts) => ts.staffId === leave.staffId,
         );
 
-        const freeStaff = eligibleStaffPool.filter(
-          (st) => !busyStaffAtPeriod.has(st.id) && st.id !== leave.staffId
-        );
+        // Find free substitute for the primary affected period (or overall)
+        let suggestedSub: any = null;
+        const slotsWithSub = affectedSlots.map((slot) => {
+          const busyStaffAtPeriod = new Set(
+            todayTimetableSlots
+              .filter(
+                (ts) => ts.periodNumber === slot.periodNumber && ts.staffId,
+              )
+              .map((ts) => ts.staffId),
+          );
 
-        // Subject match priority
-        const subjectMatch = freeStaff.find((st) =>
-          st.teacherAssignments?.some((ta: any) => ta.subjectId === slot.subjectId || ta.subject?.name === slot.subject?.name)
-        );
+          const freeStaff = eligibleStaffPool.filter(
+            (st) => !busyStaffAtPeriod.has(st.id) && st.id !== leave.staffId,
+          );
 
-        const chosenSub = subjectMatch || freeStaff[0];
-        if (!suggestedSub && chosenSub) suggestedSub = chosenSub;
+          // Subject match priority
+          const subjectMatch = freeStaff.find((st) =>
+            st.teacherAssignments?.some(
+              (ta: any) =>
+                ta.subjectId === slot.subjectId ||
+                ta.subject?.name === slot.subject?.name,
+            ),
+          );
+
+          const chosenSub = subjectMatch || freeStaff[0];
+          if (!suggestedSub && chosenSub) suggestedSub = chosenSub;
+
+          return {
+            id: slot.id,
+            period: slot.periodNumber,
+            class: slot.class?.name,
+            subject: slot.subject?.name || slot.subjectId || null,
+            freeSubstitute: chosenSub?.user
+              ? `${chosenSub.user.firstName} ${chosenSub.user.lastName}`
+              : 'Unassigned',
+          };
+        });
+
+        const suggestedName = suggestedSub?.user
+          ? `${suggestedSub.user.firstName} ${suggestedSub.user.lastName}`
+          : 'Unassigned';
 
         return {
-          id: slot.id,
-          period: slot.periodNumber,
-          class: slot.class?.name,
-          subject: slot.subject?.name || slot.subjectId || null,
-          freeSubstitute: chosenSub?.user ? `${chosenSub.user.firstName} ${chosenSub.user.lastName}` : 'Unassigned',
+          id: leave.id,
+          absentStaff: absentStaffName,
+          affectedPeriods: affectedSlots.length,
+          slots: slotsWithSub,
+          suggestedSubstitute: suggestedName,
+          suggestedSubstituteId: suggestedSub?.id,
+          draftMessage: `${absentStaffName} is on approved leave today. ${suggestedName} is free during the scheduled periods and has been suggested to cover ${affectedSlots.length} period(s).`,
         };
-      });
-
-      const suggestedName = suggestedSub?.user ? `${suggestedSub.user.firstName} ${suggestedSub.user.lastName}` : 'Unassigned';
-
-      return {
-        id: leave.id,
-        absentStaff: absentStaffName,
-        affectedPeriods: affectedSlots.length,
-        slots: slotsWithSub,
-        suggestedSubstitute: suggestedName,
-        suggestedSubstituteId: suggestedSub?.id,
-        draftMessage: `${absentStaffName} is on approved leave today. ${suggestedName} is free during the scheduled periods and has been suggested to cover ${affectedSlots.length} period(s).`,
-      };
-    }));
+      }),
+    );
 
     return { taskType: 'TIMETABLE_COVER', count: items.length, items };
   }
@@ -2683,40 +3016,69 @@ User request: "${prompt}"`;
       select: { studentId: true, status: true },
     });
 
-    const studentStats: Record<string, { present: number; total: number; studentId: string }> = {};
+    const studentStats: Record<
+      string,
+      { present: number; total: number; studentId: string }
+    > = {};
     for (const r of records) {
-      if (!studentStats[r.studentId]) studentStats[r.studentId] = { present: 0, total: 0, studentId: r.studentId };
+      if (!studentStats[r.studentId])
+        studentStats[r.studentId] = {
+          present: 0,
+          total: 0,
+          studentId: r.studentId,
+        };
       studentStats[r.studentId].total++;
       if (r.status === 'PRESENT') studentStats[r.studentId].present++;
     }
 
-    const lowAttendance = Object.values(studentStats).filter(s => s.total > 0 && (s.present / s.total) < 0.75);
+    const lowAttendance = Object.values(studentStats).filter(
+      (s) => s.total > 0 && s.present / s.total < 0.75,
+    );
 
-    const items = await Promise.all(lowAttendance.slice(0, 30).map(async (s) => {
-      const student = await this.prisma.student.findFirst({
-        where: { id: s.studentId, schoolId: validSchoolId },
-        include: {
-          user: { select: { firstName: true, lastName: true } },
-          guardians: { select: { id: true, firstName: true, lastName: true } }
-        },
-      });
-      if (!student) return null;
-      const pct = Math.round((s.present / s.total) * 100);
-      const studentName = `${student.user.firstName} ${student.user.lastName}`;
-      const guardian = student.guardians[0];
-      const guardianName = guardian ? `${guardian.firstName} ${guardian.lastName}` : 'Parent/Guardian';
-      let message = `Dear ${guardianName}, this is a formal warning that ${studentName}'s attendance is at ${pct}% for the last 30 days, which is below the required 75% threshold. Immediate improvement is required.`;
-      if (this.model) {
-        try {
-          const r = await this.model.generateContent(`Draft a formal attendance warning letter for a parent. Student: ${studentName}, Attendance: ${pct}%. Keep under 80 words. Plain text only.`);
-          message = r.response.text().trim();
-        } catch (_) { }
-      }
-      return { id: s.studentId, studentName, guardianName, attendancePercent: pct, draftMessage: message, recipientId: s.studentId };
-    }));
+    const items = await Promise.all(
+      lowAttendance.slice(0, 30).map(async (s) => {
+        const student = await this.prisma.student.findFirst({
+          where: { id: s.studentId, schoolId: validSchoolId },
+          include: {
+            user: { select: { firstName: true, lastName: true } },
+            guardians: {
+              select: { id: true, firstName: true, lastName: true },
+            },
+          },
+        });
+        if (!student) return null;
+        const pct = Math.round((s.present / s.total) * 100);
+        const studentName = `${student.user.firstName} ${student.user.lastName}`;
+        const guardian = student.guardians[0];
+        const guardianName = guardian
+          ? `${guardian.firstName} ${guardian.lastName}`
+          : 'Parent/Guardian';
+        let message = `Dear ${guardianName}, this is a formal warning that ${studentName}'s attendance is at ${pct}% for the last 30 days, which is below the required 75% threshold. Immediate improvement is required.`;
+        if (this.model) {
+          try {
+            const r = await this.model.generateContent(
+              `Draft a formal attendance warning letter for a parent. Student: ${studentName}, Attendance: ${pct}%. Keep under 80 words. Plain text only.`,
+            );
+            message = r.response.text().trim();
+          } catch (_) {}
+        }
+        return {
+          id: s.studentId,
+          studentName,
+          guardianName,
+          attendancePercent: pct,
+          draftMessage: message,
+          recipientId: s.studentId,
+        };
+      }),
+    );
 
     const validItems = items.filter(Boolean);
-    return { taskType: 'ATTENDANCE_WARNING', count: validItems.length, items: validItems };
+    return {
+      taskType: 'ATTENDANCE_WARNING',
+      count: validItems.length,
+      items: validItems,
+    };
   }
 
   // ─── Feature 5: Leave AI Recommendation ──────────────────────────────────
@@ -2724,47 +3086,65 @@ User request: "${prompt}"`;
     const validSchoolId = requireSchoolId(schoolId);
     const pendingLeaves = await this.prisma.leaveRequest.findMany({
       where: { schoolId: validSchoolId, status: 'PENDING' },
-      include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
+      include: {
+        staff: {
+          include: { user: { select: { firstName: true, lastName: true } } },
+        },
+      },
     });
 
-    const items = await Promise.all(pendingLeaves.map(async (leave) => {
-      const staffName = `${leave.staff.user.firstName} ${leave.staff.user.lastName}`;
-      const startDate = new Date(leave.startDate);
-      const dayOfWeek = startDate.getDay() === 0 ? 7 : startDate.getDay();
+    const items = await Promise.all(
+      pendingLeaves.map(async (leave) => {
+        const staffName = `${leave.staff.user.firstName} ${leave.staff.user.lastName}`;
+        const startDate = new Date(leave.startDate);
+        const dayOfWeek = startDate.getDay() === 0 ? 7 : startDate.getDay();
 
-      const conflicts = await this.prisma.timetableSlot.count({
-        where: { schoolId: validSchoolId, staffId: leave.staffId, dayOfWeek, isActive: true },
-      });
+        const conflicts = await this.prisma.timetableSlot.count({
+          where: {
+            schoolId: validSchoolId,
+            staffId: leave.staffId,
+            dayOfWeek,
+            isActive: true,
+          },
+        });
 
-      let recommendation = 'APPROVE';
-      let reasoning = 'No timetable conflicts detected. Safe to approve.';
-      if (conflicts > 0) {
-        recommendation = 'REVIEW';
-        reasoning = `${conflicts} timetable period(s) will be affected. Ensure substitute coverage before approving.`;
-      }
+        let recommendation = 'APPROVE';
+        let reasoning = 'No timetable conflicts detected. Safe to approve.';
+        if (conflicts > 0) {
+          recommendation = 'REVIEW';
+          reasoning = `${conflicts} timetable period(s) will be affected. Ensure substitute coverage before approving.`;
+        }
 
-      if (this.model) {
-        try {
-          const r = await this.model.generateContent(`As a school admin AI, review this leave request and give a brief recommendation (APPROVE or REVIEW). Staff: ${staffName}, Leave type: ${leave.leaveType}, Duration: ${leave.totalDays} days, Reason: ${leave.reason}, Timetable conflicts: ${conflicts}. Return JSON: {"recommendation": "APPROVE"|"REVIEW", "reasoning": "..."}`);
-          const parsed = JSON.parse(r.response.text().trim().replace(/```json|```/g, ''));
-          recommendation = parsed.recommendation || recommendation;
-          reasoning = parsed.reasoning || reasoning;
-        } catch (_) { }
-      }
+        if (this.model) {
+          try {
+            const r = await this.model.generateContent(
+              `As a school admin AI, review this leave request and give a brief recommendation (APPROVE or REVIEW). Staff: ${staffName}, Leave type: ${leave.leaveType}, Duration: ${leave.totalDays} days, Reason: ${leave.reason}, Timetable conflicts: ${conflicts}. Return JSON: {"recommendation": "APPROVE"|"REVIEW", "reasoning": "..."}`,
+            );
+            const parsed = JSON.parse(
+              r.response
+                .text()
+                .trim()
+                .replace(/```json|```/g, ''),
+            );
+            recommendation = parsed.recommendation || recommendation;
+            reasoning = parsed.reasoning || reasoning;
+          } catch (_) {}
+        }
 
-      return {
-        id: leave.id,
-        staffName,
-        leaveType: leave.leaveType,
-        startDate: leave.startDate,
-        endDate: leave.endDate,
-        totalDays: leave.totalDays,
-        reason: leave.reason,
-        timetableConflicts: conflicts,
-        recommendation,
-        reasoning,
-      };
-    }));
+        return {
+          id: leave.id,
+          staffName,
+          leaveType: leave.leaveType,
+          startDate: leave.startDate,
+          endDate: leave.endDate,
+          totalDays: leave.totalDays,
+          reason: leave.reason,
+          timetableConflicts: conflicts,
+          recommendation,
+          reasoning,
+        };
+      }),
+    );
 
     return { taskType: 'LEAVE_RECOMMENDATION', count: items.length, items };
   }
@@ -2780,28 +3160,32 @@ User request: "${prompt}"`;
       take: 10,
     });
 
-    const items = await Promise.all(exams.map(async exam => {
-      const totalSubjects = exam.subjects.length;
-      let marksEntered = 0;
-      for (const es of exam.subjects) {
-        const count = await this.prisma.studentMark.count({ where: { examSubjectId: es.id } });
-        if (count > 0) marksEntered++;
-      }
-      const isComplete = totalSubjects > 0 && marksEntered === totalSubjects;
-      return {
-        id: exam.id,
-        examName: exam.name,
-        examType: exam.examType,
-        totalSubjects,
-        marksEntered,
-        isComplete,
-        draftMessage: isComplete
-          ? `Results for ${exam.name} are now fully entered and ready for publication to all students and parents.`
-          : `${exam.name} is missing marks for ${totalSubjects - marksEntered} subject(s). Complete all entries before publishing.`,
-      };
-    }));
+    const items = await Promise.all(
+      exams.map(async (exam) => {
+        const totalSubjects = exam.subjects.length;
+        let marksEntered = 0;
+        for (const es of exam.subjects) {
+          const count = await this.prisma.studentMark.count({
+            where: { examSubjectId: es.id },
+          });
+          if (count > 0) marksEntered++;
+        }
+        const isComplete = totalSubjects > 0 && marksEntered === totalSubjects;
+        return {
+          id: exam.id,
+          examName: exam.name,
+          examType: exam.examType,
+          totalSubjects,
+          marksEntered,
+          isComplete,
+          draftMessage: isComplete
+            ? `Results for ${exam.name} are now fully entered and ready for publication to all students and parents.`
+            : `${exam.name} is missing marks for ${totalSubjects - marksEntered} subject(s). Complete all entries before publishing.`,
+        };
+      }),
+    );
 
-    const readyCount = items.filter(i => i.isComplete).length;
+    const readyCount = items.filter((i) => i.isComplete).length;
     return { taskType: 'REPORT_CARD_PUBLISH', count: readyCount, items };
   }
 
@@ -2811,26 +3195,59 @@ User request: "${prompt}"`;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const [totalStudents, presentToday, pendingFees, pendingLeaves, totalStaff] = await Promise.all([
-      this.prisma.student.count({ where: { schoolId: validSchoolId, isActive: true } }),
-      this.prisma.attendanceRecord.count({ where: { schoolId: validSchoolId, date: { gte: today }, status: 'PRESENT' } }),
-      this.prisma.feePayment.count({ where: { schoolId: validSchoolId, paymentStatus: { in: ['PENDING', 'OVERDUE'] } } }),
-      this.prisma.leaveRequest.count({ where: { schoolId: validSchoolId, status: 'PENDING' } }),
-      this.prisma.staff.count({ where: { schoolId: validSchoolId, isActive: true } }),
+    const [
+      totalStudents,
+      presentToday,
+      pendingFees,
+      pendingLeaves,
+      totalStaff,
+    ] = await Promise.all([
+      this.prisma.student.count({
+        where: { schoolId: validSchoolId, isActive: true },
+      }),
+      this.prisma.attendanceRecord.count({
+        where: {
+          schoolId: validSchoolId,
+          date: { gte: today },
+          status: 'PRESENT',
+        },
+      }),
+      this.prisma.feePayment.count({
+        where: {
+          schoolId: validSchoolId,
+          paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+        },
+      }),
+      this.prisma.leaveRequest.count({
+        where: { schoolId: validSchoolId, status: 'PENDING' },
+      }),
+      this.prisma.staff.count({
+        where: { schoolId: validSchoolId, isActive: true },
+      }),
     ]);
 
-    const attendancePct = totalStudents > 0 ? Math.round((presentToday / totalStudents) * 100) : 0;
+    const attendancePct =
+      totalStudents > 0 ? Math.round((presentToday / totalStudents) * 100) : 0;
     const summary = `📊 Daily School Digest — ${today.toDateString()}\n\n👥 Attendance: ${presentToday}/${totalStudents} students present (${attendancePct}%)\n💰 Pending fees: ${pendingFees} payments outstanding\n📋 Leave requests: ${pendingLeaves} awaiting approval\n👨‍🏫 Active staff: ${totalStaff}\n\nHave a productive day!`;
 
     return {
       taskType: 'DAILY_DIGEST',
       count: 1,
-      items: [{
-        id: 'digest-today',
-        summary,
-        stats: { totalStudents, presentToday, attendancePct, pendingFees, pendingLeaves, totalStaff },
-        draftMessage: summary,
-      }],
+      items: [
+        {
+          id: 'digest-today',
+          summary,
+          stats: {
+            totalStudents,
+            presentToday,
+            attendancePct,
+            pendingFees,
+            pendingLeaves,
+            totalStaff,
+          },
+          draftMessage: summary,
+        },
+      ],
     };
   }
 }

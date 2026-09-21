@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { Permission, ROLE_PERMISSIONS } from '@school-erp/shared';
 import { ToolDefinition } from './tool-registry';
-import { AgentExecutionContext, PolicyDecision, PolicyEvaluationResult } from './agent-types';
+import { AgentExecutionContext, PolicyEvaluationResult } from './agent-types';
 
 /**
  * AgentPolicyService — the authoritative policy gate between the control
@@ -12,26 +13,30 @@ import { AgentExecutionContext, PolicyDecision, PolicyEvaluationResult } from '.
 @Injectable()
 export class AgentPolicyService {
   /**
-   * Evaluate whether the given context is permitted to execute the tool.
+   * Evaluate whether the given context is permitted to execute or propose the tool.
    *
    * Decision chain:
-   *   1. Tool not found → DENY
-   *   2. tenantScoped but no schoolId → DENY
-   *   3. Role not in allowedRoles → DENY
-   *   4. HIGH risk without confirmation → CONFIRMATION_REQUIRED
-   *   5. requiresConfirmation flag → CONFIRMATION_REQUIRED
-   *   6. All checks pass → ALLOW
+   *   1. Tenant context check (tool.tenantScoped requires valid schoolId)
+   *   2. Role check (ctx.role in tool.allowedRoles)
+   *   3. Fine-grained permission check (user possesses all tool.requiredPermissions)
+   *   4. Risk policy & confirmation check:
+   *      - HIGH risk tool with requiresConfirmation → CONFIRMATION_REQUIRED
+   *      - requiresConfirmation flag → CONFIRMATION_REQUIRED
+   *   5. All checks pass → ALLOW
    */
   evaluate(
     ctx: AgentExecutionContext,
     tool: ToolDefinition,
   ): PolicyEvaluationResult {
-    // Tenant check — all tools are tenantScoped
+    // 1. Tenant check — all tools are tenantScoped
     if (tool.tenantScoped && !ctx.schoolId) {
-      return { decision: 'DENY', reason: 'School context is required for this action' };
+      return {
+        decision: 'DENY',
+        reason: 'School context is required for this action',
+      };
     }
 
-    // Role check — server-authoritative, never trusts client
+    // 2. Role check — server-authoritative, never trusts client
     if (!tool.allowedRoles.includes(ctx.role)) {
       return {
         decision: 'DENY',
@@ -39,20 +44,42 @@ export class AgentPolicyService {
       };
     }
 
-    // Permission check (future extensibility — currently empty arrays)
-    if (tool.requiredPermissions.length > 0) {
-      // TODO: check user's fine-grained permissions against tool.requiredPermissions
-      // For now, pass-through (role check is sufficient)
+    // 3. Permission check — server-derived from role-permission matrix
+    // If ctx.permissions is provided (e.g. customized user permissions),
+    // it is strictly intersected with server-authoritative role permissions
+    // so that client-injected / spoofed permissions are discarded.
+    const rolePermissions =
+      (ROLE_PERMISSIONS as Record<string, Permission[]>)[ctx.role] ?? [];
+    const effectivePermissions = ctx.permissions
+      ? ctx.permissions.filter((p) => rolePermissions.includes(p as Permission))
+      : rolePermissions;
+
+    if (tool.requiredPermissions && tool.requiredPermissions.length > 0) {
+      const hasAllPermissions = tool.requiredPermissions.every((p) =>
+        effectivePermissions.includes(p),
+      );
+
+      if (!hasAllPermissions) {
+        return {
+          decision: 'DENY',
+          reason: `User lacks required permissions to execute "${tool.name}"`,
+        };
+      }
     }
 
-    // High-risk tools always require confirmation
+    // 4. Risk policy & confirmation requirement (permission grant does not bypass confirmation)
     if (tool.riskLevel === 'HIGH' && tool.requiresConfirmation) {
-      return { decision: 'CONFIRMATION_REQUIRED', reason: 'High-risk action requires explicit confirmation' };
+      return {
+        decision: 'CONFIRMATION_REQUIRED',
+        reason: 'High-risk action requires explicit confirmation',
+      };
     }
 
-    // Medium-risk with requiresConfirmation
     if (tool.requiresConfirmation) {
-      return { decision: 'CONFIRMATION_REQUIRED', reason: 'This action requires explicit confirmation' };
+      return {
+        decision: 'CONFIRMATION_REQUIRED',
+        reason: 'This action requires explicit confirmation',
+      };
     }
 
     return { decision: 'ALLOW' };
@@ -61,13 +88,51 @@ export class AgentPolicyService {
   /**
    * Re-evaluate policy at confirmation time.
    * Must be called with the CURRENT user context, not the original proposer's context.
-   * Ensures revoked/changed roles are rejected before execution.
+   * Ensures revoked/changed roles or permissions are rejected before execution.
    */
   evaluateAtConfirmation(
     currentCtx: AgentExecutionContext,
     tool: ToolDefinition,
   ): PolicyEvaluationResult {
-    // Re-run the full policy evaluation with current (re-fetched) role
-    return this.evaluate(currentCtx, tool);
+    // 1. Tenant check
+    if (tool.tenantScoped && !currentCtx.schoolId) {
+      return {
+        decision: 'DENY',
+        reason: 'School context is required for this action',
+      };
+    }
+
+    // 2. Role check — re-evaluates current role from DB
+    if (!tool.allowedRoles.includes(currentCtx.role)) {
+      return {
+        decision: 'DENY',
+        reason: `Role "${currentCtx.role}" is not permitted to execute "${tool.name}"`,
+      };
+    }
+
+    // 3. Permission check — re-evaluates current permissions
+    const rolePermissions =
+      (ROLE_PERMISSIONS as Record<string, Permission[]>)[currentCtx.role] ?? [];
+    const effectivePermissions = currentCtx.permissions
+      ? currentCtx.permissions.filter((p) =>
+          rolePermissions.includes(p as Permission),
+        )
+      : rolePermissions;
+
+    if (tool.requiredPermissions && tool.requiredPermissions.length > 0) {
+      const hasAllPermissions = tool.requiredPermissions.every((p) =>
+        effectivePermissions.includes(p),
+      );
+
+      if (!hasAllPermissions) {
+        return {
+          decision: 'DENY',
+          reason: `User lacks required permissions to execute "${tool.name}"`,
+        };
+      }
+    }
+
+    // Confirmation requirement is fulfilled by the confirm action itself
+    return { decision: 'ALLOW' };
   }
 }

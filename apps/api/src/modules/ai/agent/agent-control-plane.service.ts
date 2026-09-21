@@ -9,11 +9,16 @@ import {
 } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../../core/database/prisma.service';
-import { TOOL_REGISTRY, ToolDefinition, validateToolInput } from './tool-registry';
+import {
+  TOOL_REGISTRY,
+  ToolDefinition,
+  validateToolInput,
+} from './tool-registry';
 import { AgentPolicyService } from './agent-policy.service';
 import { AgentStateMachine } from './agent-state-machine';
 import { HRService } from '../../hr/hr.service';
 import { AssignmentsService } from '../../assignments/assignments.service';
+import { ROLE_PERMISSIONS, type UserRole } from '@school-erp/shared';
 import {
   AgentExecutionContext,
   AgentActionResult,
@@ -83,7 +88,9 @@ export class AgentControlPlaneService {
 
     // 2. Check realHandlerAvailable — reject stubs
     if (!tool.realHandlerAvailable) {
-      throw new BadRequestException(`${AGENT_ERRORS.ACTION_EXECUTION_FAILED}: No real handler registered for "${toolName}"`);
+      throw new BadRequestException(
+        `${AGENT_ERRORS.ACTION_EXECUTION_FAILED}: No real handler registered for "${toolName}"`,
+      );
     }
 
     // 3. Input schema validation — reject unknown / malformed fields
@@ -125,7 +132,11 @@ export class AgentControlPlaneService {
 
     // 7. Compute operation fingerprint (business-mutation hash)
     //    Distinct from the client request key — guards against double-execution.
-    const operationFingerprint = this.computeOperationFingerprint(tool, ctx, resolvedArgs);
+    const operationFingerprint = this.computeOperationFingerprint(
+      tool,
+      ctx,
+      resolvedArgs,
+    );
 
     // 8. OPERATION-LEVEL idempotency check (fingerprint of the logical mutation)
     if (operationFingerprint) {
@@ -148,7 +159,8 @@ export class AgentControlPlaneService {
         }
 
         if (
-          existingByFingerprint.status === AgentActionStatus.AWAITING_CONFIRMATION ||
+          existingByFingerprint.status ===
+            AgentActionStatus.AWAITING_CONFIRMATION ||
           existingByFingerprint.status === AgentActionStatus.CONFIRMED
         ) {
           // Return the existing pending action — client can confirm or let it expire
@@ -201,7 +213,7 @@ export class AgentControlPlaneService {
         label,
         expiresAt,
         // Request-level dedup token — may be undefined when caller provides no header
-        idempotencyKey:       clientRequestKey ?? undefined,
+        idempotencyKey: clientRequestKey ?? undefined,
         // Business-mutation fingerprint — null for REQUEST_KEY and NONE strategies
         operationFingerprint: operationFingerprint ?? undefined,
         correlationId,
@@ -264,7 +276,10 @@ export class AgentControlPlaneService {
     }
 
     // 4. State machine check (validate transition to EXECUTING before doing external lookups)
-    AgentStateMachine.assertTransition(action.status, AgentActionStatus.EXECUTING);
+    AgentStateMachine.assertTransition(
+      action.status,
+      AgentActionStatus.EXECUTING,
+    );
 
     // 5. Re-resolve tool
     const tool = TOOL_REGISTRY.get(action.toolName);
@@ -286,6 +301,7 @@ export class AgentControlPlaneService {
       userId,
       role: currentUser.role,
       schoolId,
+      permissions: ROLE_PERMISSIONS[currentUser.role] ?? [],
     };
     const policyResult = this.policy.evaluateAtConfirmation(currentCtx, tool);
     if (policyResult.decision === 'DENY') {
@@ -299,7 +315,12 @@ export class AgentControlPlaneService {
       const result = await tx.agentAction.updateMany({
         where: {
           id: actionId,
-          status: { in: [AgentActionStatus.AWAITING_CONFIRMATION, AgentActionStatus.CONFIRMED] },
+          status: {
+            in: [
+              AgentActionStatus.AWAITING_CONFIRMATION,
+              AgentActionStatus.CONFIRMED,
+            ],
+          },
         },
         data: {
           status: AgentActionStatus.EXECUTING,
@@ -325,7 +346,13 @@ export class AgentControlPlaneService {
       );
 
       // 10. Post-execution verification
-      await this.verifyExecution(tool.handlerKey, args, userId, schoolId, resultData);
+      await this.verifyExecution(
+        tool.handlerKey,
+        args,
+        userId,
+        schoolId,
+        resultData,
+      );
 
       // 11. Mark SUCCEEDED
       await this.prisma.agentAction.update({
@@ -342,7 +369,7 @@ export class AgentControlPlaneService {
         userId,
         actionId,
         toolName: action.toolName,
-        riskLevel: action.riskLevel as RiskLevel,
+        riskLevel: action.riskLevel,
         status: 'SUCCEEDED',
         resourceType: 'AgentAction',
         resourceId: actionId,
@@ -374,7 +401,7 @@ export class AgentControlPlaneService {
         userId,
         actionId,
         toolName: action.toolName,
-        riskLevel: action.riskLevel as RiskLevel,
+        riskLevel: action.riskLevel,
         status: 'FAILED',
         resourceType: 'AgentAction',
         resourceId: actionId,
@@ -441,7 +468,11 @@ export class AgentControlPlaneService {
     ctx: AgentExecutionContext,
     toolName: string,
     rawArgs: Record<string, unknown>,
-  ): Promise<{ resolvedArgs: Record<string, unknown>; label: string; resourceId: string | null }> {
+  ): Promise<{
+    resolvedArgs: Record<string, unknown>;
+    label: string;
+    resourceId: string | null;
+  }> {
     const tool = TOOL_REGISTRY.get(toolName)!;
 
     if (toolName === ToolHandlerKey.APPROVE_LEAVE) {
@@ -461,7 +492,11 @@ export class AgentControlPlaneService {
             },
           },
         },
-        include: { staff: { include: { user: { select: { firstName: true, lastName: true } } } } },
+        include: {
+          staff: {
+            include: { user: { select: { firstName: true, lastName: true } } },
+          },
+        },
       });
 
       if (leaves.length === 0) {
@@ -492,7 +527,10 @@ export class AgentControlPlaneService {
 
       // Resolve class by name (exact, school-scoped)
       const foundClass = await this.prisma.class.findFirst({
-        where: { name: { equals: args.className, mode: 'insensitive' }, schoolId: ctx.schoolId },
+        where: {
+          name: { equals: args.className, mode: 'insensitive' },
+          schoolId: ctx.schoolId,
+        },
       });
       if (!foundClass) {
         throw new NotFoundException(
@@ -542,40 +580,55 @@ export class AgentControlPlaneService {
   ): Promise<Record<string, unknown>> {
     switch (handlerKey) {
       case ToolHandlerKey.APPROVE_LEAVE:
-        return this.domainApproveLeave(args as unknown as { leaveId: string; reason?: string }, userId, schoolId);
+        return this.domainApproveLeave(
+          args as unknown as { leaveId: string; reason?: string },
+          userId,
+          schoolId,
+        );
 
       case ToolHandlerKey.CREATE_ASSIGNMENT:
         return this.domainCreateAssignment(
           args as unknown as {
-            classId: string; subjectId: string; topic: string;
-            description?: string; dueDate?: string; totalMarks?: number;
+            classId: string;
+            subjectId: string;
+            topic: string;
+            description?: string;
+            dueDate?: string;
+            totalMarks?: number;
           },
-          userId, schoolId,
+          userId,
+          schoolId,
         );
 
       case ToolHandlerKey.SEND_ANNOUNCEMENT:
-        return this.domainSendAnnouncement(args as unknown as SendAnnouncementInput, userId, schoolId);
+        return this.domainSendAnnouncement(
+          args as unknown as SendAnnouncementInput,
+          userId,
+          schoolId,
+        );
 
       // ── Automation tools: delegate to the internal domain op injected from AIService ──
       case ToolHandlerKey.AUTOMATION_FEE_DEFAULTER:
       case ToolHandlerKey.AUTOMATION_ABSENCE_ALERT:
       case ToolHandlerKey.AUTOMATION_ATTENDANCE_WARNING:
-        return this.domainAutomationMessages(args as unknown as AutomationInput, userId, schoolId);
+        return this.domainAutomationMessages(args, userId, schoolId);
 
       case ToolHandlerKey.AUTOMATION_TIMETABLE_COVER:
-        return this.domainAutomationTimetableCover(args as unknown as AutomationInput, userId, schoolId);
+        return this.domainAutomationTimetableCover(args, userId, schoolId);
 
       case ToolHandlerKey.AUTOMATION_LEAVE_RECOMMENDATION:
-        return this.domainAutomationLeaveRecommendation(args as unknown as AutomationInput, userId, schoolId);
+        return this.domainAutomationLeaveRecommendation(args, userId, schoolId);
 
       case ToolHandlerKey.AUTOMATION_REPORT_CARD_PUBLISH:
-        return this.domainAutomationReportCardPublish(args as unknown as AutomationInput, userId, schoolId);
+        return this.domainAutomationReportCardPublish(args, userId, schoolId);
 
       case ToolHandlerKey.AUTOMATION_DAILY_DIGEST:
-        return this.domainAutomationDailyDigest(args as unknown as AutomationInput, userId, schoolId);
+        return this.domainAutomationDailyDigest(args, userId, schoolId);
 
       default:
-        throw new InternalServerErrorException(`No handler registered for key: ${handlerKey}`);
+        throw new InternalServerErrorException(
+          `No handler registered for key: ${handlerKey}`,
+        );
     }
   }
 
@@ -598,7 +651,9 @@ export class AgentControlPlaneService {
 
     if (updated.count === 0) {
       // Re-read to determine whether it's stale, tenant mismatch, or not found
-      const leave = await this.prisma.leaveRequest.findUnique({ where: { id: args.leaveId } });
+      const leave = await this.prisma.leaveRequest.findUnique({
+        where: { id: args.leaveId },
+      });
       if (!leave || leave.schoolId !== schoolId) {
         throw new Error(AGENT_ERRORS.ACTION_TENANT_MISMATCH);
       }
@@ -651,7 +706,11 @@ export class AgentControlPlaneService {
       staff.id,
     );
 
-    return { assignmentId: assignment.id, classId: args.classId, subjectId: args.subjectId };
+    return {
+      assignmentId: assignment.id,
+      classId: args.classId,
+      subjectId: args.subjectId,
+    };
   }
 
   // ─── Domain: Send Announcement ────────────────────────────────────────────
@@ -687,8 +746,13 @@ export class AgentControlPlaneService {
     userId: string,
     schoolId: string,
   ): Promise<Record<string, unknown>> {
-    const items = (args.items ?? []) as Array<{ recipientId?: string; draftMessage?: string }>;
-    const recipientIds = items.map((i) => i.recipientId).filter(Boolean) as string[];
+    const items = (args.items ?? []) as Array<{
+      recipientId?: string;
+      draftMessage?: string;
+    }>;
+    const recipientIds = items
+      .map((i) => i.recipientId)
+      .filter(Boolean) as string[];
 
     const validUsers = await this.prisma.user.findMany({
       where: { id: { in: recipientIds }, schoolId },
@@ -702,7 +766,9 @@ export class AgentControlPlaneService {
     for (let i = 0; i < items.length; i += BATCH_SIZE) {
       const batch = items.slice(i, i + BATCH_SIZE);
       const messages = batch
-        .filter((item) => item.recipientId && validUserIdSet.has(item.recipientId))
+        .filter(
+          (item) => item.recipientId && validUserIdSet.has(item.recipientId),
+        )
         .map((item) => ({
           schoolId,
           senderId: userId,
@@ -732,7 +798,12 @@ export class AgentControlPlaneService {
     let actionsCount = 0;
 
     for (const item of items) {
-      if (!item.suggestedSubstituteId || !Array.isArray(item.slots) || item.slots.length === 0) continue;
+      if (
+        !item.suggestedSubstituteId ||
+        !Array.isArray(item.slots) ||
+        item.slots.length === 0
+      )
+        continue;
 
       const substituteStaff = await this.prisma.staff.findFirst({
         where: { id: item.suggestedSubstituteId, schoolId },
@@ -771,7 +842,9 @@ export class AgentControlPlaneService {
       if (!leave) continue;
       await this.prisma.leaveRequest.update({
         where: { id: item.id },
-        data: { reviewNote: `[AI Recommendation: ${item.recommendation ?? 'REVIEW'}] ${item.reasoning ?? ''}` },
+        data: {
+          reviewNote: `[AI Recommendation: ${item.recommendation ?? 'REVIEW'}] ${item.reasoning ?? ''}`,
+        },
       });
       actionsCount++;
     }
@@ -811,7 +884,9 @@ export class AgentControlPlaneService {
         senderId: userId,
         recipientId: s.user.id,
         subject: `Results Ready: ${exam.examName ?? examRecord.name}`,
-        body: exam.draftMessage ?? `Results for ${examRecord.name} are now available.`,
+        body:
+          exam.draftMessage ??
+          `Results for ${examRecord.name} are now available.`,
       }));
 
       if (messages.length > 0) {
@@ -831,7 +906,11 @@ export class AgentControlPlaneService {
   ): Promise<Record<string, unknown>> {
     const items = (args.items ?? []) as Array<{ draftMessage?: string }>;
     const principal = await this.prisma.user.findFirst({
-      where: { schoolId, role: { in: ['PRINCIPAL', 'SCHOOL_ADMIN'] }, status: 'ACTIVE' },
+      where: {
+        schoolId,
+        role: { in: ['PRINCIPAL', 'SCHOOL_ADMIN'] },
+        status: 'ACTIVE',
+      },
     });
 
     if (principal && items[0]?.draftMessage) {
@@ -863,16 +942,26 @@ export class AgentControlPlaneService {
   ): Promise<void> {
     if (handlerKey === ToolHandlerKey.APPROVE_LEAVE) {
       const leaveId = args['leaveId'] as string;
-      const leave = await this.prisma.leaveRequest.findUnique({ where: { id: leaveId } });
-      if (!leave || leave.status !== 'APPROVED' || leave.reviewedBy !== userId) {
+      const leave = await this.prisma.leaveRequest.findUnique({
+        where: { id: leaveId },
+      });
+      if (
+        !leave ||
+        leave.status !== 'APPROVED' ||
+        leave.reviewedBy !== userId
+      ) {
         throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
       }
     }
 
     if (handlerKey === ToolHandlerKey.CREATE_ASSIGNMENT) {
-      const assignmentId = (resultData as { assignmentId?: string }).assignmentId;
-      if (!assignmentId) throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
-      const assignment = await this.prisma.assignment.findUnique({ where: { id: assignmentId } });
+      const assignmentId = (resultData as { assignmentId?: string })
+        .assignmentId;
+      if (!assignmentId)
+        throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
+      const assignment = await this.prisma.assignment.findUnique({
+        where: { id: assignmentId },
+      });
       if (
         !assignment ||
         assignment.schoolId !== schoolId ||
@@ -886,7 +975,9 @@ export class AgentControlPlaneService {
     if (handlerKey === ToolHandlerKey.SEND_ANNOUNCEMENT) {
       const sentCount = (resultData as { sentCount?: number }).sentCount ?? 0;
       if (sentCount === 0) {
-        this.logger.warn('Announcement sent to 0 recipients — no active users found');
+        this.logger.warn(
+          'Announcement sent to 0 recipients — no active users found',
+        );
         // Not a hard failure — school may have no other active users
       }
     }
@@ -920,19 +1011,27 @@ export class AgentControlPlaneService {
           this.logger.warn(
             `Tool "${tool.name}" declares NATURAL_KEY but no natural key field found in resolvedArgs; falling back to CONTENT_HASH`,
           );
-          const stableArgs = JSON.stringify(resolvedArgs, Object.keys(resolvedArgs).sort());
+          const stableArgs = JSON.stringify(
+            resolvedArgs,
+            Object.keys(resolvedArgs).sort(),
+          );
           return createHash('sha256')
             .update(`${ctx.schoolId}:${ctx.userId}:${tool.name}:${stableArgs}`)
             .digest('hex');
         }
         return createHash('sha256')
-          .update(`${ctx.schoolId}:${ctx.userId}:${tool.name}:${naturalKeyValue}`)
+          .update(
+            `${ctx.schoolId}:${ctx.userId}:${tool.name}:${naturalKeyValue}`,
+          )
           .digest('hex');
       }
 
       case 'CONTENT_HASH': {
         // Deterministic hash of the full, resolved argument payload.
-        const stableArgs = JSON.stringify(resolvedArgs, Object.keys(resolvedArgs).sort());
+        const stableArgs = JSON.stringify(
+          resolvedArgs,
+          Object.keys(resolvedArgs).sort(),
+        );
         return createHash('sha256')
           .update(`${ctx.schoolId}:${ctx.userId}:${tool.name}:${stableArgs}`)
           .digest('hex');
@@ -989,7 +1088,9 @@ export class AgentControlPlaneService {
         expiresAt: action.expiresAt,
         requiresConfirmation: action.requiresConfirmation,
         idempotent,
-        ...(idempotent && action.result !== undefined ? { result: action.result } : {}),
+        ...(idempotent && action.result !== undefined
+          ? { result: action.result }
+          : {}),
       },
     };
   }
@@ -1014,8 +1115,10 @@ export class AgentControlPlaneService {
           riskLevel: payload.riskLevel,
           status: payload.status,
           correlationId: payload.correlationId,
-          ...(payload.failureReason ? { failureReason: payload.failureReason } : {}),
-        } as Prisma.InputJsonValue,
+          ...(payload.failureReason
+            ? { failureReason: payload.failureReason }
+            : {}),
+        },
       },
     });
   }
@@ -1031,7 +1134,12 @@ export class AgentControlPlaneService {
   async expireStaleActions(): Promise<{ count: number }> {
     const result = await this.prisma.agentAction.updateMany({
       where: {
-        status: { in: [AgentActionStatus.AWAITING_CONFIRMATION, AgentActionStatus.CONFIRMED] },
+        status: {
+          in: [
+            AgentActionStatus.AWAITING_CONFIRMATION,
+            AgentActionStatus.CONFIRMED,
+          ],
+        },
         expiresAt: { lt: new Date() },
       },
       data: {

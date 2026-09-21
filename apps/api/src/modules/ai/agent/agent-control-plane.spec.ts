@@ -12,6 +12,18 @@ import { AgentActionStatus } from '@prisma/client';
 import { HRService } from '../../hr/hr.service';
 import { AssignmentsService } from '../../assignments/assignments.service';
 import { AGENT_ERRORS } from './agent-types';
+import {
+  PERMISSIONS,
+  Permission,
+  USER_ROLES,
+  UserRole,
+  ROLE_PERMISSIONS,
+} from '@school-erp/shared';
+import {
+  TOOL_REGISTRY,
+  ToolDefinition,
+  validateToolRegistry,
+} from './tool-registry';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -66,11 +78,17 @@ const buildPrismaMock = () => ({
   activityLog: {
     create: jest.fn().mockResolvedValue({}),
   },
-  $transaction: jest.fn().mockImplementation(async (cb) => cb(buildPrismaMock())),
+  $transaction: jest
+    .fn()
+    .mockImplementation(async (cb) => cb(buildPrismaMock())),
 });
 
 // Standard admin context
-const adminCtx = { userId: 'user-admin', role: 'SCHOOL_ADMIN', schoolId: 'school-1' };
+const adminCtx = {
+  userId: 'user-admin',
+  role: 'SCHOOL_ADMIN',
+  schoolId: 'school-1',
+};
 
 // ─── Test Suite ───────────────────────────────────────────────────────────────
 
@@ -87,7 +105,9 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
     assignmentsService = { createAssignment: jest.fn() };
 
     // Re-wire $transaction so the nested CAS block works
-    prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(prisma));
+    prisma.$transaction.mockImplementation(
+      async (cb: (tx: unknown) => Promise<unknown>) => cb(prisma),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -115,7 +135,9 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
     it('throws ForbiddenException for unauthorized role', async () => {
       const teacherCtx = { ...adminCtx, role: 'TEACHER' };
       await expect(
-        service.proposeAction(teacherCtx, 'approve_leave', { staffName: 'Ravi Kumar' }),
+        service.proposeAction(teacherCtx, 'approve_leave', {
+          staffName: 'Ravi Kumar',
+        }),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -171,14 +193,22 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
     it('throws NotFoundException for zero matching leaves', async () => {
       prisma.leaveRequest.findMany.mockResolvedValue([]);
       await expect(
-        service.proposeAction(adminCtx, 'approve_leave', { staffName: 'Unknown Staff' }),
+        service.proposeAction(adminCtx, 'approve_leave', {
+          staffName: 'Unknown Staff',
+        }),
       ).rejects.toThrow(NotFoundException);
     });
 
     it('throws BadRequestException for ambiguous staff name (multiple leaves)', async () => {
       prisma.leaveRequest.findMany.mockResolvedValue([
-        { id: 'leave-1', staff: { user: { firstName: 'Ravi', lastName: 'A' } } },
-        { id: 'leave-2', staff: { user: { firstName: 'Ravi', lastName: 'B' } } },
+        {
+          id: 'leave-1',
+          staff: { user: { firstName: 'Ravi', lastName: 'A' } },
+        },
+        {
+          id: 'leave-2',
+          staff: { user: { firstName: 'Ravi', lastName: 'B' } },
+        },
       ]);
       await expect(
         service.proposeAction(adminCtx, 'approve_leave', { staffName: 'Ravi' }),
@@ -198,8 +228,14 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
 
     it('creates create_assignment with resolved classId and explicit subjectId', async () => {
       const teacherCtx = { ...adminCtx, role: 'TEACHER' };
-      prisma.class.findFirst.mockResolvedValue({ id: 'class-1', name: 'Class 10-A' });
-      prisma.subject.findFirst.mockResolvedValue({ id: 'sub-1', name: 'Mathematics' });
+      prisma.class.findFirst.mockResolvedValue({
+        id: 'class-1',
+        name: 'Class 10-A',
+      });
+      prisma.subject.findFirst.mockResolvedValue({
+        id: 'sub-1',
+        name: 'Mathematics',
+      });
       // No fingerprint collision
       prisma.agentAction.findUnique.mockResolvedValue(null);
 
@@ -250,7 +286,10 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
       expect(prisma.agentAction.create).not.toHaveBeenCalled();
       expect(res.pendingAction['actionId']).toBe('action-existing');
       expect(res.pendingAction['idempotent']).toBe(true);
-      expect(res.pendingAction['result']).toEqual({ leaveId: 'leave-1', approved: true });
+      expect(res.pendingAction['result']).toEqual({
+        leaveId: 'leave-1',
+        approved: true,
+      });
     });
 
     it('throws ConflictException when operation fingerprint collision on EXECUTING action', async () => {
@@ -266,7 +305,9 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
       });
 
       await expect(
-        service.proposeAction(adminCtx, 'approve_leave', { staffName: 'Ravi Kumar' }),
+        service.proposeAction(adminCtx, 'approve_leave', {
+          staffName: 'Ravi Kumar',
+        }),
       ).rejects.toThrow(ConflictException);
     });
 
@@ -404,11 +445,9 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
       // No clientRequestKey passed — no request key dedup; fingerprint is null for REQUEST_KEY
       // So findUnique is NOT called for fingerprint (fingerprint = null → skipped)
       // agentAction.findUnique should not be called at all
-      const res = await service.proposeAction(
-        adminCtx,
-        'send_announcement',
-        { title: 'School Holiday Announcement' },
-      );
+      const res = await service.proposeAction(adminCtx, 'send_announcement', {
+        title: 'School Holiday Announcement',
+      });
 
       // No findUnique call for fingerprint (REQUEST_KEY → fingerprint = null)
       expect(prisma.agentAction.findUnique).not.toHaveBeenCalled();
@@ -562,10 +601,18 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         status: 'ACTIVE',
       });
       // Simulate concurrent execution already claimed the row
-      prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
-        const txPrisma = { ...prisma, agentAction: { ...prisma.agentAction, updateMany: jest.fn().mockResolvedValue({ count: 0 }) } };
-        return cb(txPrisma);
-      });
+      prisma.$transaction.mockImplementation(
+        async (cb: (tx: unknown) => Promise<unknown>) => {
+          const txPrisma = {
+            ...prisma,
+            agentAction: {
+              ...prisma.agentAction,
+              updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+          };
+          return cb(txPrisma);
+        },
+      );
 
       await expect(
         service.confirmAndExecute('action-1', 'user-admin', 'school-1'),
@@ -601,13 +648,20 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         schoolId: 'school-1',
       });
 
-      const result = await service.confirmAndExecute('action-1', 'user-admin', 'school-1');
+      const result = await service.confirmAndExecute(
+        'action-1',
+        'user-admin',
+        'school-1',
+      );
 
       expect(result.status).toBe(AgentActionStatus.SUCCEEDED);
       expect(prisma.leaveRequest.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'leave-1', schoolId: 'school-1', status: 'PENDING' },
-          data: expect.objectContaining({ status: 'APPROVED', reviewedBy: 'user-admin' }),
+          data: expect.objectContaining({
+            status: 'APPROVED',
+            reviewedBy: 'user-admin',
+          }),
         }),
       );
       expect(prisma.activityLog.create).toHaveBeenCalledWith(
@@ -634,20 +688,31 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         riskLevel: 'HIGH',
       });
       prisma.user.findUnique.mockResolvedValue({
-        id: 'user-admin', role: 'SCHOOL_ADMIN', schoolId: 'school-1', status: 'ACTIVE',
+        id: 'user-admin',
+        role: 'SCHOOL_ADMIN',
+        schoolId: 'school-1',
+        status: 'ACTIVE',
       });
       prisma.agentAction.updateMany.mockResolvedValue({ count: 1 });
       // stale rejection: updateMany returns 0 rows
       prisma.leaveRequest.updateMany.mockResolvedValue({ count: 0 });
       // re-read shows already APPROVED
       prisma.leaveRequest.findUnique.mockResolvedValue({
-        id: 'leave-stale', status: 'APPROVED', schoolId: 'school-1',
+        id: 'leave-stale',
+        status: 'APPROVED',
+        schoolId: 'school-1',
       });
 
-      const result = await service.confirmAndExecute('action-1', 'user-admin', 'school-1');
+      const result = await service.confirmAndExecute(
+        'action-1',
+        'user-admin',
+        'school-1',
+      );
 
       expect(result.status).toBe(AgentActionStatus.FAILED);
-      expect(result.failureReason).toContain(AGENT_ERRORS.ACTION_STALE_RESOURCE);
+      expect(result.failureReason).toContain(
+        AGENT_ERRORS.ACTION_STALE_RESOURCE,
+      );
     });
 
     // ─── Hardening Test 8: FAILED path clears both idempotency keys ──────────
@@ -665,12 +730,17 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         riskLevel: 'HIGH',
       });
       prisma.user.findUnique.mockResolvedValue({
-        id: 'user-admin', role: 'SCHOOL_ADMIN', schoolId: 'school-1', status: 'ACTIVE',
+        id: 'user-admin',
+        role: 'SCHOOL_ADMIN',
+        schoolId: 'school-1',
+        status: 'ACTIVE',
       });
       prisma.agentAction.updateMany.mockResolvedValue({ count: 1 });
       prisma.leaveRequest.updateMany.mockResolvedValue({ count: 0 });
       prisma.leaveRequest.findUnique.mockResolvedValue({
-        id: 'leave-stale', status: 'APPROVED', schoolId: 'school-1',
+        id: 'leave-stale',
+        status: 'APPROVED',
+        schoolId: 'school-1',
       });
 
       await service.confirmAndExecute('action-1', 'user-admin', 'school-1');
@@ -701,7 +771,10 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
       });
       // User role was demoted to STUDENT since proposal
       prisma.user.findUnique.mockResolvedValue({
-        id: 'user-demoted', role: 'STUDENT', schoolId: 'school-1', status: 'ACTIVE',
+        id: 'user-demoted',
+        role: 'STUDENT',
+        schoolId: 'school-1',
+        status: 'ACTIVE',
       });
 
       await expect(
@@ -729,7 +802,11 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         userId: 'user-admin',
       });
 
-      const result = await service.getActionStatus('action-1', 'user-admin', 'school-1');
+      const result = await service.getActionStatus(
+        'action-1',
+        'user-admin',
+        'school-1',
+      );
 
       expect(result).toHaveProperty('id');
       expect(result).toHaveProperty('status');
@@ -765,7 +842,12 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
       expect(prisma.agentAction.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            status: { in: [AgentActionStatus.AWAITING_CONFIRMATION, AgentActionStatus.CONFIRMED] },
+            status: {
+              in: [
+                AgentActionStatus.AWAITING_CONFIRMATION,
+                AgentActionStatus.CONFIRMED,
+              ],
+            },
             expiresAt: expect.objectContaining({ lt: expect.any(Date) }),
           }),
         }),
@@ -818,7 +900,11 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
     it('returns ALLOW for LOW risk, no confirmation tool', () => {
       const dailyDigest = TOOL_REGISTRY.get('automation_daily_digest');
       // Override requiresConfirmation for test
-      const tool = { ...dailyDigest, riskLevel: 'LOW', requiresConfirmation: false };
+      const tool = {
+        ...dailyDigest,
+        riskLevel: 'LOW',
+        requiresConfirmation: false,
+      };
       const ctx = { userId: 'u1', role: 'SCHOOL_ADMIN', schoolId: 'school-1' };
       const result = policyService.evaluate(ctx, tool);
       expect(result.decision).toBe('ALLOW');
@@ -832,7 +918,12 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
     });
 
     it('[H-registry] all mutating tools declare an explicit idempotency strategy (no undefined)', () => {
-      const validStrategies = new Set(['NATURAL_KEY', 'CONTENT_HASH', 'REQUEST_KEY', 'NONE']);
+      const validStrategies = new Set([
+        'NATURAL_KEY',
+        'CONTENT_HASH',
+        'REQUEST_KEY',
+        'NONE',
+      ]);
       for (const [name, tool] of TOOL_REGISTRY.entries()) {
         if (!validStrategies.has(tool.idempotencyStrategy)) {
           throw new Error(
@@ -840,6 +931,571 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
           );
         }
       }
+    });
+
+    // ─── Change #8B: Fine-Grained Authorization Matrix & Security Enforcement ──
+
+    describe('Role Tests', () => {
+      it('Allowed role + correct permission → evaluates to CONFIRMATION_REQUIRED for high-risk action', () => {
+        const principalCtx = {
+          userId: 'p1',
+          role: 'PRINCIPAL',
+          schoolId: 'school-1',
+        };
+        const result = policyService.evaluate(principalCtx, approveLeave);
+        expect(result.decision).toBe('CONFIRMATION_REQUIRED');
+      });
+
+      it('Allowed role + correct permission → evaluates to ALLOW for low-risk, non-confirm tool', () => {
+        const principalCtx = {
+          userId: 'p1',
+          role: 'PRINCIPAL',
+          schoolId: 'school-1',
+        };
+        const dailyDigest = TOOL_REGISTRY.get('automation_daily_digest')!;
+        const result = policyService.evaluate(principalCtx, dailyDigest);
+        expect(result.decision).toBe('ALLOW');
+      });
+
+      it('Wrong role + correct permission → DENY', () => {
+        // Teacher has MESSAGES_SEND, but send_announcement only allows PRINCIPAL, SCHOOL_ADMIN, SUPER_ADMIN
+        const teacherCtx = {
+          userId: 't1',
+          role: 'TEACHER',
+          schoolId: 'school-1',
+        };
+        const sendAnnouncement = TOOL_REGISTRY.get('send_announcement')!;
+        const result = policyService.evaluate(teacherCtx, sendAnnouncement);
+        expect(result.decision).toBe('DENY');
+        expect(result.reason).toContain(
+          'Role "TEACHER" is not permitted to execute "send_announcement"',
+        );
+      });
+
+      it('Wrong role (STUDENT) attempting create_assignment → DENY', () => {
+        const studentCtx = {
+          userId: 's1',
+          role: 'STUDENT',
+          schoolId: 'school-1',
+        };
+        const createAssignment = TOOL_REGISTRY.get('create_assignment')!;
+        const result = policyService.evaluate(studentCtx, createAssignment);
+        expect(result.decision).toBe('DENY');
+        expect(result.reason).toContain(
+          'Role "STUDENT" is not permitted to execute "create_assignment"',
+        );
+      });
+    });
+
+    describe('Permission Tests', () => {
+      it('Correct role + missing permission → DENY', () => {
+        // User has PRINCIPAL role, but their fine-grained permissions explicitly omit LEAVE_APPROVE
+        const restrictedPrincipal = {
+          userId: 'p-restricted',
+          role: 'PRINCIPAL',
+          schoolId: 'school-1',
+          permissions: [PERMISSIONS.ACADEMIC_READ, PERMISSIONS.MESSAGES_SEND],
+        };
+        const result = policyService.evaluate(
+          restrictedPrincipal,
+          approveLeave,
+        );
+        expect(result.decision).toBe('DENY');
+        expect(result.reason).toContain(
+          'User lacks required permissions to execute "approve_leave"',
+        );
+      });
+
+      it('Correct role + required permission → ALLOW / CONFIRMATION_REQUIRED', () => {
+        const teacherCtx = {
+          userId: 't1',
+          role: 'TEACHER',
+          schoolId: 'school-1',
+        };
+        const createAssignment = TOOL_REGISTRY.get('create_assignment')!;
+        const result = policyService.evaluate(teacherCtx, createAssignment);
+        expect(result.decision).toBe('CONFIRMATION_REQUIRED');
+      });
+
+      it('Multi-permission tool requires all declared permissions to pass', () => {
+        const feeDefaulter = TOOL_REGISTRY.get('automation_fee_defaulter')!;
+        // User has FEES_READ_ALL but lacks MESSAGES_SEND
+        const partialCtx = {
+          userId: 'sa-partial',
+          role: 'SCHOOL_ADMIN',
+          schoolId: 'school-1',
+          permissions: [PERMISSIONS.FEES_READ_ALL],
+        };
+        const result = policyService.evaluate(partialCtx, feeDefaulter);
+        expect(result.decision).toBe('DENY');
+        expect(result.reason).toContain(
+          'User lacks required permissions to execute "automation_fee_defaulter"',
+        );
+      });
+    });
+
+    describe('Client Identity & Permission Spoofing Tests', () => {
+      it('Client request cannot elevate role: server derives role and rejects unauthorized proposal', async () => {
+        const teacherCtx = {
+          userId: 't1',
+          role: 'TEACHER',
+          schoolId: 'school-1',
+        };
+        // Attacker attempts to inject role into arguments or body
+        await expect(
+          service.proposeAction(teacherCtx, 'approve_leave', {
+            staffName: 'Ravi Kumar',
+            role: 'SUPER_ADMIN',
+          }),
+        ).rejects.toThrow(BadRequestException); // rejected by input validation as unknown field
+      });
+
+      it('Fake permission spoofing: client supplies AGENT_HIGH_RISK_EXECUTE but user does not have it → DENY', () => {
+        // Attacker passes permissions on context
+        const spoofedCtx = {
+          userId: 't1',
+          role: 'TEACHER',
+          schoolId: 'school-1',
+          permissions: [
+            PERMISSIONS.AGENT_HIGH_RISK_EXECUTE,
+            PERMISSIONS.LEAVE_APPROVE,
+          ],
+        };
+        // evaluate discards unearned permissions via intersection with ROLE_PERMISSIONS['TEACHER']
+        const result = policyService.evaluate(spoofedCtx, approveLeave);
+        expect(result.decision).toBe('DENY');
+      });
+    });
+
+    describe('Confirmation Re-check & Revoked Access', () => {
+      it('rejects confirmation if user permission was revoked between proposal and execution', async () => {
+        prisma.agentAction.findUnique.mockResolvedValue({
+          id: 'action-revoked',
+          toolName: 'approve_leave',
+          arguments: { leaveId: 'leave-1' },
+          status: AgentActionStatus.AWAITING_CONFIRMATION,
+          schoolId: 'school-1',
+          userId: 'user-revoked',
+          expiresAt: new Date(Date.now() + 60_000),
+          riskLevel: 'HIGH',
+        });
+
+        // User role was demoted to TEACHER in the DB (TEACHER lacks LEAVE_APPROVE)
+        prisma.user.findUnique.mockResolvedValue({
+          id: 'user-revoked',
+          role: 'TEACHER',
+          schoolId: 'school-1',
+          status: 'ACTIVE',
+        });
+
+        await expect(
+          service.confirmAndExecute(
+            'action-revoked',
+            'user-revoked',
+            'school-1',
+          ),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('evaluateAtConfirmation re-evaluates current role and required permissions', () => {
+        const currentCtx = {
+          userId: 'user-1',
+          role: 'TEACHER',
+          schoolId: 'school-1',
+        };
+        const result = policyService.evaluateAtConfirmation(
+          currentCtx,
+          approveLeave,
+        );
+        expect(result.decision).toBe('DENY');
+      });
+
+      it('evaluateAtConfirmation returns ALLOW when current role and permissions are valid', () => {
+        const currentCtx = {
+          userId: 'user-1',
+          role: 'PRINCIPAL',
+          schoolId: 'school-1',
+        };
+        const result = policyService.evaluateAtConfirmation(
+          currentCtx,
+          approveLeave,
+        );
+        expect(result.decision).toBe('ALLOW');
+      });
+    });
+
+    describe('SUPER_ADMIN Policy Pipeline', () => {
+      it('SUPER_ADMIN succeeds through normal pipeline (role, permission, risk checks)', () => {
+        const superAdminCtx = {
+          userId: 'sa-1',
+          role: 'SUPER_ADMIN',
+          schoolId: 'school-1',
+        };
+        // For high-risk tool, SUPER_ADMIN still requires confirmation (no bypass)
+        const highRiskResult = policyService.evaluate(
+          superAdminCtx,
+          approveLeave,
+        );
+        expect(highRiskResult.decision).toBe('CONFIRMATION_REQUIRED');
+
+        // For low-risk tool, SUPER_ADMIN succeeds
+        const dailyDigest = TOOL_REGISTRY.get('automation_daily_digest')!;
+        const lowRiskResult = policyService.evaluate(
+          superAdminCtx,
+          dailyDigest,
+        );
+        expect(lowRiskResult.decision).toBe('ALLOW');
+      });
+
+      it('SUPER_ADMIN without schoolId on tenant-scoped tool is DENIED (no global bypass)', () => {
+        const superAdminNoSchool = {
+          userId: 'sa-1',
+          role: 'SUPER_ADMIN',
+          schoolId: '',
+        };
+        const result = policyService.evaluate(superAdminNoSchool, approveLeave);
+        expect(result.decision).toBe('DENY');
+        expect(result.reason).toContain(
+          'School context is required for this action',
+        );
+      });
+    });
+
+    describe('High-Risk Action Enforcement', () => {
+      it('High-risk action returns CONFIRMATION_REQUIRED even when all permissions are present', () => {
+        const adminCtx = {
+          userId: 'admin-1',
+          role: 'SCHOOL_ADMIN',
+          schoolId: 'school-1',
+        };
+        const sendAnnouncement = TOOL_REGISTRY.get('send_announcement')!;
+        const result = policyService.evaluate(adminCtx, sendAnnouncement);
+        expect(result.decision).toBe('CONFIRMATION_REQUIRED');
+      });
+    });
+
+    describe('Negative Security Tests (Step 18)', () => {
+      it('Client cannot bypass authorization by modifying tool arguments at confirmation time', async () => {
+        // confirmAndExecute accepts no client argument payload — uses immutable DB args
+        prisma.agentAction.findUnique.mockResolvedValue({
+          id: 'action-immutable',
+          toolName: 'approve_leave',
+          arguments: { leaveId: 'persisted-leave-id' },
+          status: AgentActionStatus.AWAITING_CONFIRMATION,
+          schoolId: 'school-1',
+          userId: 'user-admin',
+          expiresAt: new Date(Date.now() + 60_000),
+          riskLevel: 'HIGH',
+        });
+        prisma.user.findUnique.mockResolvedValue({
+          id: 'user-admin',
+          role: 'SCHOOL_ADMIN',
+          schoolId: 'school-1',
+          status: 'ACTIVE',
+        });
+        prisma.agentAction.updateMany.mockResolvedValue({ count: 1 });
+        prisma.leaveRequest.updateMany.mockResolvedValue({ count: 1 });
+        prisma.leaveRequest.findUnique.mockResolvedValue({
+          id: 'persisted-leave-id',
+          status: 'APPROVED',
+          reviewedBy: 'user-admin',
+          schoolId: 'school-1',
+        });
+
+        const result = await service.confirmAndExecute(
+          'action-immutable',
+          'user-admin',
+          'school-1',
+        );
+        expect(result.status).toBe(AgentActionStatus.SUCCEEDED);
+        // Persisted argument was executed, not any caller argument
+        expect(prisma.leaveRequest.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({ id: 'persisted-leave-id' }),
+          }),
+        );
+      });
+
+      it('Client cannot bypass tenant isolation by modifying schoolId at confirmation time', async () => {
+        prisma.agentAction.findUnique.mockResolvedValue({
+          id: 'action-tenant',
+          toolName: 'approve_leave',
+          arguments: { leaveId: 'l-1' },
+          status: AgentActionStatus.AWAITING_CONFIRMATION,
+          schoolId: 'school-1',
+          userId: 'user-admin',
+          expiresAt: new Date(Date.now() + 60_000),
+        });
+
+        await expect(
+          service.confirmAndExecute(
+            'action-tenant',
+            'user-admin',
+            'school-ATTACKER',
+          ),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('Client cannot confirm an action directly when in terminal state (SUCCEEDED)', async () => {
+        prisma.agentAction.findUnique.mockResolvedValue({
+          id: 'action-already-done',
+          toolName: 'approve_leave',
+          status: AgentActionStatus.SUCCEEDED,
+          schoolId: 'school-1',
+          userId: 'user-admin',
+        });
+
+        await expect(
+          service.confirmAndExecute(
+            'action-already-done',
+            'user-admin',
+            'school-1',
+          ),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('Client cannot view status of an action belonging to another school', async () => {
+        prisma.agentAction.findUnique.mockResolvedValue({
+          id: 'action-foreign',
+          toolName: 'approve_leave',
+          status: AgentActionStatus.AWAITING_CONFIRMATION,
+          schoolId: 'school-TARGET',
+          userId: 'user-target',
+        });
+
+        await expect(
+          service.getActionStatus(
+            'action-foreign',
+            'user-admin',
+            'school-ATTACKER',
+          ),
+        ).rejects.toThrow(ForbiddenException);
+      });
+    });
+
+    describe('Tool Registry Consistency Validation (Step 15)', () => {
+      it('Production TOOL_REGISTRY passes consistency validation with zero errors', () => {
+        const errors = validateToolRegistry(TOOL_REGISTRY);
+        expect(errors).toEqual([]);
+      });
+
+      it('Every mutating tool in TOOL_REGISTRY declares requiredPermissions', () => {
+        for (const [name, tool] of TOOL_REGISTRY.entries()) {
+          if (tool.executionMode === 'MUTATING') {
+            expect(tool.requiredPermissions.length).toBeGreaterThan(0);
+          }
+        }
+      });
+
+      it('Every high-risk tool in TOOL_REGISTRY requires confirmation', () => {
+        for (const [name, tool] of TOOL_REGISTRY.entries()) {
+          if (tool.riskLevel === 'HIGH') {
+            expect(tool.requiresConfirmation).toBe(true);
+          }
+        }
+      });
+
+      it('Catches mutating tool with empty requiredPermissions', () => {
+        const corruptRegistry = new Map<string, ToolDefinition>([
+          [
+            'corrupt_tool',
+            {
+              name: 'corrupt_tool',
+              description: 'Test corrupt tool',
+              category: 'HR',
+              inputSchema: {},
+              allowedRoles: ['PRINCIPAL'],
+              requiredPermissions: [],
+              riskLevel: 'LOW',
+              requiresConfirmation: false,
+              tenantScoped: true,
+              idempotencyStrategy: 'NONE',
+              executionMode: 'MUTATING',
+              handlerKey: 'approve_leave' as any,
+              realHandlerAvailable: true,
+              expiryMinutes: 15,
+            },
+          ],
+        ]);
+        const errors = validateToolRegistry(corruptRegistry);
+        expect(errors).toContain(
+          'Mutating tool "corrupt_tool" must declare at least one required permission',
+        );
+      });
+
+      it('Catches high-risk tool without confirmation', () => {
+        const corruptRegistry = new Map<string, ToolDefinition>([
+          [
+            'unconfirmed_high_risk',
+            {
+              name: 'unconfirmed_high_risk',
+              description: 'Test high risk no confirm',
+              category: 'HR',
+              inputSchema: {},
+              allowedRoles: ['PRINCIPAL'],
+              requiredPermissions: [PERMISSIONS.LEAVE_APPROVE],
+              riskLevel: 'HIGH',
+              requiresConfirmation: false,
+              tenantScoped: true,
+              idempotencyStrategy: 'NONE',
+              executionMode: 'MUTATING',
+              handlerKey: 'approve_leave' as any,
+              realHandlerAvailable: true,
+              expiryMinutes: 15,
+            },
+          ],
+        ]);
+        const errors = validateToolRegistry(corruptRegistry);
+        expect(errors).toContain(
+          'High-risk tool "unconfirmed_high_risk" must require confirmation',
+        );
+      });
+
+      it('Catches tool with empty allowedRoles', () => {
+        const corruptRegistry = new Map<string, ToolDefinition>([
+          [
+            'no_roles_tool',
+            {
+              name: 'no_roles_tool',
+              description: 'Test no roles',
+              category: 'HR',
+              inputSchema: {},
+              allowedRoles: [],
+              requiredPermissions: [PERMISSIONS.LEAVE_APPROVE],
+              riskLevel: 'LOW',
+              requiresConfirmation: false,
+              tenantScoped: true,
+              idempotencyStrategy: 'NONE',
+              executionMode: 'MUTATING',
+              handlerKey: 'approve_leave' as any,
+              realHandlerAvailable: true,
+              expiryMinutes: 15,
+            },
+          ],
+        ]);
+        const errors = validateToolRegistry(corruptRegistry);
+        expect(errors).toContain(
+          'Tool "no_roles_tool" must declare at least one allowed role',
+        );
+      });
+
+      it('Catches tool with unknown role', () => {
+        const corruptRegistry = new Map<string, ToolDefinition>([
+          [
+            'bad_role_tool',
+            {
+              name: 'bad_role_tool',
+              description: 'Test bad role',
+              category: 'HR',
+              inputSchema: {},
+              allowedRoles: ['NON_EXISTENT_ROLE'],
+              requiredPermissions: [PERMISSIONS.LEAVE_APPROVE],
+              riskLevel: 'LOW',
+              requiresConfirmation: false,
+              tenantScoped: true,
+              idempotencyStrategy: 'NONE',
+              executionMode: 'MUTATING',
+              handlerKey: 'approve_leave' as any,
+              realHandlerAvailable: true,
+              expiryMinutes: 15,
+            },
+          ],
+        ]);
+        const errors = validateToolRegistry(corruptRegistry);
+        expect(errors).toContain(
+          'Tool "bad_role_tool" specifies unknown role: "NON_EXISTENT_ROLE"',
+        );
+      });
+
+      it('Catches tool with unknown permission', () => {
+        const corruptRegistry = new Map<string, ToolDefinition>([
+          [
+            'bad_perm_tool',
+            {
+              name: 'bad_perm_tool',
+              description: 'Test bad perm',
+              category: 'HR',
+              inputSchema: {},
+              allowedRoles: ['PRINCIPAL'],
+              requiredPermissions: ['unknown:permission:claim' as any],
+              riskLevel: 'LOW',
+              requiresConfirmation: false,
+              tenantScoped: true,
+              idempotencyStrategy: 'NONE',
+              executionMode: 'MUTATING',
+              handlerKey: 'approve_leave' as any,
+              realHandlerAvailable: true,
+              expiryMinutes: 15,
+            },
+          ],
+        ]);
+        const errors = validateToolRegistry(corruptRegistry);
+        expect(errors).toContain(
+          'Tool "bad_perm_tool" specifies unknown permission: "unknown:permission:claim"',
+        );
+      });
+
+      it('Catches tool with duplicate permission metadata', () => {
+        const corruptRegistry = new Map<string, ToolDefinition>([
+          [
+            'duplicate_perm_tool',
+            {
+              name: 'duplicate_perm_tool',
+              description: 'Test duplicate perms',
+              category: 'HR',
+              inputSchema: {},
+              allowedRoles: ['PRINCIPAL'],
+              requiredPermissions: [
+                PERMISSIONS.LEAVE_APPROVE,
+                PERMISSIONS.LEAVE_APPROVE,
+              ],
+              riskLevel: 'HIGH',
+              requiresConfirmation: true,
+              tenantScoped: true,
+              idempotencyStrategy: 'NONE',
+              executionMode: 'MUTATING',
+              handlerKey: 'approve_leave' as any,
+              realHandlerAvailable: true,
+              expiryMinutes: 15,
+            },
+          ],
+        ]);
+        const errors = validateToolRegistry(corruptRegistry);
+        expect(errors).toContain(
+          'Tool "duplicate_perm_tool" has duplicate permission metadata',
+        );
+      });
+
+      it('Catches contradictory role/permission configuration', () => {
+        // TEACHER does not have LEAVE_APPROVE in ROLE_PERMISSIONS
+        const corruptRegistry = new Map<string, ToolDefinition>([
+          [
+            'contradictory_tool',
+            {
+              name: 'contradictory_tool',
+              description: 'Teacher allowed but requires leave approval',
+              category: 'HR',
+              inputSchema: {},
+              allowedRoles: ['TEACHER'],
+              requiredPermissions: [PERMISSIONS.LEAVE_APPROVE],
+              riskLevel: 'LOW',
+              requiresConfirmation: false,
+              tenantScoped: true,
+              idempotencyStrategy: 'NONE',
+              executionMode: 'MUTATING',
+              handlerKey: 'approve_leave' as any,
+              realHandlerAvailable: true,
+              expiryMinutes: 15,
+            },
+          ],
+        ]);
+        const errors = validateToolRegistry(corruptRegistry);
+        expect(
+          errors.some((e) =>
+            e.includes('lacks required permissions: leave:approve'),
+          ),
+        ).toBe(true);
+      });
     });
   });
 });

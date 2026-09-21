@@ -1,5 +1,12 @@
 import { RiskLevel } from '@prisma/client';
 import {
+  PERMISSIONS,
+  Permission,
+  USER_ROLES,
+  UserRole,
+  ROLE_PERMISSIONS,
+} from '@school-erp/shared';
+import {
   ApproveLeaveInput,
   CreateAssignmentInput,
   SendAnnouncementInput,
@@ -12,10 +19,10 @@ export type ToolExecutionMode = 'READ_ONLY' | 'MUTATING';
 
 // ─── Idempotency strategy ─────────────────────────────────────────────────────
 export type IdempotencyStrategy =
-  | 'NATURAL_KEY'   // business-derived key (e.g. leaveId) — deterministic fingerprint
-  | 'CONTENT_HASH'  // hash of schoolId + userId + toolName + sorted args JSON
-  | 'REQUEST_KEY'   // client-supplied request token (HTTP Idempotency-Key header); no operation fingerprint
-  | 'NONE';         // deliberately non-idempotent; each call is an independent execution (use sparingly)
+  | 'NATURAL_KEY' // business-derived key (e.g. leaveId) — deterministic fingerprint
+  | 'CONTENT_HASH' // hash of schoolId + userId + toolName + sorted args JSON
+  | 'REQUEST_KEY' // client-supplied request token (HTTP Idempotency-Key header); no operation fingerprint
+  | 'NONE'; // deliberately non-idempotent; each call is an independent execution (use sparingly)
 
 // ─── Validated field descriptor (replaces free-form description) ──────────────
 export interface ToolFieldSchema {
@@ -43,8 +50,8 @@ export interface ToolDefinition<TInput = unknown> {
   _inputType?: TInput; // phantom type reference, never at runtime
   /** Roles permitted to propose this action */
   allowedRoles: string[];
-  /** Named permissions beyond role check (future extensibility) */
-  requiredPermissions: string[];
+  /** Named permissions beyond role check — server-enforced */
+  requiredPermissions: Permission[];
   riskLevel: RiskLevel;
   requiresConfirmation: boolean;
   /** Every mutation must be tenant-scoped */
@@ -83,7 +90,10 @@ export function validateToolInput(
   for (const [field, schema] of Object.entries(tool.inputSchema)) {
     const value = rawArgs[field];
 
-    if (schema.required && (value === undefined || value === null || value === '')) {
+    if (
+      schema.required &&
+      (value === undefined || value === null || value === '')
+    ) {
       errors.push(`Missing required field: "${field}"`);
       continue;
     }
@@ -102,10 +112,14 @@ export function validateToolInput(
     // String constraints
     if (typeof value === 'string') {
       if (schema.minLength !== undefined && value.length < schema.minLength) {
-        errors.push(`Field "${field}" must be at least ${schema.minLength} characters`);
+        errors.push(
+          `Field "${field}" must be at least ${schema.minLength} characters`,
+        );
       }
       if (schema.maxLength !== undefined && value.length > schema.maxLength) {
-        errors.push(`Field "${field}" must be at most ${schema.maxLength} characters`);
+        errors.push(
+          `Field "${field}" must be at most ${schema.maxLength} characters`,
+        );
       }
       if (schema.pattern && !schema.pattern.test(value)) {
         errors.push(`Field "${field}" has invalid format`);
@@ -151,7 +165,7 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
         },
       },
       allowedRoles: ['PRINCIPAL', 'SCHOOL_ADMIN', 'SUPER_ADMIN'],
-      requiredPermissions: [],
+      requiredPermissions: [PERMISSIONS.LEAVE_APPROVE],
       riskLevel: 'HIGH',
       requiresConfirmation: true,
       tenantScoped: true,
@@ -181,7 +195,8 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
         subjectId: {
           type: 'string',
           required: true,
-          description: 'Explicit subject UUID — never resolved by random findFirst',
+          description:
+            'Explicit subject UUID — never resolved by random findFirst',
           minLength: 1,
           maxLength: 100,
         },
@@ -213,7 +228,7 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
         },
       },
       allowedRoles: ['TEACHER', 'PRINCIPAL', 'SCHOOL_ADMIN', 'SUPER_ADMIN'],
-      requiredPermissions: [],
+      requiredPermissions: [PERMISSIONS.ASSIGNMENTS_CREATE],
       riskLevel: 'MEDIUM',
       requiresConfirmation: true,
       tenantScoped: true,
@@ -248,7 +263,7 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
         },
       },
       allowedRoles: ['PRINCIPAL', 'SCHOOL_ADMIN', 'SUPER_ADMIN'],
-      requiredPermissions: [],
+      requiredPermissions: [PERMISSIONS.ANNOUNCEMENT_SEND],
       riskLevel: 'HIGH',
       requiresConfirmation: true,
       tenantScoped: true,
@@ -270,11 +285,23 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
       description: 'Sends fee default reminders to parents',
       category: 'AUTOMATION',
       inputSchema: {
-        items: { type: 'string[]', required: false, description: 'Preview items from generateFeeDefaulterPreview' },
-        subject: { type: 'string', required: false, description: 'Message subject override', maxLength: 200 },
+        items: {
+          type: 'string[]',
+          required: false,
+          description: 'Preview items from generateFeeDefaulterPreview',
+        },
+        subject: {
+          type: 'string',
+          required: false,
+          description: 'Message subject override',
+          maxLength: 200,
+        },
       },
       allowedRoles: ['PRINCIPAL', 'SCHOOL_ADMIN', 'SUPER_ADMIN'],
-      requiredPermissions: [],
+      requiredPermissions: [
+        PERMISSIONS.FEES_READ_ALL,
+        PERMISSIONS.MESSAGES_SEND,
+      ],
       riskLevel: 'MEDIUM',
       requiresConfirmation: true,
       tenantScoped: true,
@@ -294,11 +321,23 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
       description: 'Sends absence alerts to parents',
       category: 'AUTOMATION',
       inputSchema: {
-        items: { type: 'string[]', required: false, description: 'Preview items', },
-        subject: { type: 'string', required: false, description: 'Message subject', maxLength: 200 },
+        items: {
+          type: 'string[]',
+          required: false,
+          description: 'Preview items',
+        },
+        subject: {
+          type: 'string',
+          required: false,
+          description: 'Message subject',
+          maxLength: 200,
+        },
       },
       allowedRoles: ['PRINCIPAL', 'SCHOOL_ADMIN', 'SUPER_ADMIN'],
-      requiredPermissions: [],
+      requiredPermissions: [
+        PERMISSIONS.ATTENDANCE_READ_ALL,
+        PERMISSIONS.MESSAGES_SEND,
+      ],
       riskLevel: 'MEDIUM',
       requiresConfirmation: true,
       tenantScoped: true,
@@ -318,10 +357,14 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
       description: 'Applies timetable substitute cover for absent teachers',
       category: 'AUTOMATION',
       inputSchema: {
-        items: { type: 'string[]', required: false, description: 'Cover suggestions from preview' },
+        items: {
+          type: 'string[]',
+          required: false,
+          description: 'Cover suggestions from preview',
+        },
       },
       allowedRoles: ['PRINCIPAL', 'SCHOOL_ADMIN', 'SUPER_ADMIN'],
-      requiredPermissions: [],
+      requiredPermissions: [PERMISSIONS.ACADEMIC_MANAGE],
       riskLevel: 'HIGH',
       requiresConfirmation: true,
       tenantScoped: true,
@@ -341,11 +384,23 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
       description: 'Sends attendance warning letters to parents',
       category: 'AUTOMATION',
       inputSchema: {
-        items: { type: 'string[]', required: false, description: 'Warning items from preview' },
-        subject: { type: 'string', required: false, description: 'Message subject', maxLength: 200 },
+        items: {
+          type: 'string[]',
+          required: false,
+          description: 'Warning items from preview',
+        },
+        subject: {
+          type: 'string',
+          required: false,
+          description: 'Message subject',
+          maxLength: 200,
+        },
       },
       allowedRoles: ['PRINCIPAL', 'SCHOOL_ADMIN', 'SUPER_ADMIN'],
-      requiredPermissions: [],
+      requiredPermissions: [
+        PERMISSIONS.ATTENDANCE_READ_ALL,
+        PERMISSIONS.MESSAGES_SEND,
+      ],
       riskLevel: 'MEDIUM',
       requiresConfirmation: true,
       tenantScoped: true,
@@ -365,10 +420,14 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
       description: 'Records AI leave approval recommendations',
       category: 'AUTOMATION',
       inputSchema: {
-        items: { type: 'string[]', required: false, description: 'Recommendation items from preview' },
+        items: {
+          type: 'string[]',
+          required: false,
+          description: 'Recommendation items from preview',
+        },
       },
       allowedRoles: ['PRINCIPAL', 'SCHOOL_ADMIN', 'SUPER_ADMIN'],
-      requiredPermissions: [],
+      requiredPermissions: [PERMISSIONS.LEAVE_READ],
       riskLevel: 'MEDIUM',
       requiresConfirmation: true,
       tenantScoped: true,
@@ -388,10 +447,17 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
       description: 'Publishes exam report card results to students/parents',
       category: 'AUTOMATION',
       inputSchema: {
-        items: { type: 'string[]', required: false, description: 'Ready exam items from preview' },
+        items: {
+          type: 'string[]',
+          required: false,
+          description: 'Ready exam items from preview',
+        },
       },
       allowedRoles: ['PRINCIPAL', 'SCHOOL_ADMIN', 'SUPER_ADMIN'],
-      requiredPermissions: [],
+      requiredPermissions: [
+        PERMISSIONS.EXAMS_PUBLISH,
+        PERMISSIONS.MESSAGES_SEND,
+      ],
       riskLevel: 'HIGH',
       requiresConfirmation: true,
       tenantScoped: true,
@@ -411,10 +477,14 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
       description: 'Sends a daily school operations digest to the principal',
       category: 'AUTOMATION',
       inputSchema: {
-        items: { type: 'string[]', required: false, description: 'Digest items from preview' },
+        items: {
+          type: 'string[]',
+          required: false,
+          description: 'Digest items from preview',
+        },
       },
       allowedRoles: ['PRINCIPAL', 'SCHOOL_ADMIN', 'SUPER_ADMIN'],
-      requiredPermissions: [],
+      requiredPermissions: [PERMISSIONS.AI_REPORTS],
       riskLevel: 'LOW',
       requiresConfirmation: false,
       tenantScoped: true,
@@ -426,3 +496,97 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
     } satisfies ToolDefinition<AutomationInput>,
   ],
 ]);
+
+// ─── Tool Registry Consistency Validator ─────────────────────────────────────
+/**
+ * Validates consistency of the tool registry.
+ * Catches:
+ *  - Mutating tools with no required permissions
+ *  - High-risk tools without confirmation
+ *  - Tools with empty allowed roles
+ *  - Unknown permissions
+ *  - Unknown roles
+ *  - Duplicate permission metadata
+ *  - Contradictory role/permission configuration (allowed roles that lack declared required permissions)
+ *
+ * Returns a list of validation error strings (empty = valid).
+ */
+export function validateToolRegistry(
+  tools: Map<string, ToolDefinition>,
+): string[] {
+  const errors: string[] = [];
+  const knownRoles = new Set<string>(Object.values(USER_ROLES));
+  const knownPermissions = new Set<string>(Object.values(PERMISSIONS));
+
+  for (const [name, tool] of tools.entries()) {
+    // 1. Allowed roles must not be empty
+    if (!tool.allowedRoles || tool.allowedRoles.length === 0) {
+      errors.push(`Tool "${name}" must declare at least one allowed role`);
+    } else {
+      // 2. Roles must be known
+      for (const role of tool.allowedRoles) {
+        if (!knownRoles.has(role)) {
+          errors.push(`Tool "${name}" specifies unknown role: "${role}"`);
+        }
+      }
+    }
+
+    // 3. Mutating tools must declare required permissions
+    if (
+      tool.executionMode === 'MUTATING' &&
+      (!tool.requiredPermissions || tool.requiredPermissions.length === 0)
+    ) {
+      errors.push(
+        `Mutating tool "${name}" must declare at least one required permission`,
+      );
+    }
+
+    // 4. High-risk tools must require confirmation
+    if (tool.riskLevel === 'HIGH' && !tool.requiresConfirmation) {
+      errors.push(`High-risk tool "${name}" must require confirmation`);
+    }
+
+    // 5. Unknown permissions & duplicates
+    if (tool.requiredPermissions && tool.requiredPermissions.length > 0) {
+      for (const perm of tool.requiredPermissions) {
+        if (!knownPermissions.has(perm)) {
+          errors.push(`Tool "${name}" specifies unknown permission: "${perm}"`);
+        }
+      }
+
+      // 6. Duplicate permissions
+      const permSet = new Set(tool.requiredPermissions);
+      if (permSet.size !== tool.requiredPermissions.length) {
+        errors.push(`Tool "${name}" has duplicate permission metadata`);
+      }
+
+      // 7. Contradictory role/permission configuration
+      // Every role in allowedRoles must possess all requiredPermissions in ROLE_PERMISSIONS
+      if (tool.allowedRoles && tool.allowedRoles.length > 0) {
+        for (const role of tool.allowedRoles) {
+          if (knownRoles.has(role)) {
+            const rolePerms = ROLE_PERMISSIONS[role as UserRole] ?? [];
+            const missing = tool.requiredPermissions.filter(
+              (p) => !rolePerms.includes(p),
+            );
+            if (missing.length > 0) {
+              errors.push(
+                `Tool "${name}" allows role "${role}" which lacks required permissions: ${missing.join(', ')}`,
+              );
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return errors;
+}
+
+// Startup validation — fail fast if registry is invalid on boot
+const registryValidationErrors = validateToolRegistry(TOOL_REGISTRY);
+if (registryValidationErrors.length > 0) {
+  throw new Error(
+    `Tool registry consistency check failed:\n${registryValidationErrors.join('\n')}`,
+  );
+}

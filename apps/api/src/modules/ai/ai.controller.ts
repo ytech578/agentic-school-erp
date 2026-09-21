@@ -15,6 +15,8 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AIService } from './ai.service';
 import { AgentControlPlaneService } from './agent/agent-control-plane.service';
+import { AgentExecutionContext } from './agent/agent-types';
+import { ROLE_PERMISSIONS, UserRole } from '@school-erp/shared';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
@@ -35,10 +37,16 @@ export class AIController {
   @ApiOperation({ summary: 'Send a message to the AI assistant' })
   async chat(
     @Request() req: any,
-    @Body() body: {
+    @Body()
+    body: {
       message: string;
       conversationId?: string;
-      attachments?: Array<{ name: string; type: string; size: number; base64: string }>;
+      attachments?: Array<{
+        name: string;
+        type: string;
+        size: number;
+        base64: string;
+      }>;
     },
   ) {
     return this.service.sendMessage({
@@ -57,7 +65,11 @@ export class AIController {
   @ApiOperation({ summary: 'Confirm and execute a proposed AI action' })
   async confirmAction(@Param('id') id: string, @Request() req: any) {
     // Server-authoritative: userId and schoolId from JWT — never from body
-    return this.controlPlane.confirmAndExecute(id, req.user.id, req.user.schoolId);
+    return this.controlPlane.confirmAndExecute(
+      id,
+      req.user.id,
+      req.user.schoolId,
+    );
   }
 
   // ─── Action Status (Phase 15) ─────────────────────────────────────────────
@@ -66,7 +78,11 @@ export class AIController {
   @ApiOperation({ summary: 'Get status of an AI agent action' })
   async getActionStatus(@Param('id') id: string, @Request() req: any) {
     // Tenant-isolated: server validates ownership inside service
-    return this.controlPlane.getActionStatus(id, req.user.id, req.user.schoolId);
+    return this.controlPlane.getActionStatus(
+      id,
+      req.user.id,
+      req.user.schoolId,
+    );
   }
 
   // ─── Alerts ───────────────────────────────────────────────────────────────
@@ -130,25 +146,41 @@ export class AIController {
   @Get('insights')
   @ApiOperation({ summary: 'Get AI dashboard insights' })
   async getInsights(@Request() req: any) {
-    const insights = await this.service.generateDashboardInsights(req.user.schoolId, req.user);
+    const insights = await this.service.generateDashboardInsights(
+      req.user.schoolId,
+      req.user,
+    );
     return { insights };
   }
 
   // ─── Automation Preview (READ-ONLY) ───────────────────────────────────────
   @Get('automation/preview/:taskType')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  @ApiOperation({ summary: 'Preview an automation task (read-only — no mutations)' })
-  async previewAutomation(@Param('taskType') taskType: string, @Request() req: any) {
+  @ApiOperation({
+    summary: 'Preview an automation task (read-only — no mutations)',
+  })
+  async previewAutomation(
+    @Param('taskType') taskType: string,
+    @Request() req: any,
+  ) {
     const { schoolId } = req.user;
     switch (taskType) {
-      case 'FEE_DEFAULTER':        return this.service.generateFeeDefaulterPreview(schoolId);
-      case 'ABSENCE_ALERT':        return this.service.generateAbsenceAlertPreview(schoolId);
-      case 'TIMETABLE_COVER':      return this.service.generateTimetableCoverPreview(schoolId);
-      case 'ATTENDANCE_WARNING':   return this.service.generateAttendanceWarningPreview(schoolId);
-      case 'LEAVE_RECOMMENDATION': return this.service.generateLeaveAIRecommendationPreview(schoolId);
-      case 'REPORT_CARD_PUBLISH':  return this.service.generateReportCardPublishPreview(schoolId);
-      case 'DAILY_DIGEST':         return this.service.generateDailyDigestPreview(schoolId);
-      default: return { error: 'Unknown task type' };
+      case 'FEE_DEFAULTER':
+        return this.service.generateFeeDefaulterPreview(schoolId);
+      case 'ABSENCE_ALERT':
+        return this.service.generateAbsenceAlertPreview(schoolId);
+      case 'TIMETABLE_COVER':
+        return this.service.generateTimetableCoverPreview(schoolId);
+      case 'ATTENDANCE_WARNING':
+        return this.service.generateAttendanceWarningPreview(schoolId);
+      case 'LEAVE_RECOMMENDATION':
+        return this.service.generateLeaveAIRecommendationPreview(schoolId);
+      case 'REPORT_CARD_PUBLISH':
+        return this.service.generateReportCardPublishPreview(schoolId);
+      case 'DAILY_DIGEST':
+        return this.service.generateDailyDigestPreview(schoolId);
+      default:
+        return { error: 'Unknown task type' };
     }
   }
 
@@ -166,32 +198,41 @@ export class AIController {
    */
   @Post('automation/execute')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  @ApiOperation({ summary: 'Propose an automation task via the Agentic Control Plane' })
+  @ApiOperation({
+    summary: 'Propose an automation task via the Agentic Control Plane',
+  })
   async executeAutomation(
-    @Body() body: { taskType: string; payload: { items?: unknown[]; subject?: string } },
+    @Body()
+    body: {
+      taskType: string;
+      payload: { items?: unknown[]; subject?: string };
+    },
     @Request() req: any,
   ) {
     // Map taskType → tool name
     const toolNameMap: Record<string, string> = {
-      FEE_DEFAULTER:        'automation_fee_defaulter',
-      ABSENCE_ALERT:        'automation_absence_alert',
-      TIMETABLE_COVER:      'automation_timetable_cover',
-      ATTENDANCE_WARNING:   'automation_attendance_warning',
+      FEE_DEFAULTER: 'automation_fee_defaulter',
+      ABSENCE_ALERT: 'automation_absence_alert',
+      TIMETABLE_COVER: 'automation_timetable_cover',
+      ATTENDANCE_WARNING: 'automation_attendance_warning',
       LEAVE_RECOMMENDATION: 'automation_leave_recommendation',
-      REPORT_CARD_PUBLISH:  'automation_report_card_publish',
-      DAILY_DIGEST:         'automation_daily_digest',
+      REPORT_CARD_PUBLISH: 'automation_report_card_publish',
+      DAILY_DIGEST: 'automation_daily_digest',
     };
 
     const toolName = toolNameMap[body.taskType];
     if (!toolName) {
-      throw new BadRequestException(`Unknown automation taskType: "${body.taskType}"`);
+      throw new BadRequestException(
+        `Unknown automation taskType: "${body.taskType}"`,
+      );
     }
 
     // All mutations go through the control plane
-    const ctx = {
+    const ctx: AgentExecutionContext = {
       userId: req.user.id,
-      role: req.user.role,   // server-resolved from JWT
+      role: req.user.role, // server-resolved from JWT
       schoolId: req.user.schoolId,
+      permissions: ROLE_PERMISSIONS[req.user.role as UserRole] ?? [],
     };
 
     const proposal = await this.controlPlane.proposeAction(ctx, toolName, {
@@ -205,7 +246,10 @@ export class AIController {
   // ─── AI Copilot ───────────────────────────────────────────────────────────
   @Post('copilot/lesson-plan')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
-  @ApiOperation({ summary: 'Generate a structured lesson plan with TLM kit and curriculum alignment' })
+  @ApiOperation({
+    summary:
+      'Generate a structured lesson plan with TLM kit and curriculum alignment',
+  })
   async generateLessonPlan(
     @Body()
     body: {
@@ -217,11 +261,16 @@ export class AIController {
       curriculum?: string;
     },
   ) {
-    const result = await this.service.generateLessonPlan(body.topic, body.grade, body.duration, {
-      subject: body.subject,
-      includeTlm: body.includeTlm !== false,
-      curriculum: body.curriculum,
-    });
+    const result = await this.service.generateLessonPlan(
+      body.topic,
+      body.grade,
+      body.duration,
+      {
+        subject: body.subject,
+        includeTlm: body.includeTlm !== false,
+        curriculum: body.curriculum,
+      },
+    );
     return { result };
   }
 
@@ -229,27 +278,43 @@ export class AIController {
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   @ApiOperation({ summary: 'Generate a student remark' })
   async generateRemark(@Body() body: { studentProfile: string; tone: string }) {
-    const result = await this.service.generateStudentRemark(body.studentProfile, body.tone);
+    const result = await this.service.generateStudentRemark(
+      body.studentProfile,
+      body.tone,
+    );
     return { result };
   }
 
   @Post('copilot/parent-update')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   @ApiOperation({ summary: 'Generate a parent update' })
-  async generateParentUpdate(@Body() body: { studentProfile: string; context: string }) {
-    const result = await this.service.generateParentUpdate(body.studentProfile, body.context);
+  async generateParentUpdate(
+    @Body() body: { studentProfile: string; context: string },
+  ) {
+    const result = await this.service.generateParentUpdate(
+      body.studentProfile,
+      body.context,
+    );
     return { result };
   }
 
   // ─── Data Query ───────────────────────────────────────────────────────────
   @Post('query')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  @ApiOperation({ summary: 'Execute a natural language data query with optional multimodal attachments' })
+  @ApiOperation({
+    summary:
+      'Execute a natural language data query with optional multimodal attachments',
+  })
   async executeDataQuery(
     @Body()
     body: {
       prompt: string;
-      attachments?: Array<{ name: string; type: string; size: number; base64: string }>;
+      attachments?: Array<{
+        name: string;
+        type: string;
+        size: number;
+        base64: string;
+      }>;
     },
     @Request() req: any,
   ) {
@@ -274,7 +339,9 @@ export class AIController {
   // ─── Question Paper ───────────────────────────────────────────────────────
   @Post('copilot/question-paper')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
-  @ApiOperation({ summary: 'Generate a structured question paper and marking scheme' })
+  @ApiOperation({
+    summary: 'Generate a structured question paper and marking scheme',
+  })
   async generateQuestionPaper(
     @Body()
     body: {
@@ -290,35 +357,50 @@ export class AIController {
     },
     @Request() req: any,
   ) {
-    const result = await this.service.generateQuestionPaper(req.user.schoolId, body);
+    const result = await this.service.generateQuestionPaper(
+      req.user.schoolId,
+      body,
+    );
     return { result };
   }
 
   // ─── Retention / MTSS ────────────────────────────────────────────────────
   @Get('retention/early-warning')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  @ApiOperation({ summary: 'Get predictive early-warning retention risk students' })
+  @ApiOperation({
+    summary: 'Get predictive early-warning retention risk students',
+  })
   async getEarlyWarningRiskStudents(
     @Query('classId') classId?: string,
     @Query('riskLevel') riskLevel?: string,
     @Request() req?: any,
   ) {
-    return this.service.getEarlyWarningRiskStudents(req.user.schoolId, { classId, riskLevel });
+    return this.service.getEarlyWarningRiskStudents(req.user.schoolId, {
+      classId,
+      riskLevel,
+    });
   }
 
   @Post('retention/intervention-plan')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  @ApiOperation({ summary: 'Generate individualized MTSS intervention plan for a student' })
+  @ApiOperation({
+    summary: 'Generate individualized MTSS intervention plan for a student',
+  })
   async generateInterventionPlan(
     @Body() body: { studentId: string },
     @Request() req: any,
   ) {
-    return this.service.generateStudentInterventionPlan(req.user.schoolId, body.studentId);
+    return this.service.generateStudentInterventionPlan(
+      req.user.schoolId,
+      body.studentId,
+    );
   }
 
   // ─── Helpdesk ─────────────────────────────────────────────────────────────
   @Post('helpdesk/chat')
-  @ApiOperation({ summary: '24/7 Multilingual Admissions Concierge & Tour Guide Chat' })
+  @ApiOperation({
+    summary: '24/7 Multilingual Admissions Concierge & Tour Guide Chat',
+  })
   async chatHelpdesk(
     @Body()
     body: {
@@ -338,15 +420,33 @@ export class AIController {
 
   // ─── Student Remedial ─────────────────────────────────────────────────────
   @Get('student/remedial')
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'STUDENT', 'PARENT')
-  @ApiOperation({ summary: 'Get personalized student academic remedial plan & learning gaps' })
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'STUDENT',
+    'PARENT',
+  )
+  @ApiOperation({
+    summary: 'Get personalized student academic remedial plan & learning gaps',
+  })
   async getStudentRemedialPlan(@Request() req: any) {
     return this.service.getStudentRemedialPlan(req.user.schoolId, req.user.id);
   }
 
   @Post('student/practice')
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'STUDENT', 'PARENT')
-  @ApiOperation({ summary: 'Generate adaptive diagnostic practice questions for a topic' })
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'STUDENT',
+    'PARENT',
+  )
+  @ApiOperation({
+    summary: 'Generate adaptive diagnostic practice questions for a topic',
+  })
   async generateAdaptivePractice(
     @Body() body: { subject: string; topic: string },
     @Request() req: any,
