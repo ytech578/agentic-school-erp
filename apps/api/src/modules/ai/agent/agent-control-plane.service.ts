@@ -16,11 +16,11 @@ import {
 } from './tool-registry';
 import { AgentPolicyService } from './agent-policy.service';
 import { AgentStateMachine } from './agent-state-machine';
-import { HRService } from '../../hr/hr.service';
-import { AssignmentsService } from '../../assignments/assignments.service';
+import { AgentToolDispatcher } from './agent-tool-dispatcher';
 import { ROLE_PERMISSIONS, type UserRole } from '@school-erp/shared';
 import {
   AgentExecutionContext,
+  AgentToolExecutionContext,
   AgentActionResult,
   AGENT_ERRORS,
   ToolHandlerKey,
@@ -46,6 +46,25 @@ interface AuditPayload {
   failureReason?: string;
 }
 
+/**
+ * AgentControlPlaneService — Security & Orchestration Boundary
+ *
+ * Architecture:
+ *   AI / Agent
+ *       ↓
+ *   AgentControlPlaneService  (authentication, tenant, policy, idempotency, state CAS, audit)
+ *       ↓
+ *   AgentToolDispatcher       (registry-based resolution & dispatch)
+ *       ↓
+ *   AgentToolHandler          (adapter translating agent arguments into domain calls)
+ *       ↓
+ *   Existing Domain Services  (HRService, AssignmentsService, MessagesService, TimetableService)
+ *       ↓
+ *   Prisma / Database
+ *
+ * AgentControlPlaneService is an orchestration and security boundary, NOT an ERP business-logic container.
+ * Business validation, mutations, and domain rules live inside domain services and handlers.
+ */
 @Injectable()
 export class AgentControlPlaneService {
   private readonly logger = new Logger(AgentControlPlaneService.name);
@@ -53,8 +72,7 @@ export class AgentControlPlaneService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly policy: AgentPolicyService,
-    private readonly hrService: HRService,
-    private readonly assignmentsService: AssignmentsService,
+    private readonly dispatcher: AgentToolDispatcher,
   ) {}
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -335,22 +353,27 @@ export class AgentControlPlaneService {
       return result;
     });
 
-    // 9. Execute via domain handler
+    // 9. Execute via domain handler through dispatcher
     try {
-      const args = action.arguments as Record<string, unknown>;
-      const resultData = await this.dispatchToHandler(
-        tool.handlerKey,
-        args,
+      const toolCtx: AgentToolExecutionContext = {
         userId,
         schoolId,
+        role: currentUser.role,
+        actionId,
+      };
+      const args = action.arguments as Record<string, unknown>;
+
+      const resultData = await this.dispatcher.dispatch(
+        tool.handlerKey,
+        toolCtx,
+        args,
       );
 
-      // 10. Post-execution verification
-      await this.verifyExecution(
+      // 10. Post-execution domain verification via dispatcher
+      await this.dispatcher.verify(
         tool.handlerKey,
+        toolCtx,
         args,
-        userId,
-        schoolId,
         resultData,
       );
 
@@ -565,422 +588,6 @@ export class AgentControlPlaneService {
     // For all other tools — pass args through as-is
     const tool_label = `Execute ${tool.description}`;
     return { resolvedArgs: rawArgs, label: tool_label, resourceId: null };
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // DOMAIN HANDLER DISPATCH
-  // Business logic lives in domain services — control plane only orchestrates
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  private async dispatchToHandler(
-    handlerKey: ToolHandlerKey,
-    args: Record<string, unknown>,
-    userId: string,
-    schoolId: string,
-  ): Promise<Record<string, unknown>> {
-    switch (handlerKey) {
-      case ToolHandlerKey.APPROVE_LEAVE:
-        return this.domainApproveLeave(
-          args as unknown as { leaveId: string; reason?: string },
-          userId,
-          schoolId,
-        );
-
-      case ToolHandlerKey.CREATE_ASSIGNMENT:
-        return this.domainCreateAssignment(
-          args as unknown as {
-            classId: string;
-            subjectId: string;
-            topic: string;
-            description?: string;
-            dueDate?: string;
-            totalMarks?: number;
-          },
-          userId,
-          schoolId,
-        );
-
-      case ToolHandlerKey.SEND_ANNOUNCEMENT:
-        return this.domainSendAnnouncement(
-          args as unknown as SendAnnouncementInput,
-          userId,
-          schoolId,
-        );
-
-      // ── Automation tools: delegate to the internal domain op injected from AIService ──
-      case ToolHandlerKey.AUTOMATION_FEE_DEFAULTER:
-      case ToolHandlerKey.AUTOMATION_ABSENCE_ALERT:
-      case ToolHandlerKey.AUTOMATION_ATTENDANCE_WARNING:
-        return this.domainAutomationMessages(args, userId, schoolId);
-
-      case ToolHandlerKey.AUTOMATION_TIMETABLE_COVER:
-        return this.domainAutomationTimetableCover(args, userId, schoolId);
-
-      case ToolHandlerKey.AUTOMATION_LEAVE_RECOMMENDATION:
-        return this.domainAutomationLeaveRecommendation(args, userId, schoolId);
-
-      case ToolHandlerKey.AUTOMATION_REPORT_CARD_PUBLISH:
-        return this.domainAutomationReportCardPublish(args, userId, schoolId);
-
-      case ToolHandlerKey.AUTOMATION_DAILY_DIGEST:
-        return this.domainAutomationDailyDigest(args, userId, schoolId);
-
-      default:
-        throw new InternalServerErrorException(
-          `No handler registered for key: ${handlerKey}`,
-        );
-    }
-  }
-
-  // ─── Domain: Approve Leave ────────────────────────────────────────────────
-  private async domainApproveLeave(
-    args: { leaveId: string; reason?: string },
-    userId: string,
-    schoolId: string,
-  ): Promise<Record<string, unknown>> {
-    // PHASE 6: Stale rejection — use conditional update (only PENDING)
-    const updated = await this.prisma.leaveRequest.updateMany({
-      where: { id: args.leaveId, schoolId, status: 'PENDING' },
-      data: {
-        status: 'APPROVED',
-        reviewedBy: userId,
-        reviewNote: `[Approved via AI Assistant] ${args.reason ?? ''}`.trim(),
-        reviewedAt: new Date(),
-      },
-    });
-
-    if (updated.count === 0) {
-      // Re-read to determine whether it's stale, tenant mismatch, or not found
-      const leave = await this.prisma.leaveRequest.findUnique({
-        where: { id: args.leaveId },
-      });
-      if (!leave || leave.schoolId !== schoolId) {
-        throw new Error(AGENT_ERRORS.ACTION_TENANT_MISMATCH);
-      }
-      throw new Error(
-        `${AGENT_ERRORS.ACTION_STALE_RESOURCE}: Leave request is no longer PENDING (current status: ${leave.status})`,
-      );
-    }
-
-    return { leaveId: args.leaveId, approved: true };
-  }
-
-  // ─── Domain: Create Assignment ────────────────────────────────────────────
-  private async domainCreateAssignment(
-    args: {
-      classId: string;
-      subjectId: string;
-      topic: string;
-      description?: string;
-      dueDate?: string;
-      totalMarks?: number;
-    },
-    userId: string,
-    schoolId: string,
-  ): Promise<Record<string, unknown>> {
-    // Resolve staff from userId — required for AssignmentsService
-    const staff = await this.prisma.staff.findFirst({
-      where: { userId, schoolId, isActive: true },
-    });
-    if (!staff) {
-      throw new Error('Teacher staff profile not found in this school');
-    }
-
-    // Compute dueDate — default 7 days from now if not provided
-    const dueDateObj = args.dueDate
-      ? new Date(args.dueDate)
-      : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-
-    // Delegate to AssignmentsService — it handles tenant isolation + validation
-    const assignment = await this.assignmentsService.createAssignment(
-      schoolId,
-      {
-        classId: args.classId,
-        subjectId: args.subjectId,
-        title: args.topic,
-        description: args.description ?? 'Generated by AI Assistant',
-        dueDate: dueDateObj.toISOString(),
-        maxMarks: args.totalMarks ?? 100,
-        staffId: staff.id,
-      },
-      staff.id,
-    );
-
-    return {
-      assignmentId: assignment.id,
-      classId: args.classId,
-      subjectId: args.subjectId,
-    };
-  }
-
-  // ─── Domain: Send Announcement ────────────────────────────────────────────
-  private async domainSendAnnouncement(
-    args: SendAnnouncementInput,
-    userId: string,
-    schoolId: string,
-  ): Promise<Record<string, unknown>> {
-    const allUsers = await this.prisma.user.findMany({
-      where: { schoolId, status: 'ACTIVE' },
-      select: { id: true },
-    });
-    const recipients = allUsers.filter((u) => u.id !== userId);
-
-    if (recipients.length > 0) {
-      await this.prisma.message.createMany({
-        data: recipients.map((r) => ({
-          schoolId,
-          senderId: userId,
-          recipientId: r.id,
-          subject: args.title,
-          body: args.message ?? 'Sent via AI Assistant.',
-        })),
-      });
-    }
-
-    return { sentCount: recipients.length };
-  }
-
-  // ─── Domain: Automation — message-based tasks ─────────────────────────────
-  private async domainAutomationMessages(
-    args: AutomationInput,
-    userId: string,
-    schoolId: string,
-  ): Promise<Record<string, unknown>> {
-    const items = (args.items ?? []) as Array<{
-      recipientId?: string;
-      draftMessage?: string;
-    }>;
-    const recipientIds = items
-      .map((i) => i.recipientId)
-      .filter(Boolean) as string[];
-
-    const validUsers = await this.prisma.user.findMany({
-      where: { id: { in: recipientIds }, schoolId },
-      select: { id: true },
-    });
-    const validUserIdSet = new Set(validUsers.map((u) => u.id));
-
-    const BATCH_SIZE = 50;
-    let actionsCount = 0;
-
-    for (let i = 0; i < items.length; i += BATCH_SIZE) {
-      const batch = items.slice(i, i + BATCH_SIZE);
-      const messages = batch
-        .filter(
-          (item) => item.recipientId && validUserIdSet.has(item.recipientId),
-        )
-        .map((item) => ({
-          schoolId,
-          senderId: userId,
-          recipientId: item.recipientId!,
-          subject: (args.subject ?? 'AI Notification').substring(0, 255),
-          body: item.draftMessage ?? '',
-        }));
-      if (messages.length > 0) {
-        await this.prisma.message.createMany({ data: messages });
-        actionsCount += messages.length;
-      }
-    }
-
-    return { actionsCount };
-  }
-
-  // ─── Domain: Automation — Timetable Cover ────────────────────────────────
-  private async domainAutomationTimetableCover(
-    args: AutomationInput,
-    userId: string,
-    schoolId: string,
-  ): Promise<Record<string, unknown>> {
-    const items = (args.items ?? []) as Array<{
-      suggestedSubstituteId?: string;
-      slots?: Array<{ id: string }>;
-    }>;
-    let actionsCount = 0;
-
-    for (const item of items) {
-      if (
-        !item.suggestedSubstituteId ||
-        !Array.isArray(item.slots) ||
-        item.slots.length === 0
-      )
-        continue;
-
-      const substituteStaff = await this.prisma.staff.findFirst({
-        where: { id: item.suggestedSubstituteId, schoolId },
-      });
-      if (!substituteStaff) continue;
-
-      const slotIds = item.slots.map((s) => s.id).filter(Boolean);
-      const result = await this.prisma.timetableSlot.updateMany({
-        where: { id: { in: slotIds }, schoolId },
-        data: { staffId: item.suggestedSubstituteId },
-      });
-      actionsCount += result.count;
-    }
-
-    return { actionsCount };
-  }
-
-  // ─── Domain: Automation — Leave Recommendation ───────────────────────────
-  private async domainAutomationLeaveRecommendation(
-    args: AutomationInput,
-    userId: string,
-    schoolId: string,
-  ): Promise<Record<string, unknown>> {
-    const items = (args.items ?? []) as Array<{
-      id?: string;
-      recommendation?: string;
-      reasoning?: string;
-    }>;
-    let actionsCount = 0;
-
-    for (const item of items) {
-      if (!item.id) continue;
-      const leave = await this.prisma.leaveRequest.findFirst({
-        where: { id: item.id, schoolId },
-      });
-      if (!leave) continue;
-      await this.prisma.leaveRequest.update({
-        where: { id: item.id },
-        data: {
-          reviewNote: `[AI Recommendation: ${item.recommendation ?? 'REVIEW'}] ${item.reasoning ?? ''}`,
-        },
-      });
-      actionsCount++;
-    }
-
-    return { actionsCount };
-  }
-
-  // ─── Domain: Automation — Report Card Publish ────────────────────────────
-  private async domainAutomationReportCardPublish(
-    args: AutomationInput,
-    userId: string,
-    schoolId: string,
-  ): Promise<Record<string, unknown>> {
-    const items = (args.items ?? []) as Array<{
-      id?: string;
-      isComplete?: boolean;
-      examName?: string;
-      draftMessage?: string;
-    }>;
-    const readyExams = items.filter((i) => i.isComplete && i.id);
-    let actionsCount = 0;
-
-    for (const exam of readyExams) {
-      const examRecord = await this.prisma.exam.findFirst({
-        where: { id: exam.id!, schoolId },
-      });
-      if (!examRecord) continue;
-
-      const students = await this.prisma.student.findMany({
-        where: { schoolId, isActive: true },
-        include: { user: { select: { id: true } } },
-        take: 500,
-      });
-
-      const messages = students.map((s) => ({
-        schoolId,
-        senderId: userId,
-        recipientId: s.user.id,
-        subject: `Results Ready: ${exam.examName ?? examRecord.name}`,
-        body:
-          exam.draftMessage ??
-          `Results for ${examRecord.name} are now available.`,
-      }));
-
-      if (messages.length > 0) {
-        await this.prisma.message.createMany({ data: messages });
-        actionsCount += messages.length;
-      }
-    }
-
-    return { actionsCount };
-  }
-
-  // ─── Domain: Automation — Daily Digest ───────────────────────────────────
-  private async domainAutomationDailyDigest(
-    args: AutomationInput,
-    userId: string,
-    schoolId: string,
-  ): Promise<Record<string, unknown>> {
-    const items = (args.items ?? []) as Array<{ draftMessage?: string }>;
-    const principal = await this.prisma.user.findFirst({
-      where: {
-        schoolId,
-        role: { in: ['PRINCIPAL', 'SCHOOL_ADMIN'] },
-        status: 'ACTIVE',
-      },
-    });
-
-    if (principal && items[0]?.draftMessage) {
-      await this.prisma.message.create({
-        data: {
-          schoolId,
-          senderId: userId,
-          recipientId: principal.id,
-          subject: `Daily School Digest — ${new Date().toDateString()}`,
-          body: items[0].draftMessage,
-        },
-      });
-      return { actionsCount: 1 };
-    }
-
-    return { actionsCount: 0 };
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // POST-EXECUTION VERIFICATION (Phase 10)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  private async verifyExecution(
-    handlerKey: ToolHandlerKey,
-    args: Record<string, unknown>,
-    userId: string,
-    schoolId: string,
-    resultData: Record<string, unknown>,
-  ): Promise<void> {
-    if (handlerKey === ToolHandlerKey.APPROVE_LEAVE) {
-      const leaveId = args['leaveId'] as string;
-      const leave = await this.prisma.leaveRequest.findUnique({
-        where: { id: leaveId },
-      });
-      if (
-        !leave ||
-        leave.status !== 'APPROVED' ||
-        leave.reviewedBy !== userId
-      ) {
-        throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
-      }
-    }
-
-    if (handlerKey === ToolHandlerKey.CREATE_ASSIGNMENT) {
-      const assignmentId = (resultData as { assignmentId?: string })
-        .assignmentId;
-      if (!assignmentId)
-        throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
-      const assignment = await this.prisma.assignment.findUnique({
-        where: { id: assignmentId },
-      });
-      if (
-        !assignment ||
-        assignment.schoolId !== schoolId ||
-        assignment.classId !== (args['classId'] as string) ||
-        assignment.subjectId !== (args['subjectId'] as string)
-      ) {
-        throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
-      }
-    }
-
-    if (handlerKey === ToolHandlerKey.SEND_ANNOUNCEMENT) {
-      const sentCount = (resultData as { sentCount?: number }).sentCount ?? 0;
-      if (sentCount === 0) {
-        this.logger.warn(
-          'Announcement sent to 0 recipients — no active users found',
-        );
-        // Not a hard failure — school may have no other active users
-      }
-    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

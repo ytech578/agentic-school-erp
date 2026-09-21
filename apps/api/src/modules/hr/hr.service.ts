@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
+import { AGENT_ERRORS } from '../ai/agent/agent-types';
 
 @Injectable()
 export class HRService {
@@ -132,6 +133,67 @@ export class HRService {
       where: { id: leave.id },
       data: { status: 'CANCELLED' },
     });
+  }
+
+  /**
+   * Approves a leave request with atomic conditional update and stale detection.
+   * Reusable ERP domain operation ensuring tenant isolation and atomic status transition.
+   */
+  async approveLeaveRequest(
+    schoolId: string,
+    leaveId: string,
+    data: {
+      reviewedBy: string;
+      reviewNote?: string;
+    },
+  ) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const updated = await this.prisma.leaveRequest.updateMany({
+      where: { id: leaveId, schoolId: validSchoolId, status: 'PENDING' },
+      data: {
+        status: 'APPROVED',
+        reviewedBy: data.reviewedBy,
+        reviewNote: data.reviewNote,
+        reviewedAt: new Date(),
+      },
+    });
+
+    if (updated.count === 0) {
+      const leave = await this.prisma.leaveRequest.findUnique({
+        where: { id: leaveId },
+      });
+      if (!leave || leave.schoolId !== validSchoolId) {
+        throw new Error(AGENT_ERRORS.ACTION_TENANT_MISMATCH);
+      }
+      throw new Error(
+        `${AGENT_ERRORS.ACTION_STALE_RESOURCE}: Leave request is no longer PENDING (current status: ${leave.status})`,
+      );
+    }
+
+    return { leaveId, approved: true };
+  }
+
+  /**
+   * Appends an AI review recommendation note to a leave request.
+   */
+  async addLeaveRecommendation(
+    schoolId: string,
+    leaveId: string,
+    recommendation: string,
+    reasoning?: string,
+  ) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const leave = await this.prisma.leaveRequest.findFirst({
+      where: { id: leaveId, schoolId: validSchoolId },
+    });
+    if (!leave) return false;
+    await this.prisma.leaveRequest.update({
+      where: { id: leaveId },
+      data: {
+        reviewNote: `[AI Recommendation: ${recommendation}] ${reasoning ?? ''}`.trim(),
+      },
+    });
+    return true;
   }
 
   // ─── Summary stats ───────────────────────────────────────────────────────────

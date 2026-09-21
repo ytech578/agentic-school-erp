@@ -102,6 +102,7 @@ export const AGENT_ERRORS = {
   // Execution errors
   ACTION_EXECUTION_FAILED: 'ACTION_EXECUTION_FAILED',
   ACTION_VERIFICATION_FAILED: 'ACTION_VERIFICATION_FAILED',
+  ACTION_HANDLER_NOT_FOUND: 'ACTION_HANDLER_NOT_FOUND',
   // Multi-call errors
   ACTION_MULTI_CALL_REJECTED: 'ACTION_MULTI_CALL_REJECTED',
   // Idempotency
@@ -126,4 +127,22 @@ export enum ToolHandlerKey {
   AUTOMATION_LEAVE_RECOMMENDATION = 'automation_leave_recommendation',
   AUTOMATION_REPORT_CARD_PUBLISH = 'automation_report_card_publish',
   AUTOMATION_DAILY_DIGEST = 'automation_daily_digest',
+}
+
+// ─── Server-authoritative context provided to domain handlers ─────────────────
+export interface AgentToolExecutionContext {
+  userId: string;
+  schoolId: string;
+  role: string;
+  actionId?: string;
+  correlationId?: string;
+}
+
+// ─── Standard structured result returned by domain handlers ────────────────────
+export interface AgentHandlerResult {
+  resourceId?: string;
+  resourceType?: string;
+  affectedCount?: number;
+  status: string;
+  [key: string]: unknown;
 }

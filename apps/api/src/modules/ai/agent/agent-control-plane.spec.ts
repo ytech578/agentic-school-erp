@@ -7,10 +7,26 @@ import {
 } from '@nestjs/common';
 import { AgentControlPlaneService } from './agent-control-plane.service';
 import { AgentPolicyService } from './agent-policy.service';
+import { AgentToolDispatcher } from './agent-tool-dispatcher';
+import {
+  ApproveLeaveAgentHandler,
+  CreateAssignmentAgentHandler,
+  SendAnnouncementAgentHandler,
+  AutomationFeeDefaulterHandler,
+  AutomationAbsenceAlertHandler,
+  AutomationAttendanceWarningHandler,
+  AutomationTimetableCoverHandler,
+  AutomationLeaveRecommendationHandler,
+  AutomationReportCardPublishHandler,
+  AutomationDailyDigestHandler,
+  AGENT_TOOL_HANDLERS,
+} from './handlers';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { AgentActionStatus } from '@prisma/client';
 import { HRService } from '../../hr/hr.service';
 import { AssignmentsService } from '../../assignments/assignments.service';
+import { MessagesService } from '../../messages/messages.service';
+import { TimetableService } from '../../timetable/timetable.service';
 import { AGENT_ERRORS } from './agent-types';
 import {
   PERMISSIONS,
@@ -101,7 +117,6 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
 
   beforeEach(async () => {
     prisma = buildPrismaMock();
-    hrService = { reviewLeave: jest.fn() };
     assignmentsService = { createAssignment: jest.fn() };
 
     // Re-wire $transaction so the nested CAS block works
@@ -109,13 +124,63 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
       async (cb: (tx: unknown) => Promise<unknown>) => cb(prisma),
     );
 
+    const toolHandlers = [
+      ApproveLeaveAgentHandler,
+      CreateAssignmentAgentHandler,
+      SendAnnouncementAgentHandler,
+      AutomationFeeDefaulterHandler,
+      AutomationAbsenceAlertHandler,
+      AutomationAttendanceWarningHandler,
+      AutomationTimetableCoverHandler,
+      AutomationLeaveRecommendationHandler,
+      AutomationReportCardPublishHandler,
+      AutomationDailyDigestHandler,
+    ];
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AgentControlPlaneService,
         AgentPolicyService,
+        AgentToolDispatcher,
+        ...toolHandlers,
+        {
+          provide: AGENT_TOOL_HANDLERS,
+          useFactory: (...handlers: any[]) => handlers,
+          inject: toolHandlers,
+        },
         { provide: PrismaService, useValue: prisma },
-        { provide: HRService, useValue: hrService },
+        {
+          provide: HRService,
+          useValue: new HRService(prisma as any),
+        },
         { provide: AssignmentsService, useValue: assignmentsService },
+        {
+          provide: MessagesService,
+          useValue: {
+            broadcastAnnouncement: jest.fn().mockImplementation(async (data) => {
+              // Replicate the broadcast message creation for mock Prisma
+              const users = await prisma.user.findMany();
+              const recipients = users.filter((u: any) => u.id !== data.senderId);
+              if (recipients.length > 0) {
+                await prisma.message.createMany({
+                  data: recipients.map((r: any) => ({
+                    schoolId: data.schoolId,
+                    senderId: data.senderId,
+                    recipientId: r.id,
+                    subject: data.subject,
+                    body: data.body,
+                  })),
+                });
+              }
+              return { success: true, sent: recipients.length };
+            }),
+            sendMessage: jest.fn(),
+          },
+        },
+        {
+          provide: TimetableService,
+          useValue: new TimetableService(prisma as any),
+        },
       ],
     }).compile();
 

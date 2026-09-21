@@ -382,4 +382,27 @@ export class TimetableService {
 
     return { success: true, count: generatedSlots.length, message: "Timetable generated successfully with AI Optimizer." };
   }
+
+  /**
+   * Assigns a substitute teacher to one or more timetable slots with tenant validation.
+   */
+  async assignSubstitute(
+    schoolId: string,
+    slotIds: string[],
+    substituteStaffId: string,
+  ): Promise<{ actionsCount: number }> {
+    const validSchoolId = requireSchoolId(schoolId, 'Assign timetable substitute');
+    const substituteStaff = await this.prisma.staff.findFirst({
+      where: { id: substituteStaffId, schoolId: validSchoolId },
+    });
+    if (!substituteStaff) {
+      return { actionsCount: 0 };
+    }
+
+    const result = await this.prisma.timetableSlot.updateMany({
+      where: { id: { in: slotIds }, schoolId: validSchoolId },
+      data: { staffId: substituteStaffId },
+    });
+    return { actionsCount: result.count };
+  }
 }
