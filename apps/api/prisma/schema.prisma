@@ -1491,7 +1491,13 @@ model AgentAction {
   requiresConfirmation Boolean           @default(false)
   label                String
   explanation          String?
+  // Request-level deduplication key: client-supplied Idempotency-Key header value.
+  // Cleared on FAILED/EXPIRED to allow legitimate retries.
   idempotencyKey       String?           @unique
+  // Business-mutation fingerprint: content-addressable hash of the logical operation.
+  // Distinct from idempotencyKey — blocks double-execution of the same business event.
+  // Cleared on FAILED/EXPIRED to allow legitimate retries.
+  operationFingerprint String?           @unique
   correlationId        String?
   expiresAt            DateTime?
   confirmedAt          DateTime?
@@ -1507,6 +1513,7 @@ model AgentAction {
   @@index([userId, status])
   @@index([schoolId, status, createdAt])
   @@index([idempotencyKey])
+  @@index([operationFingerprint])
   @@map("agent_actions")
 }
 

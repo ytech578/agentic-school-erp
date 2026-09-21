@@ -12,9 +12,10 @@ export type ToolExecutionMode = 'READ_ONLY' | 'MUTATING';
 
 // ─── Idempotency strategy ─────────────────────────────────────────────────────
 export type IdempotencyStrategy =
-  | 'NATURAL_KEY'   // business-derived key (e.g. leaveId)
-  | 'CONTENT_HASH'  // hash of userId + toolName + args
-  | 'NONE';         // non-idempotent (e.g. send_announcement)
+  | 'NATURAL_KEY'   // business-derived key (e.g. leaveId) — deterministic fingerprint
+  | 'CONTENT_HASH'  // hash of schoolId + userId + toolName + sorted args JSON
+  | 'REQUEST_KEY'   // client-supplied request token (HTTP Idempotency-Key header); no operation fingerprint
+  | 'NONE';         // deliberately non-idempotent; each call is an independent execution (use sparingly)
 
 // ─── Validated field descriptor (replaces free-form description) ──────────────
 export interface ToolFieldSchema {
@@ -251,7 +252,9 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
       riskLevel: 'HIGH',
       requiresConfirmation: true,
       tenantScoped: true,
-      idempotencyStrategy: 'NONE',
+      // REQUEST_KEY: each broadcast is a unique event (no content fingerprint);
+      // the client-supplied Idempotency-Key header prevents double-blast on HTTP retry.
+      idempotencyStrategy: 'REQUEST_KEY',
       executionMode: 'MUTATING',
       handlerKey: ToolHandlerKey.SEND_ANNOUNCEMENT,
       realHandlerAvailable: true,

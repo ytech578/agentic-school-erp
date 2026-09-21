@@ -99,7 +99,11 @@ export const AGENT_ERRORS = {
   // Multi-call errors
   ACTION_MULTI_CALL_REJECTED:   'ACTION_MULTI_CALL_REJECTED',
   // Idempotency
-  ACTION_DUPLICATE_REQUEST:     'ACTION_DUPLICATE_REQUEST',
+  ACTION_DUPLICATE_REQUEST:          'ACTION_DUPLICATE_REQUEST',
+  // Business mutation fingerprint matches an existing EXECUTING or SUCCEEDED action
+  ACTION_FINGERPRINT_CONFLICT:       'ACTION_FINGERPRINT_CONFLICT',
+  // Client request key already resolved to a completed/in-flight action
+  ACTION_REQUEST_ALREADY_PROCESSED:  'ACTION_REQUEST_ALREADY_PROCESSED',
 } as const;
 
 export type AgentErrorCode = (typeof AGENT_ERRORS)[keyof typeof AGENT_ERRORS];
