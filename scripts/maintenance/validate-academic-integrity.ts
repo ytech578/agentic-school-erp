@@ -361,8 +361,17 @@ export async function validateAcademicIntegrity(prisma: any): Promise<IntegrityR
 }
 
 async function main() {
-  const { PrismaClient } = await import('@prisma/client');
-  const prisma = new PrismaClient();
+  let PrismaClientConstructor: any;
+  try {
+    // @ts-ignore - PrismaClient is located in apps/api/node_modules
+    const prismaModule = await import('@prisma/client');
+    PrismaClientConstructor = prismaModule.PrismaClient;
+  } catch {
+    // @ts-ignore - Fallback path if run from root scripts directory
+    const prismaModule = await import('../../apps/api/node_modules/@prisma/client');
+    PrismaClientConstructor = prismaModule.PrismaClient;
+  }
+  const prisma = new PrismaClientConstructor();
 
   try {
     const report = await validateAcademicIntegrity(prisma);
