@@ -15,10 +15,20 @@ export class MessagesService {
     const messages = await this.prisma.message.findMany({
       where: { recipientId: userId, schoolId: validSchoolId, parentId: null },
       include: {
-        sender: { select: { id: true, firstName: true, lastName: true, role: true, avatarUrl: true } },
+        sender: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            role: true,
+            avatarUrl: true,
+          },
+        },
         replies: {
           include: {
-            sender: { select: { id: true, firstName: true, lastName: true, role: true } },
+            sender: {
+              select: { id: true, firstName: true, lastName: true, role: true },
+            },
           },
           orderBy: { createdAt: 'asc' },
         },
@@ -42,7 +52,7 @@ export class MessagesService {
     for (const msg of rawMessages) {
       const dateKey = msg.createdAt.toISOString().slice(0, 13);
       const key = `${dateKey}_${msg.subject}_${msg.body}`;
-      
+
       if (!uniqueMap.has(key)) {
         uniqueMap.set(key, { ...msg, recipientCount: 1 });
       } else {
@@ -50,11 +60,11 @@ export class MessagesService {
       }
     }
 
-    return Array.from(uniqueMap.values()).map(msg => {
+    return Array.from(uniqueMap.values()).map((msg) => {
       if (msg.recipientCount > 1) {
         return {
           ...msg,
-          recipientId: "Everyone"
+          recipientId: 'Everyone',
         };
       }
       return msg;
@@ -99,7 +109,9 @@ export class MessagesService {
         parentId: data.parentId,
       },
       include: {
-        sender: { select: { id: true, firstName: true, lastName: true, role: true } },
+        sender: {
+          select: { id: true, firstName: true, lastName: true, role: true },
+        },
       },
     });
   }
@@ -145,8 +157,18 @@ export class MessagesService {
   async getUsers(schoolId: string, currentUserId: string) {
     const validSchoolId = requireSchoolId(schoolId);
     return this.prisma.user.findMany({
-      where: { schoolId: validSchoolId, id: { not: currentUserId }, status: 'ACTIVE' },
-      select: { id: true, firstName: true, lastName: true, role: true, avatarUrl: true },
+      where: {
+        schoolId: validSchoolId,
+        id: { not: currentUserId },
+        status: 'ACTIVE',
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        avatarUrl: true,
+      },
       orderBy: [{ role: 'asc' }, { firstName: 'asc' }],
     });
   }
@@ -159,7 +181,10 @@ export class MessagesService {
     targetRole?: string;
   }) {
     const validSchoolId = requireSchoolId(data.schoolId);
-    const whereClause: any = { schoolId: validSchoolId, id: { not: data.senderId } };
+    const whereClause: any = {
+      schoolId: validSchoolId,
+      id: { not: data.senderId },
+    };
     if (data.targetRole) whereClause.role = data.targetRole;
 
     const recipients = await this.prisma.user.findMany({

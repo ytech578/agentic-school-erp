@@ -19,7 +19,10 @@ describe('TransformInterceptor', () => {
 
   it('preserves meta and unwraps data when data and meta are present', async () => {
     const handlerResult = {
-      data: [{ id: 1, name: 'Alice' }, { id: 2, name: 'Bob' }],
+      data: [
+        { id: 1, name: 'Alice' },
+        { id: 2, name: 'Bob' },
+      ],
       meta: { total: 50, page: 1, limit: 15, totalPages: 4 },
       message: 'Users loaded',
     };

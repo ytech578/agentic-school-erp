@@ -370,12 +370,7 @@ export class AgentControlPlaneService {
       );
 
       // 10. Post-execution domain verification via dispatcher
-      await this.dispatcher.verify(
-        tool.handlerKey,
-        toolCtx,
-        args,
-        resultData,
-      );
+      await this.dispatcher.verify(tool.handlerKey, toolCtx, args, resultData);
 
       // 11. Mark SUCCEEDED
       await this.prisma.agentAction.update({

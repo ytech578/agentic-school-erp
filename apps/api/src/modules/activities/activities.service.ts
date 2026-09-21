@@ -24,14 +24,14 @@ export class ActivitiesService {
         student: {
           include: {
             user: { select: { firstName: true, lastName: true } },
-            enrollments: { include: { section: { include: { class: true } } } }
-          }
-        }
+            enrollments: { include: { section: { include: { class: true } } } },
+          },
+        },
       },
-      orderBy: { date: 'desc' }
+      orderBy: { date: 'desc' },
     });
 
-    return activities.map(a => ({
+    return activities.map((a) => ({
       ...a,
       category: a.icon || 'ACADEMIC',
     }));
@@ -53,7 +53,7 @@ export class ActivitiesService {
         date: new Date(data.date),
         icon: data.category || data.icon || 'ACADEMIC',
         description: data.description,
-      }
+      },
     });
 
     return {
@@ -65,7 +65,7 @@ export class ActivitiesService {
   async updateActivity(schoolId: string, activityId: string, data: any) {
     const validSchoolId = requireSchoolId(schoolId);
     const activity = await this.prisma.activity.findFirst({
-      where: { id: activityId, schoolId: validSchoolId }
+      where: { id: activityId, schoolId: validSchoolId },
     });
     if (!activity) throw new NotFoundException('Activity not found');
 
@@ -73,8 +73,10 @@ export class ActivitiesService {
     if (data.title) updateData.title = data.title;
     if (data.event !== undefined) updateData.event = data.event;
     if (data.date) updateData.date = new Date(data.date);
-    if (data.category || data.icon) updateData.icon = data.category || data.icon;
-    if (data.description !== undefined) updateData.description = data.description;
+    if (data.category || data.icon)
+      updateData.icon = data.category || data.icon;
+    if (data.description !== undefined)
+      updateData.description = data.description;
     if (data.studentId) {
       const student = await this.prisma.student.findFirst({
         where: { id: data.studentId, schoolId: validSchoolId },
@@ -97,12 +99,12 @@ export class ActivitiesService {
   async deleteActivity(schoolId: string, activityId: string) {
     const validSchoolId = requireSchoolId(schoolId);
     const activity = await this.prisma.activity.findFirst({
-      where: { id: activityId, schoolId: validSchoolId }
+      where: { id: activityId, schoolId: validSchoolId },
     });
     if (!activity) throw new NotFoundException('Activity not found');
 
     return this.prisma.activity.delete({
-      where: { id: activity.id }
+      where: { id: activity.id },
     });
   }
 }

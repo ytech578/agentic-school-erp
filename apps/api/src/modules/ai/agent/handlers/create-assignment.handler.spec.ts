@@ -42,7 +42,7 @@ describe('CreateAssignmentAgentHandler', () => {
 
     handler = new CreateAssignmentAgentHandler(
       assignmentsService as unknown as AssignmentsService,
-      prisma as unknown as PrismaService,
+      prisma,
     );
   });
 

@@ -1,4 +1,10 @@
-import { Injectable, BadRequestException, NotFoundException, Logger, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  Logger,
+  Optional,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -49,17 +55,18 @@ export class FeesService {
     providedId?: string,
   ): Promise<string> {
     const validSchoolId = requireSchoolId(schoolId);
-    if (providedId && providedId !== 'undefined' && providedId !== 'null' && providedId.trim() !== '') {
+    if (
+      providedId &&
+      providedId !== 'undefined' &&
+      providedId !== 'null' &&
+      providedId.trim() !== ''
+    ) {
       const trimmed = providedId.trim();
       const normalizedName = trimmed.replace(/^AY[-_]?/i, '');
       const year = await this.prisma.academicYear.findFirst({
         where: {
           schoolId: validSchoolId,
-          OR: [
-            { id: trimmed },
-            { name: trimmed },
-            { name: normalizedName },
-          ],
+          OR: [{ id: trimmed }, { name: trimmed }, { name: normalizedName }],
         },
       });
       if (year) {
@@ -79,7 +86,9 @@ export class FeesService {
     if (latestYear) {
       return latestYear.id;
     }
-    throw new BadRequestException('No active academic year found for this school');
+    throw new BadRequestException(
+      'No active academic year found for this school',
+    );
   }
 
   async getFeeHeads(schoolId: string) {
@@ -95,7 +104,9 @@ export class FeesService {
     data: { name: string; description?: string },
   ) {
     const validSchoolId = requireSchoolId(schoolId);
-    const maxOrder = await this.prisma.feeHead.count({ where: { schoolId: validSchoolId } });
+    const maxOrder = await this.prisma.feeHead.count({
+      where: { schoolId: validSchoolId },
+    });
     return this.prisma.feeHead.create({
       data: {
         schoolId: validSchoolId,
@@ -165,7 +176,9 @@ export class FeesService {
         where: { id: { in: headIds }, schoolId: validSchoolId },
       });
       if (heads.length !== headIds.length) {
-        throw new BadRequestException('One or more fee heads do not belong to this school');
+        throw new BadRequestException(
+          'One or more fee heads do not belong to this school',
+        );
       }
     }
 
@@ -233,7 +246,11 @@ export class FeesService {
 
     // We also need all fee structures to calculate dues
     const structures = await this.prisma.feeStructure.findMany({
-      where: { schoolId: validSchoolId, academicYearId: resolvedYearId, isActive: true },
+      where: {
+        schoolId: validSchoolId,
+        academicYearId: resolvedYearId,
+        isActive: true,
+      },
       include: { items: true },
     });
 
@@ -283,7 +300,12 @@ export class FeesService {
     }
 
     const year = new Date().getFullYear();
-    const receiptNumber = await generateNextSequence(this.prisma, validSchoolId, 'RCT', year);
+    const receiptNumber = await generateNextSequence(
+      this.prisma,
+      validSchoolId,
+      'RCT',
+      year,
+    );
 
     return this.prisma.$transaction(async (tx) => {
       // 1. Create Payment Record
@@ -336,7 +358,20 @@ export class FeesService {
       },
     });
 
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     const monthlyData: Record<string, number> = {};
     months.forEach((m) => (monthlyData[m] = 0));
 
@@ -354,25 +389,32 @@ export class FeesService {
   async predictDefaulters(schoolId: string, academicYearId: string) {
     const validSchoolId = requireSchoolId(schoolId);
     // Re-use summary logic to find outstanding balances
-    const summary = await this.getStudentFeeSummary(validSchoolId, academicYearId);
-    
+    const summary = await this.getStudentFeeSummary(
+      validSchoolId,
+      academicYearId,
+    );
+
     // Get students with actual risk score data to combine
     const studentsWithRisk = await this.prisma.student.findMany({
       where: { schoolId: validSchoolId },
-      select: { id: true, riskScore: true, admissionNumber: true }
+      select: { id: true, riskScore: true, admissionNumber: true },
     });
 
     const riskMap = new Map();
-    studentsWithRisk.forEach(s => riskMap.set(s.id, s.riskScore));
+    studentsWithRisk.forEach((s) => riskMap.set(s.id, s.riskScore));
 
     const defaulters = summary
       .filter((s) => s.outstandingDue > 0)
       .map((s) => {
         const baseRisk = riskMap.get(s.id) || 0;
         // Simple heuristic: higher due + base risk = higher default probability
-        const dueFactor = Math.min((s.outstandingDue / s.totalFee) * 50, 50) || 0; 
-        const defaultProbability = Math.min(Math.round(baseRisk + dueFactor), 99);
-        
+        const dueFactor =
+          Math.min((s.outstandingDue / s.totalFee) * 50, 50) || 0;
+        const defaultProbability = Math.min(
+          Math.round(baseRisk + dueFactor),
+          99,
+        );
+
         let riskLevel = 'Low';
         if (defaultProbability > 70) riskLevel = 'High';
         else if (defaultProbability > 40) riskLevel = 'Medium';
@@ -404,61 +446,79 @@ export class FeesService {
       include: {
         student: {
           include: {
-            user: { select: { firstName: true, lastName: true, avatarUrl: true } },
+            user: {
+              select: { firstName: true, lastName: true, avatarUrl: true },
+            },
             enrollments: {
               where: { status: 'ACTIVE' },
               include: { section: { include: { class: true } } },
             },
-          }
-        }
-      }
+          },
+        },
+      },
     });
 
     if (!guardians || guardians.length === 0) return [];
 
-    const academicYear = await this.prisma.academicYear.findFirst({
-      where: { schoolId: validSchoolId, isActive: true },
-    }) || await this.prisma.academicYear.findFirst({ where: { schoolId: validSchoolId } });
+    const academicYear =
+      (await this.prisma.academicYear.findFirst({
+        where: { schoolId: validSchoolId, isActive: true },
+      })) ||
+      (await this.prisma.academicYear.findFirst({
+        where: { schoolId: validSchoolId },
+      }));
     if (!academicYear) return [];
 
     const structures = await this.prisma.feeStructure.findMany({
-      where: { schoolId: validSchoolId, academicYearId: academicYear.id, isActive: true },
+      where: {
+        schoolId: validSchoolId,
+        academicYearId: academicYear.id,
+        isActive: true,
+      },
       include: { items: true },
     });
 
-    const studentsResult = await Promise.all(guardians.map(async (g) => {
-      const student = g.student;
-      const classId = student.enrollments[0]?.section?.class.id;
-      const structure = structures.find(s => s.classId === classId);
-      
-      const totalFee = structure?.items.reduce((sum, item) => sum + Number(item.amount), 0) || 0;
+    const studentsResult = await Promise.all(
+      guardians.map(async (g) => {
+        const student = g.student;
+        const classId = student.enrollments[0]?.section?.class.id;
+        const structure = structures.find((s) => s.classId === classId);
 
-      const payments = await this.prisma.feePayment.findMany({
-        where: {
-          schoolId: validSchoolId,
+        const totalFee =
+          structure?.items.reduce(
+            (sum, item) => sum + Number(item.amount),
+            0,
+          ) || 0;
+
+        const payments = await this.prisma.feePayment.findMany({
+          where: {
+            schoolId: validSchoolId,
+            studentId: student.id,
+            academicYearId: academicYear.id,
+          },
+        });
+
+        const totalPaid = payments
+          .filter(
+            (p) => p.paymentStatus === 'PAID' || p.paymentStatus === 'PARTIAL',
+          )
+          .reduce((sum, p) => sum + Number(p.paidAmount), 0);
+
+        const outstandingDue = Math.max(0, totalFee - totalPaid);
+
+        return {
           studentId: student.id,
-          academicYearId: academicYear.id,
-        },
-      });
-
-      const totalPaid = payments
-        .filter(p => p.paymentStatus === 'PAID' || p.paymentStatus === 'PARTIAL')
-        .reduce((sum, p) => sum + Number(p.paidAmount), 0);
-      
-      const outstandingDue = Math.max(0, totalFee - totalPaid);
-
-      return {
-        studentId: student.id,
-        firstName: student.user.firstName,
-        lastName: student.user.lastName,
-        avatarUrl: student.user.avatarUrl,
-        admissionNumber: student.admissionNumber,
-        className: student.enrollments[0]?.section?.class.name || 'N/A',
-        totalFee,
-        totalPaid,
-        outstandingDue,
-      };
-    }));
+          firstName: student.user.firstName,
+          lastName: student.user.lastName,
+          avatarUrl: student.user.avatarUrl,
+          admissionNumber: student.admissionNumber,
+          className: student.enrollments[0]?.section?.class.name || 'N/A',
+          totalFee,
+          totalPaid,
+          outstandingDue,
+        };
+      }),
+    );
 
     return studentsResult;
   }
@@ -466,7 +526,12 @@ export class FeesService {
   async processParentPayment(
     schoolId: string,
     userId: string,
-    data: { studentId: string; amount: number; paymentMode: string; transactionRef?: string },
+    data: {
+      studentId: string;
+      amount: number;
+      paymentMode: string;
+      transactionRef?: string;
+    },
   ) {
     const validSchoolId = requireSchoolId(schoolId);
 
@@ -482,13 +547,22 @@ export class FeesService {
       throw new NotFoundException('Student not found for this guardian');
     }
 
-    const academicYear = await this.prisma.academicYear.findFirst({
-      where: { schoolId: validSchoolId, isActive: true },
-    }) || await this.prisma.academicYear.findFirst({ where: { schoolId: validSchoolId } });
+    const academicYear =
+      (await this.prisma.academicYear.findFirst({
+        where: { schoolId: validSchoolId, isActive: true },
+      })) ||
+      (await this.prisma.academicYear.findFirst({
+        where: { schoolId: validSchoolId },
+      }));
     if (!academicYear) throw new BadRequestException('No academic year found');
 
     const year = new Date().getFullYear();
-    const receiptNumber = await generateNextSequence(this.prisma, validSchoolId, 'RCT', year);
+    const receiptNumber = await generateNextSequence(
+      this.prisma,
+      validSchoolId,
+      'RCT',
+      year,
+    );
 
     const remarks = data.transactionRef
       ? `Online Payment via Parent Portal (UTR/Ref: ${data.transactionRef})`
@@ -517,7 +591,11 @@ export class FeesService {
       },
     });
 
-    return { success: true, paymentId: payment.id, receiptNumber: receipt.receiptNumber };
+    return {
+      success: true,
+      paymentId: payment.id,
+      receiptNumber: receipt.receiptNumber,
+    };
   }
 
   async getPaymentSettings(schoolId: string, userRole?: string) {
@@ -538,9 +616,11 @@ export class FeesService {
     });
 
     const defaultPayeeName = school?.name || 'School ERP Fees';
-    const settingsVal = (config?.value as any) || (school?.settings as any)?.payment || {};
+    const settingsVal =
+      (config?.value as any) || (school?.settings as any)?.payment || {};
 
-    const upiVpa = settingsVal.upiVpa || this.configService?.get<string>('UPI_VPA') || '';
+    const upiVpa =
+      settingsVal.upiVpa || this.configService?.get<string>('UPI_VPA') || '';
     const payeeName = settingsVal.payeeName || defaultPayeeName;
     const qrCodeImageUrl = settingsVal.qrCodeImageUrl || '';
     const accountNumber = settingsVal.accountNumber || '';
@@ -548,11 +628,16 @@ export class FeesService {
     const bankName = settingsVal.bankName || '';
     const branch = settingsVal.branch || '';
     const razorpayEnabled = settingsVal.razorpayEnabled ?? true;
-    const razorpayKeyId = settingsVal.razorpayKeyId || this.configService?.get<string>('RAZORPAY_KEY_ID') || '';
+    const razorpayKeyId =
+      settingsVal.razorpayKeyId ||
+      this.configService?.get<string>('RAZORPAY_KEY_ID') ||
+      '';
     const preferredMode = settingsVal.preferredMode || 'DYNAMIC_UPI_QR';
     const customInstructions = settingsVal.customInstructions || '';
 
-    const isAdmin = ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'].includes(userRole || '');
+    const isAdmin = ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'].includes(
+      userRole || '',
+    );
 
     return {
       upiVpa,
@@ -563,8 +648,15 @@ export class FeesService {
       bankName,
       branch,
       razorpayEnabled,
-      razorpayKeyId: isAdmin ? razorpayKeyId : (razorpayKeyId ? 'configured' : ''),
-      hasRazorpaySecret: Boolean(settingsVal.razorpayKeySecret || this.configService?.get<string>('RAZORPAY_KEY_SECRET')),
+      razorpayKeyId: isAdmin
+        ? razorpayKeyId
+        : razorpayKeyId
+          ? 'configured'
+          : '',
+      hasRazorpaySecret: Boolean(
+        settingsVal.razorpayKeySecret ||
+        this.configService?.get<string>('RAZORPAY_KEY_SECRET'),
+      ),
       preferredMode,
       customInstructions,
       updatedAt: config?.updatedAt || new Date(),
@@ -592,7 +684,9 @@ export class FeesService {
     const validSchoolId = requireSchoolId(schoolId, 'Update payment settings');
 
     if (!data.upiVpa || !data.upiVpa.includes('@')) {
-      throw new BadRequestException('A valid UPI ID (e.g. schoolname@bank) is required');
+      throw new BadRequestException(
+        'A valid UPI ID (e.g. schoolname@bank) is required',
+      );
     }
 
     const cleanPayee = data.payeeName?.trim() || 'School ERP Fees';
@@ -612,16 +706,28 @@ export class FeesService {
     const updatedValue = {
       upiVpa: cleanVpa,
       payeeName: cleanPayee,
-      qrCodeImageUrl: data.qrCodeImageUrl !== undefined ? data.qrCodeImageUrl : (existingVal.qrCodeImageUrl || ''),
-      accountNumber: data.accountNumber?.trim() || existingVal.accountNumber || '',
-      ifscCode: data.ifscCode?.trim().toUpperCase() || existingVal.ifscCode || '',
+      qrCodeImageUrl:
+        data.qrCodeImageUrl !== undefined
+          ? data.qrCodeImageUrl
+          : existingVal.qrCodeImageUrl || '',
+      accountNumber:
+        data.accountNumber?.trim() || existingVal.accountNumber || '',
+      ifscCode:
+        data.ifscCode?.trim().toUpperCase() || existingVal.ifscCode || '',
       bankName: data.bankName?.trim() || existingVal.bankName || '',
       branch: data.branch?.trim() || existingVal.branch || '',
-      razorpayEnabled: data.razorpayEnabled !== undefined ? data.razorpayEnabled : (existingVal.razorpayEnabled ?? true),
-      razorpayKeyId: data.razorpayKeyId?.trim() || existingVal.razorpayKeyId || '',
-      razorpayKeySecret: data.razorpayKeySecret?.trim() || existingVal.razorpayKeySecret || '',
-      preferredMode: data.preferredMode || existingVal.preferredMode || 'DYNAMIC_UPI_QR',
-      customInstructions: data.customInstructions?.trim() || existingVal.customInstructions || '',
+      razorpayEnabled:
+        data.razorpayEnabled !== undefined
+          ? data.razorpayEnabled
+          : (existingVal.razorpayEnabled ?? true),
+      razorpayKeyId:
+        data.razorpayKeyId?.trim() || existingVal.razorpayKeyId || '',
+      razorpayKeySecret:
+        data.razorpayKeySecret?.trim() || existingVal.razorpayKeySecret || '',
+      preferredMode:
+        data.preferredMode || existingVal.preferredMode || 'DYNAMIC_UPI_QR',
+      customInstructions:
+        data.customInstructions?.trim() || existingVal.customInstructions || '',
       updatedBy: userId,
     };
 
@@ -646,28 +752,36 @@ export class FeesService {
 
     // Also sync to School.settings
     if (this.prisma.school?.update) {
-      const school = await this.prisma.school?.findUnique?.({ where: { id: validSchoolId } });
-      const currentSettings = (school?.settings as any) || {};
-      await this.prisma.school.update({
+      const school = await this.prisma.school?.findUnique?.({
         where: { id: validSchoolId },
-        data: {
-          settings: {
-            ...currentSettings,
-            payment: {
-              upiVpa: cleanVpa,
-              payeeName: cleanPayee,
-              qrCodeImageUrl: updatedValue.qrCodeImageUrl,
-              accountNumber: updatedValue.accountNumber,
-              ifscCode: updatedValue.ifscCode,
-              bankName: updatedValue.bankName,
-              branch: updatedValue.branch,
+      });
+      const currentSettings = (school?.settings as any) || {};
+      await this.prisma.school
+        .update({
+          where: { id: validSchoolId },
+          data: {
+            settings: {
+              ...currentSettings,
+              payment: {
+                upiVpa: cleanVpa,
+                payeeName: cleanPayee,
+                qrCodeImageUrl: updatedValue.qrCodeImageUrl,
+                accountNumber: updatedValue.accountNumber,
+                ifscCode: updatedValue.ifscCode,
+                bankName: updatedValue.bankName,
+                branch: updatedValue.branch,
+              },
             },
           },
-        },
-      }).catch((e: any) => this.logger.warn(`Could not sync School.settings: ${e.message}`));
+        })
+        .catch((e: any) =>
+          this.logger.warn(`Could not sync School.settings: ${e.message}`),
+        );
     }
 
-    this.logger.log(`Payment settings updated for school ${validSchoolId} by user ${userId}`);
+    this.logger.log(
+      `Payment settings updated for school ${validSchoolId} by user ${userId}`,
+    );
 
     return {
       success: true,
@@ -704,10 +818,18 @@ export class FeesService {
     }
 
     // Retrieve school custom payment settings
-    const paymentSettings = await this.getPaymentSettings(validSchoolId, 'SUPER_ADMIN');
+    const paymentSettings = await this.getPaymentSettings(
+      validSchoolId,
+      'SUPER_ADMIN',
+    );
 
-    const keyId = paymentSettings.razorpayKeyId || this.configService?.get<string>('RAZORPAY_KEY_ID') || 'rzp_test_placeholder_key';
-    const keySecret = this.configService?.get<string>('RAZORPAY_KEY_SECRET') || 'rzp_test_secret_placeholder';
+    const keyId =
+      paymentSettings.razorpayKeyId ||
+      this.configService?.get<string>('RAZORPAY_KEY_ID') ||
+      'rzp_test_placeholder_key';
+    const keySecret =
+      this.configService?.get<string>('RAZORPAY_KEY_SECRET') ||
+      'rzp_test_secret_placeholder';
     const currency = 'INR';
     const amountInPaise = Math.round(amount * 100);
     const receiptTag = `rcpt_${student.admissionNumber || student.id.slice(-6)}_${Date.now().toString().slice(-4)}`;
@@ -717,11 +839,12 @@ export class FeesService {
     // If active live credentials configured, call Razorpay Orders API
     if (keyId && keySecret && !keyId.includes('placeholder')) {
       try {
-        const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+        const authHeader =
+          'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
         const response = await fetch('https://api.razorpay.com/v1/orders', {
           method: 'POST',
           headers: {
-            'Authorization': authHeader,
+            Authorization: authHeader,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -731,7 +854,8 @@ export class FeesService {
             notes: {
               schoolId: validSchoolId,
               studentId,
-              studentName: `${student.user.firstName} ${student.user.lastName}`.trim(),
+              studentName:
+                `${student.user.firstName} ${student.user.lastName}`.trim(),
             },
           }),
         });
@@ -740,14 +864,21 @@ export class FeesService {
           orderId = resData.id;
         }
       } catch (err: any) {
-        this.logger.warn(`Razorpay API call fallback to order generation: ${err.message}`);
+        this.logger.warn(
+          `Razorpay API call fallback to order generation: ${err.message}`,
+        );
       }
     }
 
     const schoolName = paymentSettings.payeeName || 'School ERP';
-    const upiVpa = paymentSettings.upiVpa || this.configService?.get<string>('UPI_VPA') || 'schoolfees@razorpay';
-    const cleanStudentName = `${student.user.firstName} ${student.user.lastName}`.trim();
-    const upiTxnNote = `Fee - ${student.admissionNumber || cleanStudentName}`.slice(0, 30);
+    const upiVpa =
+      paymentSettings.upiVpa ||
+      this.configService?.get<string>('UPI_VPA') ||
+      'schoolfees@razorpay';
+    const cleanStudentName =
+      `${student.user.firstName} ${student.user.lastName}`.trim();
+    const upiTxnNote =
+      `Fee - ${student.admissionNumber || cleanStudentName}`.slice(0, 30);
     const upiUri = `upi://pay?pa=${encodeURIComponent(upiVpa)}&pn=${encodeURIComponent(schoolName)}&am=${amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(upiTxnNote)}&tr=${encodeURIComponent(orderId)}`;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=8&data=${encodeURIComponent(upiUri)}`;
 
@@ -795,7 +926,9 @@ export class FeesService {
     },
   ) {
     const validSchoolId = requireSchoolId(schoolId, 'Verify Razorpay payment');
-    const keySecret = this.configService?.get<string>('RAZORPAY_KEY_SECRET') || 'rzp_test_secret_placeholder';
+    const keySecret =
+      this.configService?.get<string>('RAZORPAY_KEY_SECRET') ||
+      'rzp_test_secret_placeholder';
 
     // Verify cryptographic HMAC signature if live secret is available
     if (keySecret && !keySecret.includes('placeholder')) {
@@ -805,11 +938,16 @@ export class FeesService {
         .digest('hex');
 
       if (generatedSignature !== data.signature) {
-        throw new BadRequestException('Invalid Razorpay signature verification failed');
+        throw new BadRequestException(
+          'Invalid Razorpay signature verification failed',
+        );
       }
     }
 
-    const resolvedYearId = await this.resolveAcademicYearId(validSchoolId, data.academicYearId);
+    const resolvedYearId = await this.resolveAcademicYearId(
+      validSchoolId,
+      data.academicYearId,
+    );
 
     // Automatically record fee collection and issue sequential receipt
     return this.collectFee(validSchoolId, userId, {
@@ -818,12 +956,20 @@ export class FeesService {
       paymentMode: FeePaymentMode.ONLINE_UPI,
       transactionRef: data.paymentId,
       academicYearId: resolvedYearId,
-      remarks: data.remarks || `Online payment via Razorpay / UPI (Order: ${data.orderId})`,
+      remarks:
+        data.remarks ||
+        `Online payment via Razorpay / UPI (Order: ${data.orderId})`,
     });
   }
 
-  async handleRazorpayWebhook(signature: string, rawPayload: string, eventData: any) {
-    const webhookSecret = this.configService?.get<string>('RAZORPAY_WEBHOOK_SECRET');
+  async handleRazorpayWebhook(
+    signature: string,
+    rawPayload: string,
+    eventData: any,
+  ) {
+    const webhookSecret = this.configService?.get<string>(
+      'RAZORPAY_WEBHOOK_SECRET',
+    );
     if (webhookSecret && signature) {
       const expectedSignature = crypto
         .createHmac('sha256', webhookSecret)
@@ -839,7 +985,10 @@ export class FeesService {
       const notes = paymentEntity?.notes;
       if (notes?.schoolId && notes?.studentId) {
         const amount = Number(paymentEntity.amount) / 100;
-        const resolvedYearId = await this.resolveAcademicYearId(notes.schoolId, notes.academicYearId);
+        const resolvedYearId = await this.resolveAcademicYearId(
+          notes.schoolId,
+          notes.academicYearId,
+        );
         await this.collectFee(notes.schoolId, 'SYSTEM_RAZORPAY_WEBHOOK', {
           studentId: notes.studentId,
           academicYearId: resolvedYearId,
@@ -878,7 +1027,12 @@ export class FeesService {
             },
             guardians: {
               where: { isPrimary: true },
-              select: { firstName: true, lastName: true, phone: true, email: true },
+              select: {
+                firstName: true,
+                lastName: true,
+                phone: true,
+                email: true,
+              },
             },
           },
         },
@@ -954,7 +1108,9 @@ export class FeesService {
         admissionNumber: student?.admissionNumber,
         rollNumber: student?.rollNumber,
         class: `${className} - ${sectionName}`,
-        parentName: guardian ? `${guardian.firstName} ${guardian.lastName}`.trim() : null,
+        parentName: guardian
+          ? `${guardian.firstName} ${guardian.lastName}`.trim()
+          : null,
         parentPhone: guardian?.phone,
       },
       school,

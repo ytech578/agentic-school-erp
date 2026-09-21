@@ -6,7 +6,12 @@ import { PrismaService } from '../../core/database/prisma.service';
 describe('AssignmentsService', () => {
   let service: AssignmentsService;
   let prisma: {
-    assignment: { findFirst: jest.Mock; create: jest.Mock; findMany: jest.Mock; delete: jest.Mock };
+    assignment: {
+      findFirst: jest.Mock;
+      create: jest.Mock;
+      findMany: jest.Mock;
+      delete: jest.Mock;
+    };
     assignmentSubmission: { findMany: jest.Mock; upsert: jest.Mock };
     studentEnrollment: { findMany: jest.Mock };
     student: { findFirst: jest.Mock };
@@ -69,7 +74,9 @@ describe('AssignmentsService', () => {
     it('should throw NotFoundException if assignment does not exist', async () => {
       prisma.assignment.findFirst.mockResolvedValue(null);
 
-      await expect(service.getSubmissions(schoolId, assignmentId)).rejects.toThrow(NotFoundException);
+      await expect(
+        service.getSubmissions(schoolId, assignmentId),
+      ).rejects.toThrow(NotFoundException);
       expect(prisma.assignment.findFirst).toHaveBeenCalledWith({
         where: { id: assignmentId, schoolId },
         include: { class: true, section: true, subject: true },
@@ -97,7 +104,11 @@ describe('AssignmentsService', () => {
           feedback: 'Well done',
           submittedAt: new Date(),
           student: {
-            user: { firstName: 'Aarav', lastName: 'Sharma', email: 'aarav@school.edu' },
+            user: {
+              firstName: 'Aarav',
+              lastName: 'Sharma',
+              email: 'aarav@school.edu',
+            },
             enrollments: [{ rollNumber: '10A01', sectionId: 'sec-1' }],
           },
         },
@@ -109,7 +120,11 @@ describe('AssignmentsService', () => {
           rollNumber: '10A01',
           status: 'ACTIVE',
           student: {
-            user: { firstName: 'Aarav', lastName: 'Sharma', email: 'aarav@school.edu' },
+            user: {
+              firstName: 'Aarav',
+              lastName: 'Sharma',
+              email: 'aarav@school.edu',
+            },
           },
         },
         {
@@ -117,7 +132,11 @@ describe('AssignmentsService', () => {
           rollNumber: '10A02',
           status: 'ACTIVE',
           student: {
-            user: { firstName: 'Priya', lastName: 'Patel', email: 'priya@school.edu' },
+            user: {
+              firstName: 'Priya',
+              lastName: 'Patel',
+              email: 'priya@school.edu',
+            },
           },
         },
       ]);
@@ -133,7 +152,9 @@ describe('AssignmentsService', () => {
         include: {
           student: {
             include: {
-              user: { select: { firstName: true, lastName: true, email: true } },
+              user: {
+                select: { firstName: true, lastName: true, email: true },
+              },
             },
           },
         },
@@ -171,7 +192,11 @@ describe('AssignmentsService', () => {
           rollNumber: '10A03',
           status: 'ACTIVE',
           student: {
-            user: { firstName: 'Rohan', lastName: 'Verma', email: 'rohan@school.edu' },
+            user: {
+              firstName: 'Rohan',
+              lastName: 'Verma',
+              email: 'rohan@school.edu',
+            },
           },
         },
       ]);
@@ -186,7 +211,9 @@ describe('AssignmentsService', () => {
         include: {
           student: {
             include: {
-              user: { select: { firstName: true, lastName: true, email: true } },
+              user: {
+                select: { firstName: true, lastName: true, email: true },
+              },
             },
           },
         },
@@ -205,7 +232,10 @@ describe('AssignmentsService', () => {
       const assignmentId = 'assign-1';
       const studentId = 'student-1';
 
-      prisma.assignment.findFirst.mockResolvedValue({ id: assignmentId, schoolId });
+      prisma.assignment.findFirst.mockResolvedValue({
+        id: assignmentId,
+        schoolId,
+      });
       prisma.student.findFirst.mockResolvedValue({ id: studentId, schoolId });
       prisma.assignmentSubmission.upsert.mockResolvedValue({
         id: 'sub-1',
@@ -215,11 +245,16 @@ describe('AssignmentsService', () => {
         status: 'GRADED',
       });
 
-      const res = await service.submitAssignment(schoolId, assignmentId, studentId, {
-        marksObtained: 18,
-        feedback: 'Excellent work',
-        status: 'GRADED',
-      });
+      const res = await service.submitAssignment(
+        schoolId,
+        assignmentId,
+        studentId,
+        {
+          marksObtained: 18,
+          feedback: 'Excellent work',
+          status: 'GRADED',
+        },
+      );
 
       expect(prisma.assignmentSubmission.upsert).toHaveBeenCalled();
       expect(res.status).toBe('GRADED');

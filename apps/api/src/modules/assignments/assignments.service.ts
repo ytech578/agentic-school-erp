@@ -23,8 +23,11 @@ export class AssignmentsService {
 
   async createAssignment(schoolId: string, data: any, staffId: string) {
     const validSchoolId = requireSchoolId(schoolId);
-    const academicYearId = await this.resolveAcademicYearId(validSchoolId, data.academicYearId);
-    
+    const academicYearId = await this.resolveAcademicYearId(
+      validSchoolId,
+      data.academicYearId,
+    );
+
     // Validate class belongs to school
     const cls = await this.prisma.class.findFirst({
       where: { id: data.classId, schoolId: validSchoolId },
@@ -49,7 +52,10 @@ export class AssignmentsService {
     let resolvedStaffId = data.staffId;
     if (!resolvedStaffId) {
       const staff = await this.prisma.staff.findFirst({
-        where: { schoolId: validSchoolId, OR: [{ id: staffId }, { userId: staffId }] },
+        where: {
+          schoolId: validSchoolId,
+          OR: [{ id: staffId }, { userId: staffId }],
+        },
       });
       if (staff) {
         resolvedStaffId = staff.id;
@@ -87,12 +93,16 @@ export class AssignmentsService {
     });
   }
 
-  async listAssignments(schoolId: string, classId?: string, sectionId?: string) {
+  async listAssignments(
+    schoolId: string,
+    classId?: string,
+    sectionId?: string,
+  ) {
     const validSchoolId = requireSchoolId(schoolId);
     const where: any = { schoolId: validSchoolId };
     if (classId) where.classId = classId;
     if (sectionId) where.sectionId = sectionId;
-    
+
     return this.prisma.assignment.findMany({
       where,
       include: {
@@ -116,7 +126,12 @@ export class AssignmentsService {
     return this.prisma.assignment.delete({ where: { id: assignment.id } });
   }
 
-  async submitAssignment(schoolId: string, assignmentId: string, studentId: string, data: any) {
+  async submitAssignment(
+    schoolId: string,
+    assignmentId: string,
+    studentId: string,
+    data: any,
+  ) {
     const validSchoolId = requireSchoolId(schoolId);
 
     const assignment = await this.prisma.assignment.findFirst({
@@ -139,13 +154,19 @@ export class AssignmentsService {
         assignmentId,
         studentId,
         status: data.status || 'SUBMITTED',
-        marksObtained: data.marksObtained !== undefined && data.marksObtained !== null ? data.marksObtained : undefined,
+        marksObtained:
+          data.marksObtained !== undefined && data.marksObtained !== null
+            ? data.marksObtained
+            : undefined,
         feedback: data.feedback,
         submittedAt: new Date(),
       },
       update: {
         status: data.status,
-        marksObtained: data.marksObtained !== undefined && data.marksObtained !== null ? data.marksObtained : undefined,
+        marksObtained:
+          data.marksObtained !== undefined && data.marksObtained !== null
+            ? data.marksObtained
+            : undefined,
         feedback: data.feedback,
       },
     });
@@ -205,9 +226,14 @@ export class AssignmentsService {
       roster.push({
         studentId: e.studentId,
         rollNumber: e.rollNumber || null,
-        studentName: `${e.student?.user?.firstName || ''} ${e.student?.user?.lastName || ''}`.trim() || 'Student',
+        studentName:
+          `${e.student?.user?.firstName || ''} ${e.student?.user?.lastName || ''}`.trim() ||
+          'Student',
         status: sub?.status || 'PENDING',
-        marksObtained: sub?.marksObtained !== null && sub?.marksObtained !== undefined ? Number(sub.marksObtained) : null,
+        marksObtained:
+          sub?.marksObtained !== null && sub?.marksObtained !== undefined
+            ? Number(sub.marksObtained)
+            : null,
         feedback: sub?.feedback || '',
         submittedAt: sub?.submittedAt || null,
       });
@@ -221,9 +247,14 @@ export class AssignmentsService {
         roster.push({
           studentId: sub.studentId,
           rollNumber: roll,
-          studentName: `${sub.student?.user?.firstName || ''} ${sub.student?.user?.lastName || ''}`.trim() || 'Student',
+          studentName:
+            `${sub.student?.user?.firstName || ''} ${sub.student?.user?.lastName || ''}`.trim() ||
+            'Student',
           status: sub.status || 'SUBMITTED',
-          marksObtained: sub.marksObtained !== null && sub.marksObtained !== undefined ? Number(sub.marksObtained) : null,
+          marksObtained:
+            sub.marksObtained !== null && sub.marksObtained !== undefined
+              ? Number(sub.marksObtained)
+              : null,
           feedback: sub.feedback || '',
           submittedAt: sub.submittedAt || null,
         });
@@ -235,11 +266,12 @@ export class AssignmentsService {
       submissions: roster,
       stats: {
         totalStudents: roster.length,
-        submittedCount: roster.filter((r) => r.status === 'SUBMITTED' || r.status === 'GRADED').length,
+        submittedCount: roster.filter(
+          (r) => r.status === 'SUBMITTED' || r.status === 'GRADED',
+        ).length,
         gradedCount: roster.filter((r) => r.status === 'GRADED').length,
         pendingCount: roster.filter((r) => r.status === 'PENDING').length,
       },
     };
   }
 }
-

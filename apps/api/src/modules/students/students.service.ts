@@ -136,15 +136,15 @@ export class StudentsService {
             },
           }
         : classId
-        ? {
-            enrollments: {
-              some: {
-                section: { classId },
-                status: 'ACTIVE',
+          ? {
+              enrollments: {
+                some: {
+                  section: { classId },
+                  status: 'ACTIVE',
+                },
               },
-            },
-          }
-        : {}),
+            }
+          : {}),
       ...(search
         ? {
             OR: [
@@ -185,10 +185,10 @@ export class StudentsService {
             where: { status: 'ACTIVE' },
             include: {
               section: {
-                include: { class: true }
-              }
-            }
-          }
+                include: { class: true },
+              },
+            },
+          },
         },
         orderBy: { riskScore: 'desc' }, // Order by highest risk first for agentic view
       }),
@@ -230,7 +230,7 @@ export class StudentsService {
 
   async calculateRiskScores(schoolId: string) {
     const validSchoolId = requireSchoolId(schoolId, 'Calculate risk scores');
-    
+
     // Fetch active academic year for financial ledger context
     const activeYear = await this.prisma.academicYear.findFirst({
       where: { schoolId: validSchoolId, isActive: true },
@@ -254,7 +254,11 @@ export class StudentsService {
 
     const structures: any[] = activeYear
       ? await this.prisma.feeStructure.findMany({
-          where: { schoolId: validSchoolId, academicYearId: activeYear.id, isActive: true },
+          where: {
+            schoolId: validSchoolId,
+            academicYearId: activeYear.id,
+            isActive: true,
+          },
           include: { items: true },
         })
       : [];
@@ -286,7 +290,10 @@ export class StudentsService {
           0,
         ) || 0;
       const totalPaid = student.feePayments
-        .filter((p: any) => p.paymentStatus === 'PAID' || p.paymentStatus === 'PARTIAL')
+        .filter(
+          (p: any) =>
+            p.paymentStatus === 'PAID' || p.paymentStatus === 'PARTIAL',
+        )
         .reduce((sum: number, p: any) => sum + Number(p.paidAmount), 0);
       const pendingFees = Math.max(totalFee - totalPaid, 0);
 
@@ -329,7 +336,10 @@ export class StudentsService {
       throw new NotFoundException('Student not found');
     }
 
-    if (data.email && data.email.toLowerCase() !== student.user.email?.toLowerCase()) {
+    if (
+      data.email &&
+      data.email.toLowerCase() !== student.user.email?.toLowerCase()
+    ) {
       const existingUser = await this.prisma.user.findUnique({
         where: { email: data.email.toLowerCase() },
       });
@@ -338,7 +348,10 @@ export class StudentsService {
       }
     }
 
-    if (data.admissionNumber && data.admissionNumber !== student.admissionNumber) {
+    if (
+      data.admissionNumber &&
+      data.admissionNumber !== student.admissionNumber
+    ) {
       const existingStudent = await this.prisma.student.findUnique({
         where: {
           schoolId_admissionNumber: {
@@ -355,9 +368,11 @@ export class StudentsService {
     return this.prisma.$transaction(async (tx) => {
       // Update User fields
       const userUpdateData: any = {};
-      if (data.firstName !== undefined) userUpdateData.firstName = data.firstName;
+      if (data.firstName !== undefined)
+        userUpdateData.firstName = data.firstName;
       if (data.lastName !== undefined) userUpdateData.lastName = data.lastName;
-      if (data.email !== undefined) userUpdateData.email = data.email.toLowerCase();
+      if (data.email !== undefined)
+        userUpdateData.email = data.email.toLowerCase();
       if (data.phone !== undefined) userUpdateData.phone = data.phone;
 
       if (Object.keys(userUpdateData).length > 0) {
@@ -369,22 +384,36 @@ export class StudentsService {
 
       // Update Student fields
       const studentUpdateData: any = {};
-      if (data.admissionNumber !== undefined) studentUpdateData.admissionNumber = data.admissionNumber;
-      if (data.rollNumber !== undefined) studentUpdateData.rollNumber = data.rollNumber;
-      if (data.dateOfBirth !== undefined) studentUpdateData.dateOfBirth = data.dateOfBirth ? new Date(data.dateOfBirth) : null;
-      if (data.gender !== undefined) studentUpdateData.gender = data.gender as Gender;
-      if (data.bloodGroup !== undefined) studentUpdateData.bloodGroup = data.bloodGroup as BloodGroup;
-      if (data.religion !== undefined) studentUpdateData.religion = data.religion;
+      if (data.admissionNumber !== undefined)
+        studentUpdateData.admissionNumber = data.admissionNumber;
+      if (data.rollNumber !== undefined)
+        studentUpdateData.rollNumber = data.rollNumber;
+      if (data.dateOfBirth !== undefined)
+        studentUpdateData.dateOfBirth = data.dateOfBirth
+          ? new Date(data.dateOfBirth)
+          : null;
+      if (data.gender !== undefined) studentUpdateData.gender = data.gender;
+      if (data.bloodGroup !== undefined)
+        studentUpdateData.bloodGroup = data.bloodGroup as BloodGroup;
+      if (data.religion !== undefined)
+        studentUpdateData.religion = data.religion;
       if (data.caste !== undefined) studentUpdateData.caste = data.caste;
-      if (data.nationality !== undefined) studentUpdateData.nationality = data.nationality;
-      if (data.aadhaarNumber !== undefined) studentUpdateData.aadhaarNumber = data.aadhaarNumber;
+      if (data.nationality !== undefined)
+        studentUpdateData.nationality = data.nationality;
+      if (data.aadhaarNumber !== undefined)
+        studentUpdateData.aadhaarNumber = data.aadhaarNumber;
       if (data.address !== undefined) studentUpdateData.address = data.address;
       if (data.city !== undefined) studentUpdateData.city = data.city;
       if (data.state !== undefined) studentUpdateData.state = data.state;
       if (data.pinCode !== undefined) studentUpdateData.pinCode = data.pinCode;
-      if (data.medicalNotes !== undefined) studentUpdateData.medicalNotes = data.medicalNotes;
-      if (data.previousSchool !== undefined) studentUpdateData.previousSchool = data.previousSchool;
-      if (data.admissionDate !== undefined) studentUpdateData.admissionDate = data.admissionDate ? new Date(data.admissionDate) : null;
+      if (data.medicalNotes !== undefined)
+        studentUpdateData.medicalNotes = data.medicalNotes;
+      if (data.previousSchool !== undefined)
+        studentUpdateData.previousSchool = data.previousSchool;
+      if (data.admissionDate !== undefined)
+        studentUpdateData.admissionDate = data.admissionDate
+          ? new Date(data.admissionDate)
+          : null;
 
       if (Object.keys(studentUpdateData).length > 0) {
         await tx.student.update({
@@ -394,17 +423,30 @@ export class StudentsService {
       }
 
       // Update Guardian if present
-      if (data.guardianFirstName || data.guardianLastName || data.guardianRelationship || data.guardianPhone || data.guardianEmail !== undefined) {
-        const primaryGuardian = student.guardians.find((g: any) => g.isPrimary) || student.guardians[0];
-        
+      if (
+        data.guardianFirstName ||
+        data.guardianLastName ||
+        data.guardianRelationship ||
+        data.guardianPhone ||
+        data.guardianEmail !== undefined
+      ) {
+        const primaryGuardian =
+          student.guardians.find((g: any) => g.isPrimary) ||
+          student.guardians[0];
+
         if (primaryGuardian) {
           const guardianUpdateData: any = {};
-          if (data.guardianFirstName !== undefined) guardianUpdateData.firstName = data.guardianFirstName;
-          if (data.guardianLastName !== undefined) guardianUpdateData.lastName = data.guardianLastName;
-          if (data.guardianRelationship !== undefined) guardianUpdateData.relationship = data.guardianRelationship;
-          if (data.guardianPhone !== undefined) guardianUpdateData.phone = data.guardianPhone;
-          if (data.guardianEmail !== undefined) guardianUpdateData.email = data.guardianEmail || null;
-          
+          if (data.guardianFirstName !== undefined)
+            guardianUpdateData.firstName = data.guardianFirstName;
+          if (data.guardianLastName !== undefined)
+            guardianUpdateData.lastName = data.guardianLastName;
+          if (data.guardianRelationship !== undefined)
+            guardianUpdateData.relationship = data.guardianRelationship;
+          if (data.guardianPhone !== undefined)
+            guardianUpdateData.phone = data.guardianPhone;
+          if (data.guardianEmail !== undefined)
+            guardianUpdateData.email = data.guardianEmail || null;
+
           await tx.guardian.update({
             where: { id: primaryGuardian.id },
             data: guardianUpdateData,
@@ -431,10 +473,13 @@ export class StudentsService {
     const validSchoolId = requireSchoolId(schoolId, 'Promote students');
 
     if (!data.studentIds || data.studentIds.length === 0) {
-      throw new BadRequestException('At least one student must be selected for promotion');
+      throw new BadRequestException(
+        'At least one student must be selected for promotion',
+      );
     }
 
-    const targetStatus = data.status || (data.toSectionId ? 'PROMOTED' : 'GRADUATED');
+    const targetStatus =
+      data.status || (data.toSectionId ? 'PROMOTED' : 'GRADUATED');
 
     return this.prisma.$transaction(async (tx) => {
       const results = [];
@@ -484,7 +529,9 @@ export class StudentsService {
             fromSectionId: data.fromSectionId,
             toSectionId: data.toSectionId || null,
             promotedById,
-            remarks: data.remarks || `Promoted to ${data.toSectionId ? 'next class' : 'Graduated'}`,
+            remarks:
+              data.remarks ||
+              `Promoted to ${data.toSectionId ? 'next class' : 'Graduated'}`,
           },
         });
 

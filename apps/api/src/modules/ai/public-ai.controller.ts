@@ -12,7 +12,9 @@ export class PublicAIController {
   ) {}
 
   @Post('chat')
-  @ApiOperation({ summary: 'Public 24/7 Admissions Concierge & Tour Guide Chat' })
+  @ApiOperation({
+    summary: 'Public 24/7 Admissions Concierge & Tour Guide Chat',
+  })
   async chatPublicHelpdesk(
     @Body()
     body: {

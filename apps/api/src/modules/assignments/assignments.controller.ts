@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { AssignmentsService } from './assignments.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -21,11 +31,18 @@ export class AssignmentsController {
 
   @Get()
   @ApiOperation({ summary: 'List assignments' })
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'STUDENT', 'PARENT')
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'STUDENT',
+    'PARENT',
+  )
   listAssignments(
     @Request() req: any,
     @Query('classId') classId?: string,
-    @Query('sectionId') sectionId?: string
+    @Query('sectionId') sectionId?: string,
   ) {
     return this.service.listAssignments(req.user.schoolId, classId, sectionId);
   }
@@ -44,9 +61,14 @@ export class AssignmentsController {
     @Request() req: any,
     @Param('id') id: string,
     @Param('studentId') studentId: string,
-    @Body() body: any
+    @Body() body: any,
   ) {
-    return this.service.submitAssignment(req.user.schoolId, id, studentId, body);
+    return this.service.submitAssignment(
+      req.user.schoolId,
+      id,
+      studentId,
+      body,
+    );
   }
 
   @Delete(':id')
@@ -56,4 +78,3 @@ export class AssignmentsController {
     return this.service.deleteAssignment(req.user.schoolId, id);
   }
 }
-

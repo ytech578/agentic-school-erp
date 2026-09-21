@@ -28,7 +28,9 @@ export class NotificationsController {
   ) {}
 
   @Sse('stream')
-  @ApiOperation({ summary: 'Stream real-time notification events for current user' })
+  @ApiOperation({
+    summary: 'Stream real-time notification events for current user',
+  })
   streamNotifications(@Request() req: any): Observable<MessageEvent> {
     return this.service.getEventStream(req.user.id, req.user.schoolId);
   }
@@ -73,18 +75,28 @@ export class NotificationsController {
   @Post('test-gateway')
   @ApiOperation({ summary: 'Send test SMS or WhatsApp dispatch' })
   async testGateway(
-    @Body() dto: { channel: 'SMS' | 'WHATSAPP'; phone: string; message?: string },
+    @Body()
+    dto: {
+      channel: 'SMS' | 'WHATSAPP';
+      phone: string;
+      message?: string;
+    },
   ) {
     if (dto.channel === 'WHATSAPP') {
       return this.smsWhatsAppService.sendWhatsApp(
         dto.phone,
         'attendance_alert',
-        { student_name: 'Test Student', status: 'Present', date: new Date().toISOString().split('T')[0] },
+        {
+          student_name: 'Test Student',
+          status: 'Present',
+          date: new Date().toISOString().split('T')[0],
+        },
       );
     }
     return this.smsWhatsAppService.sendSMS(
       dto.phone,
-      dto.message || 'Edusphere Test Dispatch: Gateway verification successful.',
+      dto.message ||
+        'Edusphere Test Dispatch: Gateway verification successful.',
     );
   }
 }

@@ -30,10 +30,19 @@ export class SmsWhatsAppService {
     const cleanPhone = toPhone.replace(/\s+/g, '');
 
     // Live Twilio SMS dispatch if credentials provided
-    if (this.twilioSid && this.twilioToken && this.twilioFrom && !this.twilioSid.includes('placeholder')) {
+    if (
+      this.twilioSid &&
+      this.twilioToken &&
+      this.twilioFrom &&
+      !this.twilioSid.includes('placeholder')
+    ) {
       try {
         const url = `https://api.twilio.com/2010-04-01/Accounts/${this.twilioSid}/Messages.json`;
-        const auth = 'Basic ' + Buffer.from(`${this.twilioSid}:${this.twilioToken}`).toString('base64');
+        const auth =
+          'Basic ' +
+          Buffer.from(`${this.twilioSid}:${this.twilioToken}`).toString(
+            'base64',
+          );
         const params = new URLSearchParams();
         params.append('To', cleanPhone);
         params.append('From', this.twilioFrom);
@@ -42,7 +51,7 @@ export class SmsWhatsAppService {
         const res = await fetch(url, {
           method: 'POST',
           headers: {
-            'Authorization': auth,
+            Authorization: auth,
             'Content-Type': 'application/x-www-form-urlencoded',
           },
           body: params.toString(),
@@ -50,7 +59,9 @@ export class SmsWhatsAppService {
 
         if (res.ok) {
           const resData: any = await res.json();
-          this.logger.log(`Live SMS dispatched to ${cleanPhone} (SID: ${resData.sid})`);
+          this.logger.log(
+            `Live SMS dispatched to ${cleanPhone} (SID: ${resData.sid})`,
+          );
           return {
             success: true,
             channel: 'SMS',
@@ -60,13 +71,17 @@ export class SmsWhatsAppService {
           };
         }
       } catch (err: any) {
-        this.logger.warn(`Live SMS failed, falling back to simulated dispatch: ${err.message}`);
+        this.logger.warn(
+          `Live SMS failed, falling back to simulated dispatch: ${err.message}`,
+        );
       }
     }
 
     // High-fidelity simulation mode
     const simulatedId = `sms_sim_${Date.now().toString(36)}`;
-    this.logger.log(`[SMS Gateway Simulated] -> ${cleanPhone}: "${text}" (Ref: ${simulatedId})`);
+    this.logger.log(
+      `[SMS Gateway Simulated] -> ${cleanPhone}: "${text}" (Ref: ${simulatedId})`,
+    );
     return {
       success: true,
       channel: 'SMS',
@@ -84,13 +99,17 @@ export class SmsWhatsAppService {
     const cleanPhone = toPhone.replace(/\s+/g, '');
 
     // Live WhatsApp Cloud API dispatch if token provided
-    if (this.whatsappToken && this.whatsappPhoneId && !this.whatsappToken.includes('placeholder')) {
+    if (
+      this.whatsappToken &&
+      this.whatsappPhoneId &&
+      !this.whatsappToken.includes('placeholder')
+    ) {
       try {
         const url = `https://graph.facebook.com/v19.0/${this.whatsappPhoneId}/messages`;
         const res = await fetch(url, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${this.whatsappToken}`,
+            Authorization: `Bearer ${this.whatsappToken}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -116,7 +135,9 @@ export class SmsWhatsAppService {
         if (res.ok) {
           const resData: any = await res.json();
           const wamid = resData.messages?.[0]?.id;
-          this.logger.log(`Live WhatsApp template [${templateName}] sent to ${cleanPhone} (${wamid})`);
+          this.logger.log(
+            `Live WhatsApp template [${templateName}] sent to ${cleanPhone} (${wamid})`,
+          );
           return {
             success: true,
             channel: 'WHATSAPP',

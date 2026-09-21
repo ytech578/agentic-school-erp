@@ -1,4 +1,11 @@
-import { Controller, Post, Headers, Body, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Headers,
+  Body,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { FeesService } from './fees.service';
 
@@ -9,7 +16,9 @@ export class FeesWebhookController {
 
   @Post('razorpay')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Handle incoming Razorpay payment captured webhooks' })
+  @ApiOperation({
+    summary: 'Handle incoming Razorpay payment captured webhooks',
+  })
   @ApiResponse({ status: 200, description: 'Webhook processed successfully' })
   async handleRazorpayWebhook(
     @Headers('x-razorpay-signature') signature: string,

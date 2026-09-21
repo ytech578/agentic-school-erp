@@ -9,9 +9,10 @@ import {
 import { AgentToolHandler } from './agent-tool-handler.interface';
 
 @Injectable()
-export class AutomationTimetableCoverHandler
-  implements AgentToolHandler<AutomationInput, AgentHandlerResult>
-{
+export class AutomationTimetableCoverHandler implements AgentToolHandler<
+  AutomationInput,
+  AgentHandlerResult
+> {
   readonly key = ToolHandlerKey.AUTOMATION_TIMETABLE_COVER;
 
   constructor(private readonly timetableService: TimetableService) {}

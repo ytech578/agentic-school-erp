@@ -43,13 +43,19 @@ describe('Change #8C — Agent Architecture & Decoupling Enforcement', () => {
       ],
     }).compile();
 
-    controlPlane = module.get<AgentControlPlaneService>(AgentControlPlaneService);
+    controlPlane = module.get<AgentControlPlaneService>(
+      AgentControlPlaneService,
+    );
   });
 
   describe('Control Plane Decoupling & Purity', () => {
     it('does NOT contain private or public domain mutation methods (domain*)', () => {
-      const prototype = Object.getOwnPropertyNames(AgentControlPlaneService.prototype);
-      const domainMethods = prototype.filter((name) => name.startsWith('domain'));
+      const prototype = Object.getOwnPropertyNames(
+        AgentControlPlaneService.prototype,
+      );
+      const domainMethods = prototype.filter((name) =>
+        name.startsWith('domain'),
+      );
 
       expect(domainMethods).toHaveLength(0);
       expect(prototype).not.toContain('domainApproveLeave');
@@ -60,7 +66,9 @@ describe('Change #8C — Agent Architecture & Decoupling Enforcement', () => {
     });
 
     it('does NOT contain dispatchToHandler switch method', () => {
-      const prototype = Object.getOwnPropertyNames(AgentControlPlaneService.prototype);
+      const prototype = Object.getOwnPropertyNames(
+        AgentControlPlaneService.prototype,
+      );
       expect(prototype).not.toContain('dispatchToHandler');
     });
 
@@ -69,7 +77,9 @@ describe('Change #8C — Agent Architecture & Decoupling Enforcement', () => {
         resourceId: 'res-1',
         status: 'SUCCESS',
       });
-      const verifySpy = jest.spyOn(dispatcher, 'verify').mockResolvedValue(undefined);
+      const verifySpy = jest
+        .spyOn(dispatcher, 'verify')
+        .mockResolvedValue(undefined);
 
       mockPrisma.agentAction.findUnique.mockResolvedValue({
         id: 'action-test',
@@ -114,7 +124,9 @@ describe('Change #8C — Agent Architecture & Decoupling Enforcement', () => {
       const customKey = 'custom_future_tool' as ToolHandlerKey;
       const customHandler = {
         key: customKey,
-        execute: jest.fn().mockResolvedValue({ resourceId: 'future-1', status: 'DONE' }),
+        execute: jest
+          .fn()
+          .mockResolvedValue({ resourceId: 'future-1', status: 'DONE' }),
         verify: jest.fn().mockResolvedValue(undefined),
       };
 

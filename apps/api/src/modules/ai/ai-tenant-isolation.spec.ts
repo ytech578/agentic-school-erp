@@ -31,11 +31,18 @@ describe('AI Service — Tenant Isolation & Security (Phase 7)', () => {
       count: jest.fn().mockResolvedValue(0),
       groupBy: jest.fn().mockResolvedValue([]),
     },
-    leaveRequest: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
+    leaveRequest: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn(),
+    },
     class: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
     feePayment: { aggregate: jest.fn().mockResolvedValue(null) },
     activityLog: { create: jest.fn() },
-    agentAlert: { findMany: jest.fn(), createMany: jest.fn(), deleteMany: jest.fn() },
+    agentAlert: {
+      findMany: jest.fn(),
+      createMany: jest.fn(),
+      deleteMany: jest.fn(),
+    },
     assignment: { create: jest.fn() },
     subject: { findFirst: jest.fn() },
     academicYear: { findFirst: jest.fn() },
@@ -66,7 +73,12 @@ describe('AI Service — Tenant Isolation & Security (Phase 7)', () => {
         service.sendMessage({
           userId: 'user-1',
           schoolId: '',
-          user: { id: 'user-1', firstName: 'Test', lastName: 'User', role: 'PRINCIPAL' },
+          user: {
+            id: 'user-1',
+            firstName: 'Test',
+            lastName: 'User',
+            role: 'PRINCIPAL',
+          },
           message: 'Hello',
         }),
       ).rejects.toThrow(ForbiddenException);
@@ -77,7 +89,13 @@ describe('AI Service — Tenant Isolation & Security (Phase 7)', () => {
         service.sendMessage({
           userId: 'user-1',
           schoolId: undefined as any,
-          user: { id: 'user-1', firstName: 'Test', lastName: 'User', role: 'PRINCIPAL', schoolId: undefined },
+          user: {
+            id: 'user-1',
+            firstName: 'Test',
+            lastName: 'User',
+            role: 'PRINCIPAL',
+            schoolId: undefined,
+          },
           message: 'Hello',
         }),
       ).rejects.toThrow(ForbiddenException);
@@ -88,7 +106,13 @@ describe('AI Service — Tenant Isolation & Security (Phase 7)', () => {
         service.sendMessage({
           userId: 'user-1',
           schoolId: null as any,
-          user: { id: 'user-1', firstName: 'Test', lastName: 'User', role: 'SUPER_ADMIN', schoolId: null as any },
+          user: {
+            id: 'user-1',
+            firstName: 'Test',
+            lastName: 'User',
+            role: 'SUPER_ADMIN',
+            schoolId: null as any,
+          },
           message: 'Hello',
         }),
       ).rejects.toThrow(ForbiddenException);
@@ -99,14 +123,18 @@ describe('AI Service — Tenant Isolation & Security (Phase 7)', () => {
         service.sendMessage({
           userId: 'user-1',
           schoolId: '',
-          user: { id: 'user-1', firstName: 'Test', lastName: 'User', role: 'PRINCIPAL' },
+          user: {
+            id: 'user-1',
+            firstName: 'Test',
+            lastName: 'User',
+            role: 'PRINCIPAL',
+          },
           message: 'Hello',
         }),
       ).rejects.toThrow();
       expect(mockPrisma.school.findFirst).not.toHaveBeenCalled();
     });
   });
-
 
   // ─── Test 3: requireSchoolId utility (fail-closed contract) ──────────────
   describe('requireSchoolId — fail-closed contract', () => {
@@ -135,14 +163,23 @@ describe('AI Service — Tenant Isolation & Security (Phase 7)', () => {
   describe('Conversation lookup — schoolId scope', () => {
     it('scopes conversation lookup by userId AND schoolId', async () => {
       mockPrisma.aIConversation.findFirst.mockResolvedValue(null);
-      mockPrisma.aIConversation.create.mockResolvedValue({ id: 'conv-1', messages: [] });
+      mockPrisma.aIConversation.create.mockResolvedValue({
+        id: 'conv-1',
+        messages: [],
+      });
       mockPrisma.aIMessage.create.mockResolvedValue({});
       mockPrisma.aIConversation.update.mockResolvedValue({});
 
       await service.sendMessage({
         userId: 'user-1',
         schoolId: 'school-A',
-        user: { id: 'user-1', firstName: 'Test', lastName: 'User', role: 'PRINCIPAL', schoolId: 'school-A' },
+        user: {
+          id: 'user-1',
+          firstName: 'Test',
+          lastName: 'User',
+          role: 'PRINCIPAL',
+          schoolId: 'school-A',
+        },
         conversationId: 'conv-1',
         message: 'Hello',
       });

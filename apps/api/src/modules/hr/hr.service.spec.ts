@@ -27,10 +27,7 @@ describe('HRService', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        HRService,
-        { provide: PrismaService, useValue: mockPrisma },
-      ],
+      providers: [HRService, { provide: PrismaService, useValue: mockPrisma }],
     }).compile();
 
     service = module.get<HRService>(HRService);
@@ -74,12 +71,19 @@ describe('HRService', () => {
       {
         id: 'staff_1',
         employeeId: 'EMP-001',
-        user: { firstName: 'Ravi', lastName: 'Kumar', email: 'ravi@school.edu' },
+        user: {
+          firstName: 'Ravi',
+          lastName: 'Kumar',
+          email: 'ravi@school.edu',
+        },
       },
     ]);
     mockPrisma.staff.count.mockResolvedValue(1);
 
-    const res = await service.getStaffRoster('school_1', { page: 1, limit: 10 });
+    const res = await service.getStaffRoster('school_1', {
+      page: 1,
+      limit: 10,
+    });
     expect(res.items).toHaveLength(1);
     expect(res.total).toBe(1);
     expect(res.page).toBe(1);

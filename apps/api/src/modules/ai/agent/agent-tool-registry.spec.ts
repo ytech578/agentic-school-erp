@@ -8,10 +8,10 @@ describe('ToolRegistry (Security)', () => {
   it('should require confirmation for mutating HR/Academic tools', () => {
     const leaveTool = TOOL_REGISTRY.get('approve_leave');
     const assignmentTool = TOOL_REGISTRY.get('create_assignment');
-    
+
     expect(leaveTool?.requiresConfirmation).toBe(true);
     expect(leaveTool?.executionMode).toBe('MUTATING');
-    
+
     expect(assignmentTool?.requiresConfirmation).toBe(true);
     expect(assignmentTool?.executionMode).toBe('MUTATING');
   });

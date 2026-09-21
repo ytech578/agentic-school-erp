@@ -59,7 +59,10 @@ describe('NotificationsService (FIX-05)', () => {
       },
     });
 
-    service.emitEvent(otherUserId, 'school-1', { id: 'bob-notif', title: 'For Bob only' });
+    service.emitEvent(otherUserId, 'school-1', {
+      id: 'bob-notif',
+      title: 'For Bob only',
+    });
 
     setTimeout(() => {
       expect(received).toBe(false);

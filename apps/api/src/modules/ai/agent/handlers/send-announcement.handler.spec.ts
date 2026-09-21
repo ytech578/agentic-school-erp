@@ -1,9 +1,6 @@
 import { SendAnnouncementAgentHandler } from './send-announcement.handler';
 import { MessagesService } from '../../../messages/messages.service';
-import {
-  ToolHandlerKey,
-  AgentToolExecutionContext,
-} from '../agent-types';
+import { ToolHandlerKey, AgentToolExecutionContext } from '../agent-types';
 
 describe('SendAnnouncementAgentHandler', () => {
   let handler: SendAnnouncementAgentHandler;

@@ -140,9 +140,6 @@ export class DashboardController {
       tenant.schoolId,
       'Parent detail dashboard',
     );
-    return await this.dashboardService.getParentDetail(
-      tenant.userId,
-      schoolId,
-    );
+    return await this.dashboardService.getParentDetail(tenant.userId, schoolId);
   }
 }

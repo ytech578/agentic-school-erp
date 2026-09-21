@@ -9,9 +9,10 @@ import {
 import { AgentToolHandler } from './agent-tool-handler.interface';
 
 @Injectable()
-export class AutomationLeaveRecommendationHandler
-  implements AgentToolHandler<AutomationInput, AgentHandlerResult>
-{
+export class AutomationLeaveRecommendationHandler implements AgentToolHandler<
+  AutomationInput,
+  AgentHandlerResult
+> {
   readonly key = ToolHandlerKey.AUTOMATION_LEAVE_RECOMMENDATION;
 
   constructor(private readonly hrService: HRService) {}

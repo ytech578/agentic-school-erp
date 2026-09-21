@@ -56,7 +56,11 @@ describe('FeesService - Formal Receipt Details', () => {
         id: 'std-1',
         admissionNumber: '2026001',
         rollNumber: '10',
-        user: { firstName: 'Aarav', lastName: 'Sharma', email: 'aarav@student.com' },
+        user: {
+          firstName: 'Aarav',
+          lastName: 'Sharma',
+          email: 'aarav@student.com',
+        },
         enrollments: [
           {
             section: {
@@ -102,8 +106,8 @@ describe('FeesService - Formal Receipt Details', () => {
   it('throws NotFoundException if receipt does not exist', async () => {
     prisma.feePayment.findFirst.mockResolvedValue(null);
 
-    await expect(service.getReceiptDetails('school-1', 'invalid-rcpt')).rejects.toThrow(
-      NotFoundException,
-    );
+    await expect(
+      service.getReceiptDetails('school-1', 'invalid-rcpt'),
+    ).rejects.toThrow(NotFoundException);
   });
 });

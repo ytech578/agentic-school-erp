@@ -3,7 +3,11 @@ import { AdmissionsService } from './admissions.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AdmissionStatus, Gender } from '@prisma/client';
-import { BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 
 describe('AdmissionsService', () => {
@@ -64,7 +68,9 @@ describe('AdmissionsService', () => {
 
   describe('Multi-tenant isolation', () => {
     it('throws ForbiddenException when schoolId is empty or missing', async () => {
-      await expect(service.findAllApplications('')).rejects.toThrow(ForbiddenException);
+      await expect(service.findAllApplications('')).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('queries applications scoped by valid tenant schoolId', async () => {
@@ -130,16 +136,25 @@ describe('AdmissionsService', () => {
 
     it('hashes temporary password and creates student in transaction', async () => {
       mockPrisma.admissionApplication.findFirst.mockResolvedValue(mockApp);
-      mockPrisma.user.create.mockResolvedValue({ id: 'user-new-student', email: 'student_APP-2026-001@example.com' });
+      mockPrisma.user.create.mockResolvedValue({
+        id: 'user-new-student',
+        email: 'student_APP-2026-001@example.com',
+      });
       mockPrisma.student.count.mockResolvedValue(10);
-      mockPrisma.student.create.mockResolvedValue({ id: 'student-new-1', admissionNumber: 'ADM-2026-0011' });
+      mockPrisma.student.create.mockResolvedValue({
+        id: 'student-new-1',
+        admissionNumber: 'ADM-2026-0011',
+      });
       mockPrisma.guardian.create.mockResolvedValue({ id: 'guardian-1' });
       mockPrisma.admissionApplication.update.mockResolvedValue({
         ...mockApp,
         convertedStudentId: 'student-new-1',
       });
 
-      const result = await service.convertApplicationToStudent(SCHOOL_ID, 'app-1');
+      const result = await service.convertApplicationToStudent(
+        SCHOOL_ID,
+        'app-1',
+      );
 
       expect(mockPrisma.$transaction).toHaveBeenCalled();
       expect(mockPrisma.user.create).toHaveBeenCalledWith({
@@ -155,7 +170,10 @@ describe('AdmissionsService', () => {
       // Verify passwordHash is a valid bcrypt hash
       expect(createdUserCall.data.passwordHash).toMatch(/^\$2[aby]?\$\d+\$/);
       // Verify the returned temporary password matches the generated hash
-      const isMatch = await bcrypt.compare(result.temporaryPassword, createdUserCall.data.passwordHash);
+      const isMatch = await bcrypt.compare(
+        result.temporaryPassword,
+        createdUserCall.data.passwordHash,
+      );
       expect(isMatch).toBe(true);
 
       expect(result.student.id).toBe('student-new-1');

@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, Request, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Query,
+  Request,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { MessagesService } from './messages.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -40,7 +51,13 @@ export class MessagesController {
   @ApiOperation({ summary: 'Send a new message' })
   send(
     @Request() req: any,
-    @Body() body: { recipientId: string; subject?: string; body: string; parentId?: string },
+    @Body()
+    body: {
+      recipientId: string;
+      subject?: string;
+      body: string;
+      parentId?: string;
+    },
   ) {
     return this.service.sendMessage({
       schoolId: req.user.schoolId,

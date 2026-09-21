@@ -36,7 +36,11 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       const querySchoolId = req?.query?.schoolId;
       const targetSchoolId = headerSchoolId || querySchoolId;
 
-      if (targetSchoolId && typeof targetSchoolId === 'string' && targetSchoolId.trim()) {
+      if (
+        targetSchoolId &&
+        typeof targetSchoolId === 'string' &&
+        targetSchoolId.trim()
+      ) {
         const candidate = targetSchoolId.trim();
         const schoolExists = await this.prisma.school.findUnique({
           where: { id: candidate },
@@ -52,6 +56,11 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       // School-scoped service methods will enforce requireSchoolId() and fail-closed if schoolId is null.
     }
 
-    return { ...payload, id: user.id, schoolId: schoolId ?? null, role: user.role }; // Attached to req.user
+    return {
+      ...payload,
+      id: user.id,
+      schoolId: schoolId ?? null,
+      role: user.role,
+    }; // Attached to req.user
   }
 }

@@ -19,7 +19,9 @@ describe('StudentsService - Promotion & Status Lifecycle', () => {
       },
       studentEnrollment: {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-        upsert: jest.fn().mockResolvedValue({ id: 'enr-new', status: 'ACTIVE' }),
+        upsert: jest
+          .fn()
+          .mockResolvedValue({ id: 'enr-new', status: 'ACTIVE' }),
         findFirst: jest.fn(),
         update: jest.fn(),
       },

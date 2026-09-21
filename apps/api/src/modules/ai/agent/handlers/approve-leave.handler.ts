@@ -15,9 +15,10 @@ export interface ApproveLeaveArgs {
 }
 
 @Injectable()
-export class ApproveLeaveAgentHandler
-  implements AgentToolHandler<ApproveLeaveArgs, AgentHandlerResult>
-{
+export class ApproveLeaveAgentHandler implements AgentToolHandler<
+  ApproveLeaveArgs,
+  AgentHandlerResult
+> {
   readonly key = ToolHandlerKey.APPROVE_LEAVE;
 
   constructor(
@@ -29,7 +30,8 @@ export class ApproveLeaveAgentHandler
     context: AgentToolExecutionContext,
     args: ApproveLeaveArgs,
   ): Promise<AgentHandlerResult> {
-    const reviewNote = `[Approved via AI Assistant] ${args.reason ?? ''}`.trim();
+    const reviewNote =
+      `[Approved via AI Assistant] ${args.reason ?? ''}`.trim();
 
     // Delegate business mutation to domain service HRService
     const domainResult = await this.hrService.approveLeaveRequest(

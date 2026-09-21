@@ -19,9 +19,10 @@ export interface CreateAssignmentArgs {
 }
 
 @Injectable()
-export class CreateAssignmentAgentHandler
-  implements AgentToolHandler<CreateAssignmentArgs, AgentHandlerResult>
-{
+export class CreateAssignmentAgentHandler implements AgentToolHandler<
+  CreateAssignmentArgs,
+  AgentHandlerResult
+> {
   readonly key = ToolHandlerKey.CREATE_ASSIGNMENT;
 
   constructor(
@@ -80,8 +81,7 @@ export class CreateAssignmentAgentHandler
     result: AgentHandlerResult,
   ): Promise<void> {
     const assignmentId = (result.assignmentId ?? result.resourceId) as
-      | string
-      | undefined;
+      string | undefined;
     if (!assignmentId) {
       throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
     }

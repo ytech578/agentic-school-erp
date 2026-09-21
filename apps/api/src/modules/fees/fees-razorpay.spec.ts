@@ -15,14 +15,18 @@ describe('FeesService - Razorpay Integration (Part 2)', () => {
         findFirst: jest.fn(),
       },
       academicYear: {
-        findFirst: jest.fn().mockResolvedValue({ id: 'ay-2026', name: '2026-27' }),
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ id: 'ay-2026', name: '2026-27' }),
       },
       systemConfig: {
         findUnique: jest.fn().mockResolvedValue(null),
         upsert: jest.fn().mockResolvedValue({}),
       },
       school: {
-        findUnique: jest.fn().mockResolvedValue({ name: 'Greenfield Public School' }),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ name: 'Greenfield Public School' }),
       },
     };
 
@@ -64,10 +68,18 @@ describe('FeesService - Razorpay Integration (Part 2)', () => {
     mockPrisma.student.findFirst.mockResolvedValue({
       id: 'student-1',
       admissionNumber: 'ADM-2026-0001',
-      user: { firstName: 'Rohan', lastName: 'Kumar', email: 'rohan@example.com' },
+      user: {
+        firstName: 'Rohan',
+        lastName: 'Kumar',
+        email: 'rohan@example.com',
+      },
     });
 
-    const order = await service.createRazorpayOrder('school-1', 'student-1', 4500);
+    const order = await service.createRazorpayOrder(
+      'school-1',
+      'student-1',
+      4500,
+    );
 
     expect(order.amount).toBe(4500);
     expect(order.amountInPaise).toBe(450000);
@@ -90,13 +102,17 @@ describe('FeesService - Razorpay Integration (Part 2)', () => {
       .update(`${orderId}|${paymentId}`)
       .digest('hex');
 
-    const result = await service.verifyRazorpayPayment('school-1', 'parent-user-1', {
-      orderId,
-      paymentId,
-      signature: validSignature,
-      studentId: 'student-1',
-      amount: 5000,
-    });
+    const result = await service.verifyRazorpayPayment(
+      'school-1',
+      'parent-user-1',
+      {
+        orderId,
+        paymentId,
+        signature: validSignature,
+        studentId: 'student-1',
+        amount: 5000,
+      },
+    );
 
     expect(result.receipt.receiptNumber).toBe('RCT-2026-0001');
     expect(mockTx.feePayment.create).toHaveBeenCalledWith(
@@ -131,13 +147,23 @@ describe('FeesService - Razorpay Integration (Part 2)', () => {
     mockPrisma.student.findFirst.mockResolvedValue({
       id: 'student-1',
       admissionNumber: 'ADM-2026-0001',
-      user: { firstName: 'Rohan', lastName: 'Kumar', email: 'rohan@example.com' },
+      user: {
+        firstName: 'Rohan',
+        lastName: 'Kumar',
+        email: 'rohan@example.com',
+      },
     });
     mockPrisma.school = {
-      findUnique: jest.fn().mockResolvedValue({ name: 'Greenfield Public School' }),
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ name: 'Greenfield Public School' }),
     };
 
-    const order = await service.createRazorpayOrder('school-1', 'student-1', 12500);
+    const order = await service.createRazorpayOrder(
+      'school-1',
+      'student-1',
+      12500,
+    );
     expect(order.upiUri).toContain('upi://pay');
     expect(order.upiUri).toContain('pa=schoolfees%40razorpay');
     expect(order.qrCodeUrl).toContain('api.qrserver.com');
@@ -159,19 +185,26 @@ describe('FeesService - Razorpay Integration (Part 2)', () => {
       upsert: jest.fn().mockResolvedValue({}),
     };
 
-    const updateRes = await service.updatePaymentSettings('school-1', 'admin-1', {
-      upiVpa: 'principal.greenfield@icici',
-      payeeName: 'Greenfield Public School Account',
-      qrCodeImageUrl: 'data:image/png;base64,mockqrimage',
-      accountNumber: '123456789012',
-      ifscCode: 'ICIC0001234',
-      bankName: 'ICICI Bank',
-    });
+    const updateRes = await service.updatePaymentSettings(
+      'school-1',
+      'admin-1',
+      {
+        upiVpa: 'principal.greenfield@icici',
+        payeeName: 'Greenfield Public School Account',
+        qrCodeImageUrl: 'data:image/png;base64,mockqrimage',
+        accountNumber: '123456789012',
+        ifscCode: 'ICIC0001234',
+        bankName: 'ICICI Bank',
+      },
+    );
 
     expect(updateRes.success).toBe(true);
     expect(updateRes.data.upiVpa).toBe('principal.greenfield@icici');
 
-    const settings = await service.getPaymentSettings('school-1', 'SUPER_ADMIN');
+    const settings = await service.getPaymentSettings(
+      'school-1',
+      'SUPER_ADMIN',
+    );
     expect(settings.upiVpa).toBe('principal.greenfield@icici');
     expect(settings.qrCodeImageUrl).toBe('data:image/png;base64,mockqrimage');
     expect(settings.bankName).toBe('ICICI Bank');
@@ -179,24 +212,34 @@ describe('FeesService - Razorpay Integration (Part 2)', () => {
 
   it('processes parent payment with authentic UTR reference and sequential receipt', async () => {
     mockPrisma.guardian = {
-      findFirst: jest.fn().mockResolvedValue({ id: 'g-1', studentId: 'student-1' }),
+      findFirst: jest
+        .fn()
+        .mockResolvedValue({ id: 'g-1', studentId: 'student-1' }),
     };
     mockPrisma.academicYear.findFirst.mockResolvedValue({ id: 'ay-2026' });
     mockPrisma.feePayment = {
-      create: jest.fn().mockResolvedValue({ id: 'pay-parent-1', paidAmount: 8500 }),
+      create: jest
+        .fn()
+        .mockResolvedValue({ id: 'pay-parent-1', paidAmount: 8500 }),
     };
     mockPrisma.receipt = {
       count: jest.fn().mockResolvedValue(0),
       findFirst: jest.fn().mockResolvedValue(null),
-      create: jest.fn().mockResolvedValue({ id: 'rcpt-1', receiptNumber: 'RCT-2026-0042' }),
+      create: jest
+        .fn()
+        .mockResolvedValue({ id: 'rcpt-1', receiptNumber: 'RCT-2026-0042' }),
     };
 
-    const res = await service.processParentPayment('school-1', 'parent-user-1', {
-      studentId: 'student-1',
-      amount: 8500,
-      paymentMode: 'ONLINE_UPI',
-      transactionRef: 'UPI-UTR-987654321012',
-    });
+    const res = await service.processParentPayment(
+      'school-1',
+      'parent-user-1',
+      {
+        studentId: 'student-1',
+        amount: 8500,
+        paymentMode: 'ONLINE_UPI',
+        transactionRef: 'UPI-UTR-987654321012',
+      },
+    );
 
     expect(res.success).toBe(true);
     expect(res.receiptNumber).toBe('RCT-2026-0042');

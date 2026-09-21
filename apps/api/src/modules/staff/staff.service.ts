@@ -22,7 +22,9 @@ export class StaffService {
         where: { id: data.departmentId, schoolId: validSchoolId },
       });
       if (!dept) {
-        throw new BadRequestException('Department does not belong to this school');
+        throw new BadRequestException(
+          'Department does not belong to this school',
+        );
       }
     }
 
@@ -31,7 +33,9 @@ export class StaffService {
         where: { id: data.designationId, schoolId: validSchoolId },
       });
       if (!desig) {
-        throw new BadRequestException('Designation does not belong to this school');
+        throw new BadRequestException(
+          'Designation does not belong to this school',
+        );
       }
     }
     // 1. Check if user email already exists
@@ -107,7 +111,13 @@ export class StaffService {
     });
   }
 
-  async getStaffList(schoolId: string, page = 1, limit = 10, search?: string, includeSubjects = false) {
+  async getStaffList(
+    schoolId: string,
+    page = 1,
+    limit = 10,
+    search?: string,
+    includeSubjects = false,
+  ) {
     const validSchoolId = requireSchoolId(schoolId, 'List staff');
     const skip = (page - 1) * limit;
 
@@ -148,7 +158,9 @@ export class StaffService {
           designation: {
             select: { name: true },
           },
-          ...(includeSubjects ? { teacherAssignments: { include: { subject: true } } } : {}),
+          ...(includeSubjects
+            ? { teacherAssignments: { include: { subject: true } } }
+            : {}),
         },
         orderBy: { createdAt: 'desc' },
       }),
@@ -214,7 +226,9 @@ export class StaffService {
         where: { id: data.departmentId, schoolId: validSchoolId },
       });
       if (!dept) {
-        throw new BadRequestException('Department does not belong to this school');
+        throw new BadRequestException(
+          'Department does not belong to this school',
+        );
       }
     }
 
@@ -223,7 +237,9 @@ export class StaffService {
         where: { id: data.designationId, schoolId: validSchoolId },
       });
       if (!desig) {
-        throw new BadRequestException('Designation does not belong to this school');
+        throw new BadRequestException(
+          'Designation does not belong to this school',
+        );
       }
     }
 
@@ -279,15 +295,20 @@ export class StaffService {
       const staffUpdateData: any = {};
       if (data.employeeId) staffUpdateData.employeeId = data.employeeId;
       if (data.departmentId) staffUpdateData.departmentId = data.departmentId;
-      if (data.designationId) staffUpdateData.designationId = data.designationId;
-      if (data.employmentType) staffUpdateData.employmentType = data.employmentType as EmploymentType;
+      if (data.designationId)
+        staffUpdateData.designationId = data.designationId;
+      if (data.employmentType)
+        staffUpdateData.employmentType = data.employmentType as EmploymentType;
       if (data.gender) staffUpdateData.gender = data.gender;
       if (data.bloodGroup) staffUpdateData.bloodGroup = data.bloodGroup;
-      if (data.dateOfBirth) staffUpdateData.dateOfBirth = new Date(data.dateOfBirth);
+      if (data.dateOfBirth)
+        staffUpdateData.dateOfBirth = new Date(data.dateOfBirth);
       if (data.joinDate) staffUpdateData.joinDate = new Date(data.joinDate);
       if (data.address !== undefined) staffUpdateData.address = data.address;
-      if (data.aadhaarNumber !== undefined) staffUpdateData.aadhaarNumber = data.aadhaarNumber;
-      if (data.panNumber !== undefined) staffUpdateData.panNumber = data.panNumber;
+      if (data.aadhaarNumber !== undefined)
+        staffUpdateData.aadhaarNumber = data.aadhaarNumber;
+      if (data.panNumber !== undefined)
+        staffUpdateData.panNumber = data.panNumber;
 
       let updatedStaff = staff;
       if (Object.keys(staffUpdateData).length > 0) {
@@ -334,7 +355,11 @@ export class StaffService {
         where: { id: staff.id },
         data: {
           isActive: data.isActive,
-          resignDate: !data.isActive ? (data.resignDate ? new Date(data.resignDate) : new Date()) : null,
+          resignDate: !data.isActive
+            ? data.resignDate
+              ? new Date(data.resignDate)
+              : new Date()
+            : null,
         },
       });
 

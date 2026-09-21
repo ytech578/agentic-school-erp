@@ -27,7 +27,12 @@ describe('StorageService - Multi-Provider Driver (Part 2)', () => {
 
   it('uploads a file locally and returns a valid local URL', async () => {
     const fileBuffer = Buffer.from('Test file content for storage service');
-    const result = await service.uploadFile(fileBuffer, 'sample.pdf', 'application/pdf', 'documents');
+    const result = await service.uploadFile(
+      fileBuffer,
+      'sample.pdf',
+      'application/pdf',
+      'documents',
+    );
 
     expect(result.storageDriver).toBe('local');
     expect(result.url).toMatch(/^\/uploads\/documents\/\d+-/);
@@ -37,7 +42,12 @@ describe('StorageService - Multi-Provider Driver (Part 2)', () => {
 
   it('deletes a locally stored file without errors', async () => {
     const fileBuffer = Buffer.from('Deletable content');
-    const result = await service.uploadFile(fileBuffer, 'to_delete.txt', 'text/plain', 'temp');
+    const result = await service.uploadFile(
+      fileBuffer,
+      'to_delete.txt',
+      'text/plain',
+      'temp',
+    );
 
     await expect(service.deleteFile(result.url)).resolves.not.toThrow();
   });

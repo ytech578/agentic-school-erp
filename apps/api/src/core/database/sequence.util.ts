@@ -29,12 +29,19 @@ export async function generateNextSequence(
         });
 
         let nextSeq = 1;
-        if (config && config.value && typeof config.value === 'object' && 'current' in config.value) {
-          nextSeq = Number((config.value as any).current) + 1;
+        if (
+          config &&
+          config.value &&
+          typeof config.value === 'object' &&
+          'current' in config.value
+        ) {
+          nextSeq = Number(config.value.current) + 1;
         } else {
           // Initialize baseline from existing records
           if (prefix === 'APP') {
-            const count = await tx.admissionApplication.count({ where: { schoolId } });
+            const count = await tx.admissionApplication.count({
+              where: { schoolId },
+            });
             nextSeq = count + 1;
           } else if (prefix === 'RCT') {
             const count = await tx.receipt.count({
@@ -99,11 +106,16 @@ export async function generateNextSequence(
 
       return result;
     } catch (err: any) {
-      logger.warn(`Sequence generation retry ${attempt + 1}/${maxRetries}: ${err.message}`);
+      logger.warn(
+        `Sequence generation retry ${attempt + 1}/${maxRetries}: ${err.message}`,
+      );
       if (attempt === maxRetries - 1) {
         // Fallback to high-entropy unique identifier if transaction persistently rolled back
         const timeEntropy = Date.now().toString(36).slice(-4).toUpperCase();
-        const randEntropy = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const randEntropy = Math.random()
+          .toString(36)
+          .substring(2, 6)
+          .toUpperCase();
         return `${prefix}-${year}-${timeEntropy}${randEntropy}`;
       }
     }

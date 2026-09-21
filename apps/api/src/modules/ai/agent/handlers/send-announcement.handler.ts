@@ -9,9 +9,10 @@ import {
 import { AgentToolHandler } from './agent-tool-handler.interface';
 
 @Injectable()
-export class SendAnnouncementAgentHandler
-  implements AgentToolHandler<SendAnnouncementInput, AgentHandlerResult>
-{
+export class SendAnnouncementAgentHandler implements AgentToolHandler<
+  SendAnnouncementInput,
+  AgentHandlerResult
+> {
   readonly key = ToolHandlerKey.SEND_ANNOUNCEMENT;
   private readonly logger = new Logger(SendAnnouncementAgentHandler.name);
 

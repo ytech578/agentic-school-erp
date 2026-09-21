@@ -59,7 +59,7 @@ export class StaffController {
       pageNum,
       limitNum,
       search,
-      includeSubjects === 'true'
+      includeSubjects === 'true',
     );
   }
 
@@ -71,7 +71,11 @@ export class StaffController {
 
   @Put(':id')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  async updateStaff(@Request() req: any, @Param('id') id: string, @Body() body: any) {
+  async updateStaff(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: any,
+  ) {
     const parsedBody = UpdateStaffSchema.parse(body);
     return this.service.updateStaff(req.user.schoolId, id, parsedBody);
   }

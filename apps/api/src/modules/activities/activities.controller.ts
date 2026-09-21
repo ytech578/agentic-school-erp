@@ -1,4 +1,16 @@
-import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { ActivitiesService } from './activities.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -14,7 +26,14 @@ export class ActivitiesController {
 
   @Get()
   @ApiOperation({ summary: 'List activities' })
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'PARENT', 'STUDENT')
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'PARENT',
+    'STUDENT',
+  )
   listActivities(@Request() req: any, @Query('studentId') studentId?: string) {
     return this.service.listActivities(req.user.schoolId, studentId);
   }
@@ -29,14 +48,22 @@ export class ActivitiesController {
   @Patch(':id')
   @ApiOperation({ summary: 'Update an activity' })
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
-  updateActivityPatch(@Request() req: any, @Param('id') id: string, @Body() body: any) {
+  updateActivityPatch(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: any,
+  ) {
     return this.service.updateActivity(req.user.schoolId, id, body);
   }
 
   @Put(':id')
   @ApiOperation({ summary: 'Update an activity' })
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
-  updateActivityPut(@Request() req: any, @Param('id') id: string, @Body() body: any) {
+  updateActivityPut(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: any,
+  ) {
     return this.service.updateActivity(req.user.schoolId, id, body);
   }
 

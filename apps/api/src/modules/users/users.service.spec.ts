@@ -20,10 +20,7 @@ describe('UsersService', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        UsersService,
-        { provide: PrismaService, useValue: prisma },
-      ],
+      providers: [UsersService, { provide: PrismaService, useValue: prisma }],
     }).compile();
 
     service = module.get<UsersService>(UsersService);
@@ -31,8 +28,18 @@ describe('UsersService', () => {
 
   it('findAll returns paginated users and meta', async () => {
     const mockUsers = [
-      { id: 'u1', email: 'student1@school.edu', role: 'STUDENT', status: 'ACTIVE' },
-      { id: 'u2', email: 'teacher1@school.edu', role: 'TEACHER', status: 'ACTIVE' },
+      {
+        id: 'u1',
+        email: 'student1@school.edu',
+        role: 'STUDENT',
+        status: 'ACTIVE',
+      },
+      {
+        id: 'u2',
+        email: 'teacher1@school.edu',
+        role: 'TEACHER',
+        status: 'ACTIVE',
+      },
     ];
     prisma.user.findMany.mockResolvedValue(mockUsers);
     prisma.user.count.mockResolvedValue(45);
@@ -52,7 +59,7 @@ describe('UsersService', () => {
     prisma.user.count
       .mockResolvedValueOnce(1200) // total
       .mockResolvedValueOnce(1150) // active
-      .mockResolvedValueOnce(50);  // inactive
+      .mockResolvedValueOnce(50); // inactive
 
     prisma.user.groupBy.mockResolvedValue([
       { role: 'STUDENT', _count: { _all: 500 } },

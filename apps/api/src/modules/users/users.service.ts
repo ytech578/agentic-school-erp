@@ -6,7 +6,10 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import * as bcrypt from 'bcryptjs';
-import { requireSchoolId, assertSchoolAccess } from '../../core/tenant/tenant.util';
+import {
+  requireSchoolId,
+  assertSchoolAccess,
+} from '../../core/tenant/tenant.util';
 
 @Injectable()
 export class UsersService {
@@ -59,7 +62,9 @@ export class UsersService {
 
     const isGlobal = requestingUser?.role === 'SUPER_ADMIN';
     const effectiveSchoolId =
-      isGlobal && !schoolId ? undefined : requireSchoolId(schoolId, 'List users');
+      isGlobal && !schoolId
+        ? undefined
+        : requireSchoolId(schoolId, 'List users');
 
     const where: any = effectiveSchoolId ? { schoolId: effectiveSchoolId } : {};
     if (role) where.role = role;
@@ -104,14 +109,18 @@ export class UsersService {
   async getStats(schoolId: string, requestingUser?: any) {
     const isGlobal = requestingUser?.role === 'SUPER_ADMIN';
     const effectiveSchoolId =
-      isGlobal && !schoolId ? undefined : requireSchoolId(schoolId, 'Get user stats');
+      isGlobal && !schoolId
+        ? undefined
+        : requireSchoolId(schoolId, 'Get user stats');
 
     const where: any = effectiveSchoolId ? { schoolId: effectiveSchoolId } : {};
 
     const [total, active, inactive, roles] = await Promise.all([
       this.prisma.user.count({ where }),
       this.prisma.user.count({ where: { ...where, status: 'ACTIVE' } }),
-      this.prisma.user.count({ where: { ...where, status: { not: 'ACTIVE' } } }),
+      this.prisma.user.count({
+        where: { ...where, status: { not: 'ACTIVE' } },
+      }),
       this.prisma.user.groupBy({
         by: ['role'],
         where,
@@ -156,8 +165,13 @@ export class UsersService {
       schoolId = requireSchoolId(schoolId, 'Create user');
     }
 
-    if (requestingUser?.role === 'SCHOOL_ADMIN' && (data.role === 'SUPER_ADMIN' || data.role === 'SCHOOL_ADMIN')) {
-      throw new ForbiddenException('School Admins cannot create Super Admins or other School Admins');
+    if (
+      requestingUser?.role === 'SCHOOL_ADMIN' &&
+      (data.role === 'SUPER_ADMIN' || data.role === 'SCHOOL_ADMIN')
+    ) {
+      throw new ForbiddenException(
+        'School Admins cannot create Super Admins or other School Admins',
+      );
     }
 
     const existing = await this.prisma.user.findUnique({
@@ -194,7 +208,15 @@ export class UsersService {
     return { ...user, temporaryPassword: data.password ? undefined : password };
   }
 
-  async updateProfile(id: string, data: { avatarUrl?: string; phone?: string; firstName?: string; lastName?: string }) {
+  async updateProfile(
+    id: string,
+    data: {
+      avatarUrl?: string;
+      phone?: string;
+      firstName?: string;
+      lastName?: string;
+    },
+  ) {
     return this.prisma.user.update({
       where: { id },
       data: {
@@ -231,8 +253,13 @@ export class UsersService {
       assertSchoolAccess(requestingUser?.schoolId, targetUser.schoolId);
     }
 
-    if (requestingUser?.role === 'SCHOOL_ADMIN' && (data.role === 'SUPER_ADMIN' || data.role === 'SCHOOL_ADMIN')) {
-      throw new ForbiddenException('School Admins cannot assign Super Admin or School Admin roles');
+    if (
+      requestingUser?.role === 'SCHOOL_ADMIN' &&
+      (data.role === 'SUPER_ADMIN' || data.role === 'SCHOOL_ADMIN')
+    ) {
+      throw new ForbiddenException(
+        'School Admins cannot assign Super Admin or School Admin roles',
+      );
     }
 
     return this.prisma.user.update({

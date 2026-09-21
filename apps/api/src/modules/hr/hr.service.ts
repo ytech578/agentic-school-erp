@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
 import { AGENT_ERRORS } from '../ai/agent/agent-types';
@@ -24,12 +28,15 @@ export class HRService {
       where: { userId: data.userId, schoolId: validSchoolId },
     });
     if (!staffRecord) {
-      throw new NotFoundException('No staff profile found for this user in this school');
+      throw new NotFoundException(
+        'No staff profile found for this user in this school',
+      );
     }
 
     const start = new Date(data.startDate);
     const end = new Date(data.endDate);
-    const totalDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    const totalDays =
+      Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
     return this.prisma.leaveRequest.create({
       data: {
@@ -43,7 +50,9 @@ export class HRService {
         status: 'PENDING',
       },
       include: {
-        staff: { include: { user: { select: { firstName: true, lastName: true } } } },
+        staff: {
+          include: { user: { select: { firstName: true, lastName: true } } },
+        },
       },
     });
   }
@@ -52,11 +61,11 @@ export class HRService {
     schoolId: string,
     filters: { staffId?: string; status?: string } = {},
     userRole?: string,
-    userId?: string
+    userId?: string,
   ) {
     const validSchoolId = requireSchoolId(schoolId);
     const where: any = { schoolId: validSchoolId };
-    
+
     // If user is a TEACHER, they can ONLY see their own leaves
     if (userRole === 'TEACHER' && userId) {
       const staff = await this.prisma.staff.findFirst({
@@ -64,7 +73,9 @@ export class HRService {
       });
       if (!staff) return []; // No staff record means no leaves
       if (filters.staffId && filters.staffId !== staff.id) {
-        throw new ForbiddenException("You can only view your own leave requests");
+        throw new ForbiddenException(
+          'You can only view your own leave requests',
+        );
       }
       where.staffId = staff.id;
     } else if (filters.staffId) {
@@ -82,7 +93,14 @@ export class HRService {
       include: {
         staff: {
           include: {
-            user: { select: { firstName: true, lastName: true, email: true, role: true } },
+            user: {
+              select: {
+                firstName: true,
+                lastName: true,
+                email: true,
+                role: true,
+              },
+            },
             designation: { select: { name: true } },
             department: { select: { name: true } },
           },
@@ -106,7 +124,8 @@ export class HRService {
       where: { id: leaveId, schoolId: validSchoolId },
     });
     if (!leave) throw new NotFoundException('Leave request not found');
-    if (leave.status !== 'PENDING') throw new ForbiddenException('Leave already reviewed');
+    if (leave.status !== 'PENDING')
+      throw new ForbiddenException('Leave already reviewed');
 
     return this.prisma.leaveRequest.update({
       where: { id: leave.id },
@@ -126,8 +145,10 @@ export class HRService {
       include: { staff: true },
     });
     if (!leave) throw new NotFoundException('Leave request not found');
-    if (leave.staff.userId !== userId) throw new ForbiddenException('Cannot cancel another staff\'s leave');
-    if (leave.status !== 'PENDING') throw new ForbiddenException('Only PENDING leaves can be cancelled');
+    if (leave.staff.userId !== userId)
+      throw new ForbiddenException("Cannot cancel another staff's leave");
+    if (leave.status !== 'PENDING')
+      throw new ForbiddenException('Only PENDING leaves can be cancelled');
 
     return this.prisma.leaveRequest.update({
       where: { id: leave.id },
@@ -190,7 +211,8 @@ export class HRService {
     await this.prisma.leaveRequest.update({
       where: { id: leaveId },
       data: {
-        reviewNote: `[AI Recommendation: ${recommendation}] ${reasoning ?? ''}`.trim(),
+        reviewNote:
+          `[AI Recommendation: ${recommendation}] ${reasoning ?? ''}`.trim(),
       },
     });
     return true;
@@ -200,8 +222,8 @@ export class HRService {
 
   async getLeaveSummary(schoolId: string, userRole?: string, userId?: string) {
     const validSchoolId = requireSchoolId(schoolId);
-    let where: any = { schoolId: validSchoolId };
-    
+    const where: any = { schoolId: validSchoolId };
+
     if (userRole === 'TEACHER' && userId) {
       const staff = await this.prisma.staff.findFirst({
         where: { userId, schoolId: validSchoolId },
@@ -211,9 +233,15 @@ export class HRService {
     }
 
     const [pending, approved, rejected, total] = await Promise.all([
-      this.prisma.leaveRequest.count({ where: { ...where, status: 'PENDING' } }),
-      this.prisma.leaveRequest.count({ where: { ...where, status: 'APPROVED' } }),
-      this.prisma.leaveRequest.count({ where: { ...where, status: 'REJECTED' } }),
+      this.prisma.leaveRequest.count({
+        where: { ...where, status: 'PENDING' },
+      }),
+      this.prisma.leaveRequest.count({
+        where: { ...where, status: 'APPROVED' },
+      }),
+      this.prisma.leaveRequest.count({
+        where: { ...where, status: 'REJECTED' },
+      }),
       this.prisma.leaveRequest.count({ where }),
     ]);
     return { pending, approved, rejected, total };
@@ -224,8 +252,23 @@ export class HRService {
   async getStaffAttendanceReport(schoolId: string, date?: string) {
     const validSchoolId = requireSchoolId(schoolId);
     const targetDate = date ? new Date(date) : new Date();
-    const targetStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 0, 0, 0);
-    const targetEnd = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 23, 59, 59, 999);
+    const targetStart = new Date(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      targetDate.getDate(),
+      0,
+      0,
+      0,
+    );
+    const targetEnd = new Date(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      targetDate.getDate(),
+      23,
+      59,
+      59,
+      999,
+    );
 
     const [allStaff, approvedLeaves] = await Promise.all([
       this.prisma.staff.findMany({
@@ -269,7 +312,8 @@ export class HRService {
         leaveType = approvedLeave.leaveType;
       } else if (rawAttendance === 'EXCUSED') {
         attendanceStatus = 'ON_LEAVE';
-        leaveReason = (s.attendanceRecords as any[])[0]?.remarks || 'Excused / On Leave';
+        leaveReason =
+          (s.attendanceRecords as any[])[0]?.remarks || 'Excused / On Leave';
       } else if (rawAttendance === 'PRESENT') {
         attendanceStatus = 'PRESENT';
       } else if (rawAttendance === 'ABSENT') {
@@ -305,7 +349,11 @@ export class HRService {
 
     // Upsert — create or update the attendance record for this date
     const existing = await this.prisma.staffAttendance.findFirst({
-      where: { staffId: data.staffId, schoolId: validSchoolId, date: targetDate },
+      where: {
+        staffId: data.staffId,
+        schoolId: validSchoolId,
+        date: targetDate,
+      },
     });
 
     if (existing) {
@@ -340,7 +388,10 @@ export class HRService {
     });
   }
 
-  async createDepartment(schoolId: string, data: { name: string; description?: string }) {
+  async createDepartment(
+    schoolId: string,
+    data: { name: string; description?: string },
+  ) {
     const validSchoolId = requireSchoolId(schoolId, 'Create department');
     return this.prisma.department.create({
       data: {
@@ -379,7 +430,13 @@ export class HRService {
 
   async getStaffRoster(
     schoolId: string,
-    filters: { departmentId?: string; designationId?: string; search?: string; page?: number; limit?: number } = {},
+    filters: {
+      departmentId?: string;
+      designationId?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    } = {},
   ) {
     const validSchoolId = requireSchoolId(schoolId, 'Get staff roster');
     const page = filters.page ? Number(filters.page) : 1;
@@ -389,14 +446,28 @@ export class HRService {
     const where: any = {
       schoolId: validSchoolId,
       ...(filters.departmentId ? { departmentId: filters.departmentId } : {}),
-      ...(filters.designationId ? { designationId: filters.designationId } : {}),
+      ...(filters.designationId
+        ? { designationId: filters.designationId }
+        : {}),
       ...(filters.search
         ? {
             OR: [
               { employeeId: { contains: filters.search, mode: 'insensitive' } },
-              { user: { firstName: { contains: filters.search, mode: 'insensitive' } } },
-              { user: { lastName: { contains: filters.search, mode: 'insensitive' } } },
-              { user: { email: { contains: filters.search, mode: 'insensitive' } } },
+              {
+                user: {
+                  firstName: { contains: filters.search, mode: 'insensitive' },
+                },
+              },
+              {
+                user: {
+                  lastName: { contains: filters.search, mode: 'insensitive' },
+                },
+              },
+              {
+                user: {
+                  email: { contains: filters.search, mode: 'insensitive' },
+                },
+              },
             ],
           }
         : {}),

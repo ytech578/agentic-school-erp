@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Put, Body, Param, Query, Request, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Body,
+  Param,
+  Query,
+  Request,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { HRService } from './hr.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -19,7 +29,14 @@ export class HRController {
   @ApiOperation({ summary: 'Apply for leave' })
   applyLeave(
     @Request() req: any,
-    @Body() body: { leaveType: string; startDate: string; endDate: string; reason: string; staffId?: string },
+    @Body()
+    body: {
+      leaveType: string;
+      startDate: string;
+      endDate: string;
+      reason: string;
+      staffId?: string;
+    },
   ) {
     // Admins can apply on behalf of staff; teachers apply for themselves
     return this.service.applyLeave({
@@ -41,10 +58,10 @@ export class HRController {
     @Query('status') status?: string,
   ) {
     return this.service.getLeaveRequests(
-      req.user.schoolId, 
-      { staffId, status }, 
-      req.user.role, 
-      req.user.id
+      req.user.schoolId,
+      { staffId, status },
+      req.user.role,
+      req.user.id,
     );
   }
 
@@ -74,7 +91,11 @@ export class HRController {
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   @ApiOperation({ summary: 'Get summary of leave requests' })
   getLeaveSummary(@Request() req: any) {
-    return this.service.getLeaveSummary(req.user.schoolId, req.user.role, req.user.id);
+    return this.service.getLeaveSummary(
+      req.user.schoolId,
+      req.user.role,
+      req.user.id,
+    );
   }
 
   // ─── Staff Attendance ─────────────────────────────────────────────────────────
@@ -91,7 +112,8 @@ export class HRController {
   @ApiOperation({ summary: 'Mark a staff member attendance status' })
   markStaffAttendance(
     @Request() req: any,
-    @Body() body: { staffId: string; date: string; status: 'PRESENT' | 'ABSENT' },
+    @Body()
+    body: { staffId: string; date: string; status: 'PRESENT' | 'ABSENT' },
   ) {
     return this.service.markStaffAttendance(req.user.schoolId, body);
   }
@@ -108,7 +130,10 @@ export class HRController {
   @Post('departments')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Create department' })
-  createDepartment(@Request() req: any, @Body() body: { name: string; description?: string }) {
+  createDepartment(
+    @Request() req: any,
+    @Body() body: { name: string; description?: string },
+  ) {
     return this.service.createDepartment(req.user.schoolId, body);
   }
 
@@ -130,7 +155,9 @@ export class HRController {
 
   @Get('staff')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  @ApiOperation({ summary: 'Get staff roster with department & designation filtering' })
+  @ApiOperation({
+    summary: 'Get staff roster with department & designation filtering',
+  })
   getStaffRoster(
     @Request() req: any,
     @Query('departmentId') departmentId?: string,

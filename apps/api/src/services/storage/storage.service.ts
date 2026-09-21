@@ -27,14 +27,18 @@ export class StorageService {
   private readonly s3PublicUrl?: string;
 
   constructor(private config: ConfigService) {
-    this.driver = (this.config.get<string>('STORAGE_DRIVER', 'local').toLowerCase() as 'local' | 's3') || 'local';
+    this.driver =
+      (this.config.get<string>('STORAGE_DRIVER', 'local').toLowerCase() as
+        'local' | 's3') || 'local';
     this.uploadDir = this.config.get<string>('STORAGE_LOCAL_PATH', './uploads');
     this.s3Bucket = this.config.get<string>('S3_BUCKET_NAME');
     this.s3Endpoint = this.config.get<string>('S3_ENDPOINT');
     this.s3PublicUrl = this.config.get<string>('S3_PUBLIC_BASE_URL');
 
     this.ensureUploadDir();
-    this.logger.log(`StorageService initialized using [${this.driver.toUpperCase()}] driver`);
+    this.logger.log(
+      `StorageService initialized using [${this.driver.toUpperCase()}] driver`,
+    );
   }
 
   async uploadFile(
@@ -61,7 +65,9 @@ export class StorageService {
             body: buffer as any,
           });
           if (res.ok) {
-            const publicUrl = this.s3PublicUrl ? `${this.s3PublicUrl.replace(/\/$/, '')}/${s3Key}` : targetUrl;
+            const publicUrl = this.s3PublicUrl
+              ? `${this.s3PublicUrl.replace(/\/$/, '')}/${s3Key}`
+              : targetUrl;
             this.logger.log(`Uploaded to S3: ${publicUrl}`);
             return {
               url: publicUrl,
@@ -73,7 +79,9 @@ export class StorageService {
           }
         }
       } catch (err: any) {
-        this.logger.warn(`S3 upload failed, falling back to local storage: ${err.message}`);
+        this.logger.warn(
+          `S3 upload failed, falling back to local storage: ${err.message}`,
+        );
       }
     }
 
@@ -100,10 +108,17 @@ export class StorageService {
   }
 
   async deleteFile(fileUrl: string): Promise<void> {
-    if (fileUrl.startsWith('http') && this.driver === 's3' && this.s3Bucket && this.s3Endpoint) {
+    if (
+      fileUrl.startsWith('http') &&
+      this.driver === 's3' &&
+      this.s3Bucket &&
+      this.s3Endpoint
+    ) {
       try {
         const urlObj = new URL(fileUrl);
-        const s3Key = urlObj.pathname.replace(`/${this.s3Bucket}/`, '').replace(/^\//, '');
+        const s3Key = urlObj.pathname
+          .replace(`/${this.s3Bucket}/`, '')
+          .replace(/^\//, '');
         const targetUrl = `${this.s3Endpoint.replace(/\/$/, '')}/${this.s3Bucket}/${s3Key}`;
         await fetch(targetUrl, { method: 'DELETE' });
         this.logger.log(`Deleted S3 object: ${s3Key}`);

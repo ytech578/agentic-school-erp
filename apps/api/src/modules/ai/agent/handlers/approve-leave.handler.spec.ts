@@ -35,7 +35,7 @@ describe('ApproveLeaveAgentHandler', () => {
 
     handler = new ApproveLeaveAgentHandler(
       hrService as unknown as HRService,
-      prisma as unknown as PrismaService,
+      prisma,
     );
   });
 
@@ -90,7 +90,11 @@ describe('ApproveLeaveAgentHandler', () => {
     });
 
     await expect(
-      handler.verify(mockContext, { leaveId: 'leave-123' }, { status: 'APPROVED' }),
+      handler.verify(
+        mockContext,
+        { leaveId: 'leave-123' },
+        { status: 'APPROVED' },
+      ),
     ).resolves.toBeUndefined();
   });
 
@@ -103,7 +107,11 @@ describe('ApproveLeaveAgentHandler', () => {
     });
 
     await expect(
-      handler.verify(mockContext, { leaveId: 'leave-123' }, { status: 'APPROVED' }),
+      handler.verify(
+        mockContext,
+        { leaveId: 'leave-123' },
+        { status: 'APPROVED' },
+      ),
     ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
   });
 
@@ -116,7 +124,11 @@ describe('ApproveLeaveAgentHandler', () => {
     });
 
     await expect(
-      handler.verify(mockContext, { leaveId: 'leave-123' }, { status: 'APPROVED' }),
+      handler.verify(
+        mockContext,
+        { leaveId: 'leave-123' },
+        { status: 'APPROVED' },
+      ),
     ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
   });
 
@@ -129,7 +141,11 @@ describe('ApproveLeaveAgentHandler', () => {
     });
 
     await expect(
-      handler.verify(mockContext, { leaveId: 'leave-123' }, { status: 'APPROVED' }),
+      handler.verify(
+        mockContext,
+        { leaveId: 'leave-123' },
+        { status: 'APPROVED' },
+      ),
     ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
   });
 });

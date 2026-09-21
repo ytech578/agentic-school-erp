@@ -28,11 +28,14 @@ export class NotificationsService {
 
   getEventStream(userId: string, schoolId: string): Observable<MessageEvent> {
     return this.events$.asObservable().pipe(
-      filter((event) => event.userId === userId && (!schoolId || event.schoolId === schoolId)),
+      filter(
+        (event) =>
+          event.userId === userId && (!schoolId || event.schoolId === schoolId),
+      ),
       map((event) => ({
         data: event.notification,
         type: 'notification',
-      }) as MessageEvent),
+      })),
     );
   }
 
@@ -84,7 +87,14 @@ export class NotificationsService {
     if (metadata?.isMajor === false) return false;
 
     const cat = (metadata?.category || '').toUpperCase();
-    const majorCategories = ['HOLIDAY', 'ANNOUNCEMENT', 'EMERGENCY', 'EXAM_SCHEDULE', 'CIRCULAR', 'FEE_DUE'];
+    const majorCategories = [
+      'HOLIDAY',
+      'ANNOUNCEMENT',
+      'EMERGENCY',
+      'EXAM_SCHEDULE',
+      'CIRCULAR',
+      'FEE_DUE',
+    ];
     if (majorCategories.includes(cat)) return true;
 
     if (type === 'EXAM_RESULT') return true;
@@ -93,7 +103,8 @@ export class NotificationsService {
     if (type === 'ATTENDANCE_ALERT') return false;
 
     // Pattern matching on title for major keywords
-    const majorPattern = /\b(holiday|vacation|closure|announcement|circular|emergency|urgent|advisory|board exam|date sheet|term exam)\b/i;
+    const majorPattern =
+      /\b(holiday|vacation|closure|announcement|circular|emergency|urgent|advisory|board exam|date sheet|term exam)\b/i;
     return majorPattern.test(title || '');
   }
 
@@ -124,21 +135,28 @@ export class NotificationsService {
     // Multi-channel dispatch if phone number is available in metadata
     if (this.smsWhatsApp && data.metadata?.phone) {
       if (data.type === 'ATTENDANCE_ALERT') {
-        this.smsWhatsApp.sendWhatsApp(data.metadata.phone, 'attendance_alert', {
-          student_name: data.metadata?.studentName || 'Student',
-          status: data.metadata?.status || 'ABSENT',
-          date: new Date().toLocaleDateString('en-IN'),
-        }).catch(() => {});
+        this.smsWhatsApp
+          .sendWhatsApp(data.metadata.phone, 'attendance_alert', {
+            student_name: data.metadata?.studentName || 'Student',
+            status: data.metadata?.status || 'ABSENT',
+            date: new Date().toLocaleDateString('en-IN'),
+          })
+          .catch(() => {});
       } else if (data.type === 'FEE_DUE') {
-        this.smsWhatsApp.sendSMS(
-          data.metadata.phone,
-          `School ERP: Fee payment reminder. ${data.message}`,
-        ).catch(() => {});
+        this.smsWhatsApp
+          .sendSMS(
+            data.metadata.phone,
+            `School ERP: Fee payment reminder. ${data.message}`,
+          )
+          .catch(() => {});
       }
     }
 
     // Major Email Notifications for Students & Parents
-    if (this.emailService && this.isMajorNotification(data.type, data.title, data.metadata)) {
+    if (
+      this.emailService &&
+      this.isMajorNotification(data.type, data.title, data.metadata)
+    ) {
       try {
         const recipient = await this.prisma.user.findUnique({
           where: { id: data.userId },
@@ -159,8 +177,12 @@ export class NotificationsService {
           },
         });
 
-        if (recipient && (recipient.role === 'STUDENT' || recipient.role === 'PARENT')) {
-          const recipientName = `${recipient.firstName} ${recipient.lastName}`.trim();
+        if (
+          recipient &&
+          (recipient.role === 'STUDENT' || recipient.role === 'PARENT')
+        ) {
+          const recipientName =
+            `${recipient.firstName} ${recipient.lastName}`.trim();
           const category =
             data.metadata?.category ||
             (data.type === 'EXAM_RESULT' ? 'EXAM_RESULT' : 'ANNOUNCEMENT');
@@ -175,30 +197,43 @@ export class NotificationsService {
               category,
               { ...data.metadata, actionUrl: data.actionUrl },
             );
-            this.logger.log(`Major notification email dispatched to ${recipient.email} for [${data.title}]`);
+            this.logger.log(
+              `Major notification email dispatched to ${recipient.email} for [${data.title}]`,
+            );
           }
 
           // If student, also dispatch to primary guardian email so parents stay informed
-          if (recipient.role === 'STUDENT' && recipient.student?.guardians?.length) {
+          if (
+            recipient.role === 'STUDENT' &&
+            recipient.student?.guardians?.length
+          ) {
             for (const guardian of recipient.student.guardians) {
               if (guardian.email && guardian.email !== recipient.email) {
-                await this.emailService.sendMajorNotification(
-                  guardian.email,
-                  guardian.firstName || 'Parent/Guardian',
-                  data.title,
-                  data.message,
-                  category,
-                  { ...data.metadata, actionUrl: data.actionUrl },
-                ).catch(() => {});
-                this.logger.log(`Major notification email copy dispatched to guardian ${guardian.email}`);
+                await this.emailService
+                  .sendMajorNotification(
+                    guardian.email,
+                    guardian.firstName || 'Parent/Guardian',
+                    data.title,
+                    data.message,
+                    category,
+                    { ...data.metadata, actionUrl: data.actionUrl },
+                  )
+                  .catch(() => {});
+                this.logger.log(
+                  `Major notification email copy dispatched to guardian ${guardian.email}`,
+                );
               }
             }
           }
         } else {
-          this.logger.debug(`Minor or internal-only notification kept in-portal for user ${data.userId}`);
+          this.logger.debug(
+            `Minor or internal-only notification kept in-portal for user ${data.userId}`,
+          );
         }
       } catch (err: any) {
-        this.logger.error(`Failed during major notification email check: ${err.message}`);
+        this.logger.error(
+          `Failed during major notification email check: ${err.message}`,
+        );
       }
     }
 

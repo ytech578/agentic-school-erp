@@ -30,17 +30,18 @@ export class ExamsService {
     providedId?: string,
   ): Promise<string> {
     const validSchoolId = requireSchoolId(schoolId);
-    if (providedId && providedId !== 'undefined' && providedId !== 'null' && providedId.trim() !== '') {
+    if (
+      providedId &&
+      providedId !== 'undefined' &&
+      providedId !== 'null' &&
+      providedId.trim() !== ''
+    ) {
       const trimmed = providedId.trim();
       const normalizedName = trimmed.replace(/^AY[-_]?/i, '');
       const year = await this.prisma.academicYear.findFirst({
         where: {
           schoolId: validSchoolId,
-          OR: [
-            { id: trimmed },
-            { name: trimmed },
-            { name: normalizedName },
-          ],
+          OR: [{ id: trimmed }, { name: trimmed }, { name: normalizedName }],
         },
       });
       if (year) return year.id;
@@ -56,7 +57,9 @@ export class ExamsService {
     });
     if (latestYear) return latestYear.id;
 
-    throw new BadRequestException('No active academic year found for this school');
+    throw new BadRequestException(
+      'No active academic year found for this school',
+    );
   }
 
   // ─── Create Exam ──────────────────────────────────────────────────────────
@@ -92,10 +95,17 @@ export class ExamsService {
   async updateExam(
     schoolId: string,
     examId: string,
-    data: { name?: string; examType?: string; startDate?: string; endDate?: string },
+    data: {
+      name?: string;
+      examType?: string;
+      startDate?: string;
+      endDate?: string;
+    },
   ) {
     const validSchoolId = requireSchoolId(schoolId);
-    const exam = await this.prisma.exam.findFirst({ where: { id: examId, schoolId: validSchoolId } });
+    const exam = await this.prisma.exam.findFirst({
+      where: { id: examId, schoolId: validSchoolId },
+    });
     if (!exam) throw new NotFoundException('Exam not found');
     return this.prisma.exam.update({
       where: { id: exam.id },
@@ -118,7 +128,9 @@ export class ExamsService {
     });
     if (!exam) throw new NotFoundException('Exam not found');
     if ((exam._count as any).reportCards > 0) {
-      throw new BadRequestException('Cannot delete an exam that has report cards. Unpublish first.');
+      throw new BadRequestException(
+        'Cannot delete an exam that has report cards. Unpublish first.',
+      );
     }
     // Delete subjects first, then exam
     await this.prisma.examSubject.deleteMany({ where: { examId: exam.id } });
@@ -134,7 +146,10 @@ export class ExamsService {
       academicYearId,
     );
     return this.prisma.exam.findMany({
-      where: { schoolId: validSchoolId, academicYearId: resolvedAcademicYearId },
+      where: {
+        schoolId: validSchoolId,
+        academicYearId: resolvedAcademicYearId,
+      },
       include: {
         _count: { select: { subjects: true, reportCards: true } },
         academicYear: { select: { name: true } },
@@ -238,7 +253,9 @@ export class ExamsService {
         select: { id: true },
       });
       if (students.length !== studentIds.length) {
-        throw new BadRequestException('One or more students do not belong to this school');
+        throw new BadRequestException(
+          'One or more students do not belong to this school',
+        );
       }
     }
 
@@ -281,8 +298,7 @@ export class ExamsService {
       where: { id: examSubjectId, exam: { schoolId: validSchoolId } },
       include: { exam: true, subject: { select: { name: true } } },
     });
-    if (!es)
-      throw new NotFoundException('Exam subject not found');
+    if (!es) throw new NotFoundException('Exam subject not found');
 
     const marks = await this.prisma.studentMark.findMany({
       where: { examSubjectId },
@@ -460,13 +476,17 @@ export class ExamsService {
     if (!requestingUser) return;
     const { id: userId, role } = requestingUser;
 
-    if (['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER'].includes(role)) {
+    if (
+      ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER'].includes(role)
+    ) {
       return;
     }
 
     if (role === 'STUDENT') {
       if (student.userId !== userId) {
-        throw new ForbiddenException('You can only view your own academic records');
+        throw new ForbiddenException(
+          'You can only view your own academic records',
+        );
       }
       return;
     }
@@ -479,14 +499,13 @@ export class ExamsService {
       const guardian = await this.prisma.guardian.findFirst({
         where: {
           studentId: student.id,
-          OR: [
-            { userId },
-            ...(user?.email ? [{ email: user.email }] : []),
-          ],
+          OR: [{ userId }, ...(user?.email ? [{ email: user.email }] : [])],
         },
       });
       if (!guardian) {
-        throw new ForbiddenException('You are not authorized to view this student\'s academic records');
+        throw new ForbiddenException(
+          "You are not authorized to view this student's academic records",
+        );
       }
       return;
     }
@@ -668,7 +687,9 @@ export class ExamsService {
         examSubject: {
           include: {
             subject: { select: { name: true } },
-            exam: { select: { id: true, name: true, examType: true, startDate: true } },
+            exam: {
+              select: { id: true, name: true, examType: true, startDate: true },
+            },
           },
         },
       },

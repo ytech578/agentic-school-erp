@@ -85,7 +85,10 @@ export class FeesController {
     @Request() req: any,
     @Query('academicYearId') academicYearId: string,
   ) {
-    return this.feesService.getCashFlowAnalytics(req.user.schoolId, academicYearId);
+    return this.feesService.getCashFlowAnalytics(
+      req.user.schoolId,
+      academicYearId,
+    );
   }
 
   @Get('defaulters')
@@ -94,7 +97,10 @@ export class FeesController {
     @Request() req: any,
     @Query('academicYearId') academicYearId: string,
   ) {
-    return this.feesService.predictDefaulters(req.user.schoolId, academicYearId);
+    return this.feesService.predictDefaulters(
+      req.user.schoolId,
+      academicYearId,
+    );
   }
 
   @Get('parent/dues')
@@ -107,16 +113,27 @@ export class FeesController {
   @Roles('PARENT')
   processParentPayment(
     @Request() req: any,
-    @Body() data: { studentId: string; amount: number; paymentMode: string; transactionRef?: string },
+    @Body()
+    data: {
+      studentId: string;
+      amount: number;
+      paymentMode: string;
+      transactionRef?: string;
+    },
   ) {
-    return this.feesService.processParentPayment(req.user.schoolId, req.user.id, data);
+    return this.feesService.processParentPayment(
+      req.user.schoolId,
+      req.user.id,
+      data,
+    );
   }
 
   @Post('orders/create')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'PARENT', 'STUDENT')
   createOrder(
     @Request() req: any,
-    @Body() data: { studentId: string; amount: number; academicYearId?: string },
+    @Body()
+    data: { studentId: string; amount: number; academicYearId?: string },
   ) {
     return this.feesService.createRazorpayOrder(
       req.user.schoolId,
@@ -130,7 +147,8 @@ export class FeesController {
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'PARENT', 'STUDENT')
   verifyPayment(
     @Request() req: any,
-    @Body() data: {
+    @Body()
+    data: {
       orderId: string;
       paymentId: string;
       signature: string;
@@ -148,9 +166,19 @@ export class FeesController {
   }
 
   @Get('settings/payment')
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'PARENT', 'STUDENT')
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'PARENT',
+    'STUDENT',
+  )
   getPaymentSettings(@Request() req: any) {
-    return this.feesService.getPaymentSettings(req.user.schoolId, req.user.role);
+    return this.feesService.getPaymentSettings(
+      req.user.schoolId,
+      req.user.role,
+    );
   }
 
   @Put('settings/payment')
@@ -181,7 +209,14 @@ export class FeesController {
   }
 
   @Get('receipts/:id')
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'PARENT', 'STUDENT')
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'PARENT',
+    'STUDENT',
+  )
   getReceiptDetails(@Request() req: any, @Param('id') id: string) {
     return this.feesService.getReceiptDetails(req.user.schoolId, id);
   }

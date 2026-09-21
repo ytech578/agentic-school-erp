@@ -35,7 +35,9 @@ describe('AgentToolDispatcher', () => {
   describe('registration', () => {
     it('initializes with injected handlers', () => {
       expect(dispatcher.hasHandler(ToolHandlerKey.APPROVE_LEAVE)).toBe(true);
-      expect(dispatcher.getHandler(ToolHandlerKey.APPROVE_LEAVE)).toBe(mockHandler);
+      expect(dispatcher.getHandler(ToolHandlerKey.APPROVE_LEAVE)).toBe(
+        mockHandler,
+      );
     });
 
     it('allows registering a new handler dynamically', () => {
@@ -44,7 +46,9 @@ describe('AgentToolDispatcher', () => {
         execute: jest.fn(),
       };
       dispatcher.register(dynamicHandler);
-      expect(dispatcher.hasHandler(ToolHandlerKey.CREATE_ASSIGNMENT)).toBe(true);
+      expect(dispatcher.hasHandler(ToolHandlerKey.CREATE_ASSIGNMENT)).toBe(
+        true,
+      );
     });
 
     it('throws error when registering handler with duplicate key', () => {
@@ -79,19 +83,11 @@ describe('AgentToolDispatcher', () => {
 
     it('throws NotFoundException with ACTION_HANDLER_NOT_FOUND for unregistered key', async () => {
       await expect(
-        dispatcher.dispatch(
-          'non_existent_key' as any,
-          mockContext,
-          {},
-        ),
+        dispatcher.dispatch('non_existent_key' as any, mockContext, {}),
       ).rejects.toThrow(NotFoundException);
 
       await expect(
-        dispatcher.dispatch(
-          'non_existent_key' as any,
-          mockContext,
-          {},
-        ),
+        dispatcher.dispatch('non_existent_key' as any, mockContext, {}),
       ).rejects.toThrow(
         expect.objectContaining({
           message: expect.stringContaining(
@@ -104,16 +100,16 @@ describe('AgentToolDispatcher', () => {
     it('propagates handler exceptions without swallowing or converting to generic success', async () => {
       const failingHandler: AgentToolHandler = {
         key: ToolHandlerKey.SEND_ANNOUNCEMENT,
-        execute: jest.fn().mockRejectedValue(new Error('Domain network failure')),
+        execute: jest
+          .fn()
+          .mockRejectedValue(new Error('Domain network failure')),
       };
       dispatcher.register(failingHandler);
 
       await expect(
-        dispatcher.dispatch(
-          ToolHandlerKey.SEND_ANNOUNCEMENT,
-          mockContext,
-          { title: 'Test' },
-        ),
+        dispatcher.dispatch(ToolHandlerKey.SEND_ANNOUNCEMENT, mockContext, {
+          title: 'Test',
+        }),
       ).rejects.toThrow('Domain network failure');
     });
   });
@@ -156,12 +152,7 @@ describe('AgentToolDispatcher', () => {
 
     it('throws NotFoundException when verifying an unknown handler', async () => {
       await expect(
-        dispatcher.verify(
-          'unknown_key' as any,
-          mockContext,
-          {},
-          {},
-        ),
+        dispatcher.verify('unknown_key' as any, mockContext, {}, {}),
       ).rejects.toThrow(NotFoundException);
     });
   });

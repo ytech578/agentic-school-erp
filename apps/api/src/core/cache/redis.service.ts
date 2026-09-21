@@ -23,7 +23,10 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   constructor(private readonly config: ConfigService) {}
 
   onModuleInit() {
-    const redisUrl = this.config.get<string>('redis.url', 'redis://localhost:6379');
+    const redisUrl = this.config.get<string>(
+      'redis.url',
+      'redis://localhost:6379',
+    );
     const password = this.config.get<string>('redis.password');
 
     try {
@@ -48,7 +51,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
       this.client.on('error', (err) => {
         if (this.isConnected) {
-          this.logger.warn(`Redis disconnected: ${err.message}. Engaging circuit-breaker memory fallback.`);
+          this.logger.warn(
+            `Redis disconnected: ${err.message}. Engaging circuit-breaker memory fallback.`,
+          );
         }
         this.isConnected = false;
       });
@@ -58,7 +63,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       });
     } catch (err: any) {
       this.isConnected = false;
-      this.logger.warn(`Failed to initialize Redis client: ${err.message}. Operating in resilient memory mode.`);
+      this.logger.warn(
+        `Failed to initialize Redis client: ${err.message}. Operating in resilient memory mode.`,
+      );
     }
   }
 
@@ -77,7 +84,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       try {
         return await this.client.get(key);
       } catch (err: any) {
-        this.logger.warn(`Redis GET failed for "${key}", checking memory fallback: ${err.message}`);
+        this.logger.warn(
+          `Redis GET failed for "${key}", checking memory fallback: ${err.message}`,
+        );
       }
     }
 
@@ -101,7 +110,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         }
         return;
       } catch (err: any) {
-        this.logger.warn(`Redis SET failed for "${key}", writing to memory fallback: ${err.message}`);
+        this.logger.warn(
+          `Redis SET failed for "${key}", writing to memory fallback: ${err.message}`,
+        );
       }
     }
 
@@ -111,7 +122,8 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       if (oldestKey) this.fallbackStore.delete(oldestKey);
     }
 
-    const expiresAt = ttlSeconds && ttlSeconds > 0 ? Date.now() + ttlSeconds * 1000 : null;
+    const expiresAt =
+      ttlSeconds && ttlSeconds > 0 ? Date.now() + ttlSeconds * 1000 : null;
     this.fallbackStore.set(key, { value, expiresAt });
   }
 

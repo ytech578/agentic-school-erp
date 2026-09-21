@@ -11,7 +11,12 @@ import { AuditAction } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 
 const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-const EXCLUDED_PATHS = ['/auth/login', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password'];
+const EXCLUDED_PATHS = [
+  '/auth/login',
+  '/auth/refresh',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+];
 
 @Injectable()
 export class AuditLogInterceptor implements NestInterceptor {
@@ -46,10 +51,13 @@ export class AuditLogInterceptor implements NestInterceptor {
             const controllerName =
               context.getClass()?.name?.replace(/Controller$/, '') || 'System';
             const resourceId = request.params?.id || request.body?.id || null;
-            const schoolId = user.schoolId || request.headers['x-school-id'] || null;
+            const schoolId =
+              user.schoolId || request.headers['x-school-id'] || null;
 
             // Sanitize payload: strip passwords, secrets, tokens
-            const sanitizedAfter = this.sanitizeData(responseBody?.data ?? responseBody);
+            const sanitizedAfter = this.sanitizeData(
+              responseBody?.data ?? responseBody,
+            );
 
             await this.prisma.activityLog.create({
               data: {
@@ -60,13 +68,23 @@ export class AuditLogInterceptor implements NestInterceptor {
                 resourceId: resourceId ? String(resourceId) : null,
                 resourceType: controllerName,
                 description: `${request.method} ${request.route?.path || url} executed by ${user.role || 'USER'}`,
-                ipAddress: (request.ip || request.headers['x-forwarded-for'] || '').toString().slice(0, 45),
+                ipAddress: (
+                  request.ip ||
+                  request.headers['x-forwarded-for'] ||
+                  ''
+                )
+                  .toString()
+                  .slice(0, 45),
                 userAgent: (request.headers['user-agent'] || '').slice(0, 255),
-                after: sanitizedAfter ? JSON.parse(JSON.stringify(sanitizedAfter)) : null,
+                after: sanitizedAfter
+                  ? JSON.parse(JSON.stringify(sanitizedAfter))
+                  : null,
               },
             });
           } catch (err: any) {
-            this.logger.warn(`Failed to record audit activity log: ${err?.message}`);
+            this.logger.warn(
+              `Failed to record audit activity log: ${err?.message}`,
+            );
           }
         },
       }),
@@ -75,9 +93,19 @@ export class AuditLogInterceptor implements NestInterceptor {
 
   private sanitizeData(data: any): any {
     if (!data || typeof data !== 'object') return null;
-    const sensitiveKeys = new Set(['password', 'passwordHash', 'token', 'refreshToken', 'secret', 'twoFactorSecret']);
+    const sensitiveKeys = new Set([
+      'password',
+      'passwordHash',
+      'token',
+      'refreshToken',
+      'secret',
+      'twoFactorSecret',
+    ]);
     if (Array.isArray(data)) {
-      return { count: data.length, sample: data.slice(0, 2).map((item) => this.sanitizeData(item)) };
+      return {
+        count: data.length,
+        sample: data.slice(0, 2).map((item) => this.sanitizeData(item)),
+      };
     }
     const sanitized: Record<string, any> = {};
     for (const [key, value] of Object.entries(data)) {

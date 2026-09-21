@@ -57,10 +57,15 @@ async function bootstrap() {
       // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
       if (!origin) return callback(null, true);
       // In development, allow localhost or 127.0.0.1 on any port (3000, 3001, etc.)
-      if (!isProduction && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      if (
+        !isProduction &&
+        /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+      ) {
         return callback(null, true);
       }
-      const allowedOrigins = Array.isArray(corsOrigin) ? corsOrigin : [corsOrigin];
+      const allowedOrigins = Array.isArray(corsOrigin)
+        ? corsOrigin
+        : [corsOrigin];
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }

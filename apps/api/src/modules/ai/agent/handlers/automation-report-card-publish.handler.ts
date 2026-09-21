@@ -9,9 +9,10 @@ import {
 import { AgentToolHandler } from './agent-tool-handler.interface';
 
 @Injectable()
-export class AutomationReportCardPublishHandler
-  implements AgentToolHandler<AutomationInput, AgentHandlerResult>
-{
+export class AutomationReportCardPublishHandler implements AgentToolHandler<
+  AutomationInput,
+  AgentHandlerResult
+> {
   readonly key = ToolHandlerKey.AUTOMATION_REPORT_CARD_PUBLISH;
 
   constructor(private readonly prisma: PrismaService) {}

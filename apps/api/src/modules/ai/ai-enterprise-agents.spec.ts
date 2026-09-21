@@ -12,15 +12,25 @@ describe('AIService Enterprise Agents (Question Paper, MTSS Retention, Helpdesk,
   beforeEach(async () => {
     prisma = {
       school: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'school-1', name: 'Delhi Public Academy', code: 'DPA' }),
-        findFirst: jest.fn().mockResolvedValue({ id: 'school-1', name: 'Delhi Public Academy' }),
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'school-1',
+          name: 'Delhi Public Academy',
+          code: 'DPA',
+        }),
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ id: 'school-1', name: 'Delhi Public Academy' }),
       },
       student: {
         findMany: jest.fn(),
         findFirst: jest.fn(),
       },
       academicYear: {
-        findFirst: jest.fn().mockResolvedValue({ id: 'ay-2026', name: '2026-2027', isCurrent: true }),
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'ay-2026',
+          name: '2026-2027',
+          isCurrent: true,
+        }),
       },
       admissionEnquiry: {
         create: jest.fn().mockResolvedValue({ id: 'enq-101', status: 'NEW' }),
@@ -34,12 +44,16 @@ describe('AIService Enterprise Agents (Question Paper, MTSS Retention, Helpdesk,
         {
           provide: ConfigService,
           useValue: {
-            get: jest.fn().mockImplementation((key: string, defaultValue?: any) => defaultValue || ''),
+            get: jest
+              .fn()
+              .mockImplementation(
+                (key: string, defaultValue?: any) => defaultValue || '',
+              ),
           },
         },
-        { 
-          provide: AgentControlPlaneService, 
-          useValue: { proposeAction: jest.fn(), confirmAndExecute: jest.fn() } 
+        {
+          provide: AgentControlPlaneService,
+          useValue: { proposeAction: jest.fn(), confirmAndExecute: jest.fn() },
         },
       ],
     }).compile();
@@ -75,11 +89,15 @@ describe('AIService Enterprise Agents (Question Paper, MTSS Retention, Helpdesk,
 
       expect(paper).toBeDefined();
       expect(paper).toContain('DELHI PUBLIC ACADEMY');
-      expect(paper).toContain('SECTION A: Objective & Multiple Choice Questions');
+      expect(paper).toContain(
+        'SECTION A: Objective & Multiple Choice Questions',
+      );
       expect(paper).toContain('SECTION B: Short Answer Questions');
       expect(paper).toContain('SECTION C: Short Answer Questions');
       expect(paper).toContain('SECTION D: Long Answer Questions');
-      expect(paper).toContain('SECTION E: Case-Study / Competency-Based Assessment');
+      expect(paper).toContain(
+        'SECTION E: Case-Study / Competency-Based Assessment',
+      );
       expect(paper).toContain('STEP-BY-STEP MARKING SCHEME & ANSWER KEY');
       expect(paper).toContain('[Remembering]');
       expect(paper).toContain('[Applying]');
@@ -92,7 +110,11 @@ describe('AIService Enterprise Agents (Question Paper, MTSS Retention, Helpdesk,
         {
           id: 'student-risk-1',
           admissionNumber: 'ADM-1001',
-          user: { firstName: 'Rohan', lastName: 'Verma', email: 'rohan@example.com' },
+          user: {
+            firstName: 'Rohan',
+            lastName: 'Verma',
+            email: 'rohan@example.com',
+          },
           enrollments: [{ section: { class: { name: 'Class 9' }, name: 'A' } }],
           attendance: [
             { status: 'ABSENT' },
@@ -101,8 +123,16 @@ describe('AIService Enterprise Agents (Question Paper, MTSS Retention, Helpdesk,
             { status: 'ABSENT' },
           ], // 25% attendance -> < 75% (+35 pts)
           marks: [
-            { marksObtained: 28, isAbsent: false, examSubject: { maxMarks: 100, subject: { name: 'Math' } } },
-            { marksObtained: 32, isAbsent: false, examSubject: { maxMarks: 100, subject: { name: 'Science' } } },
+            {
+              marksObtained: 28,
+              isAbsent: false,
+              examSubject: { maxMarks: 100, subject: { name: 'Math' } },
+            },
+            {
+              marksObtained: 32,
+              isAbsent: false,
+              examSubject: { maxMarks: 100, subject: { name: 'Science' } },
+            },
           ], // avg 30% -> < 40% (+35 pts)
           feePayments: [{ totalAmount: 12000, paymentStatus: 'PENDING' }], // +15 pts
           assignmentSubmissions: [{ id: 'sub-1' }, { id: 'sub-2' }], // 2 pending -> +15 pts
@@ -110,11 +140,25 @@ describe('AIService Enterprise Agents (Question Paper, MTSS Retention, Helpdesk,
         {
           id: 'student-good-2',
           admissionNumber: 'ADM-1002',
-          user: { firstName: 'Priya', lastName: 'Nair', email: 'priya@example.com' },
-          enrollments: [{ section: { class: { name: 'Class 10' }, name: 'B' } }],
-          attendance: [{ status: 'PRESENT' }, { status: 'PRESENT' }, { status: 'PRESENT' }],
+          user: {
+            firstName: 'Priya',
+            lastName: 'Nair',
+            email: 'priya@example.com',
+          },
+          enrollments: [
+            { section: { class: { name: 'Class 10' }, name: 'B' } },
+          ],
+          attendance: [
+            { status: 'PRESENT' },
+            { status: 'PRESENT' },
+            { status: 'PRESENT' },
+          ],
           marks: [
-            { marksObtained: 85, isAbsent: false, examSubject: { maxMarks: 100, subject: { name: 'Math' } } },
+            {
+              marksObtained: 85,
+              isAbsent: false,
+              examSubject: { maxMarks: 100, subject: { name: 'Math' } },
+            },
           ],
           feePayments: [],
           assignmentSubmissions: [],
@@ -126,7 +170,9 @@ describe('AIService Enterprise Agents (Question Paper, MTSS Retention, Helpdesk,
       expect(res.summary.totalAssessed).toBe(2);
       expect(res.summary.criticalCount).toBeGreaterThanOrEqual(1);
 
-      const highRiskStudent = res.students.find((s) => s.id === 'student-risk-1');
+      const highRiskStudent = res.students.find(
+        (s) => s.id === 'student-risk-1',
+      );
       expect(highRiskStudent).toBeDefined();
       expect(highRiskStudent?.riskLevel).toBe('CRITICAL');
       expect(highRiskStudent?.riskScore).toBe(100);
@@ -137,19 +183,38 @@ describe('AIService Enterprise Agents (Question Paper, MTSS Retention, Helpdesk,
       prisma.student.findFirst.mockResolvedValue({
         id: 'student-1',
         admissionNumber: 'ADM-0042',
-        user: { firstName: 'Aarav', lastName: 'Gupta', email: 'aarav@example.com' },
+        user: {
+          firstName: 'Aarav',
+          lastName: 'Gupta',
+          email: 'aarav@example.com',
+        },
         enrollments: [{ section: { class: { name: 'Class 8' }, name: 'B' } }],
         attendance: [{ status: 'ABSENT' }],
-        marks: [{ marksObtained: 35, isAbsent: false, examSubject: { maxMarks: 100, subject: { name: 'Math' } } }],
+        marks: [
+          {
+            marksObtained: 35,
+            isAbsent: false,
+            examSubject: { maxMarks: 100, subject: { name: 'Math' } },
+          },
+        ],
       });
 
-      const res = await service.generateStudentInterventionPlan('school-1', 'student-1');
+      const res = await service.generateStudentInterventionPlan(
+        'school-1',
+        'student-1',
+      );
 
       expect(res.studentName).toBe('Aarav Gupta');
-      expect(res.plan).toContain('Multi-Tiered System of Supports (MTSS) Intervention Plan');
+      expect(res.plan).toContain(
+        'Multi-Tiered System of Supports (MTSS) Intervention Plan',
+      );
       expect(res.plan).toContain('Tier 1: Universal Classroom Adaptations');
-      expect(res.plan).toContain('Tier 2: Targeted Remedial & Small-Group Support');
-      expect(res.plan).toContain('Tier 3: Intensive Pastoral & Family Alignment');
+      expect(res.plan).toContain(
+        'Tier 2: Targeted Remedial & Small-Group Support',
+      );
+      expect(res.plan).toContain(
+        'Tier 3: Intensive Pastoral & Family Alignment',
+      );
       expect(res.plan).toContain('30-Day Milestone Checkpoints');
     });
   });
@@ -167,7 +232,8 @@ describe('AIService Enterprise Agents (Question Paper, MTSS Retention, Helpdesk,
 
     it('should automatically capture leads when phone number is provided in English', async () => {
       const res = await service.chatHelpdesk('school-1', {
-        message: 'I want to schedule a campus tour for Class 6. My name is Rajesh Kumar, phone: 9876543210',
+        message:
+          'I want to schedule a campus tour for Class 6. My name is Rajesh Kumar, phone: 9876543210',
         language: 'English',
       });
 
@@ -184,8 +250,16 @@ describe('AIService Enterprise Agents (Question Paper, MTSS Retention, Helpdesk,
         user: { firstName: 'Kavya', lastName: 'Reddy' },
         enrollments: [{ section: { class: { name: 'Class 9' } } }],
         marks: [
-          { marksObtained: 42, isAbsent: false, examSubject: { maxMarks: 100, subject: { name: 'Mathematics' } } },
-          { marksObtained: 88, isAbsent: false, examSubject: { maxMarks: 100, subject: { name: 'English' } } },
+          {
+            marksObtained: 42,
+            isAbsent: false,
+            examSubject: { maxMarks: 100, subject: { name: 'Mathematics' } },
+          },
+          {
+            marksObtained: 88,
+            isAbsent: false,
+            examSubject: { maxMarks: 100, subject: { name: 'English' } },
+          },
         ],
       });
 
@@ -198,7 +272,12 @@ describe('AIService Enterprise Agents (Question Paper, MTSS Retention, Helpdesk,
     });
 
     it('should generate targeted adaptive diagnostic questions for a topic', async () => {
-      const res = await service.generateAdaptivePractice('school-1', 'user-1', 'Mathematics', 'Quadratic Equations');
+      const res = await service.generateAdaptivePractice(
+        'school-1',
+        'user-1',
+        'Mathematics',
+        'Quadratic Equations',
+      );
 
       expect(res.subject).toBe('Mathematics');
       expect(res.topic).toBe('Quadratic Equations');

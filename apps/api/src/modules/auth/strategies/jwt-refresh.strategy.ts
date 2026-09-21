@@ -20,7 +20,7 @@ export class JwtRefreshStrategy extends PassportStrategy(
       jwtFromRequest: (req: Request) => {
         const cookieToken = req.cookies?.['refresh_token'];
         if (cookieToken) return cookieToken;
-        const bodyToken = (req.body as any)?.refreshToken;
+        const bodyToken = req.body?.refreshToken;
         if (bodyToken && typeof bodyToken === 'string') return bodyToken;
         const headerToken = req.headers['x-refresh-token'];
         if (typeof headerToken === 'string' && headerToken) return headerToken;
@@ -36,7 +36,7 @@ export class JwtRefreshStrategy extends PassportStrategy(
     const cookies = req.cookies as Record<string, unknown> | undefined;
     const refreshToken =
       cookies?.['refresh_token'] ||
-      (req.body as any)?.refreshToken ||
+      req.body?.refreshToken ||
       (req.headers['x-refresh-token'] as string);
 
     if (typeof refreshToken !== 'string' || !refreshToken) {

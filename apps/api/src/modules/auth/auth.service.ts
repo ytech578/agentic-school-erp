@@ -207,9 +207,11 @@ export class AuthService {
 
   // ─── Forgot Password ─────────────────────────────────────────────────────
 
-  async forgotPassword(
-    email: string,
-  ): Promise<{ devSimulation?: boolean; resetToken?: string; resetUrl?: string } | null> {
+  async forgotPassword(email: string): Promise<{
+    devSimulation?: boolean;
+    resetToken?: string;
+    resetUrl?: string;
+  } | null> {
     const user = await this.prisma.user.findUnique({
       where: { email: email.toLowerCase() },
     });
@@ -324,7 +326,10 @@ export class AuthService {
         },
         {
           secret: this.config.getOrThrow<string>('jwt.refreshSecret'),
-          expiresIn: this.config.get<string>('jwt.refreshExpiresIn', '7d') as any,
+          expiresIn: this.config.get<string>(
+            'jwt.refreshExpiresIn',
+            '7d',
+          ) as any,
         },
       ),
     ]);

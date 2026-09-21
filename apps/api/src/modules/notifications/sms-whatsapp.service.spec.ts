@@ -15,7 +15,10 @@ describe('SmsWhatsAppService - Multi-Channel Dispatch (Part 2)', () => {
   });
 
   it('dispatches simulated SMS and returns tracking messageId', async () => {
-    const result = await service.sendSMS('+919876543210', 'Dear parent, your ward was marked absent today.');
+    const result = await service.sendSMS(
+      '+919876543210',
+      'Dear parent, your ward was marked absent today.',
+    );
 
     expect(result.success).toBe(true);
     expect(result.channel).toBe('SMS');

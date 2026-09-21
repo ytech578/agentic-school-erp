@@ -1,4 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { MarkAttendanceInput } from '@school-erp/shared';
 import { AttendanceStatus, AttendanceMethod } from '@prisma/client';
@@ -97,7 +102,8 @@ export class AttendanceService {
 
     // Prevent non-admin teachers from modifying attendance older than 7 days
     const now = new Date();
-    const diffDays = (now.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24);
+    const diffDays =
+      (now.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24);
     if (userRole === 'TEACHER' && diffDays > 7) {
       throw new ForbiddenException(
         'Teachers cannot modify attendance records older than 7 days. Please contact an administrator.',
@@ -120,7 +126,9 @@ export class AttendanceService {
         select: { id: true },
       });
       if (students.length !== studentIds.length) {
-        throw new BadRequestException('One or more students do not belong to this school');
+        throw new BadRequestException(
+          'One or more students do not belong to this school',
+        );
       }
     }
 
@@ -136,7 +144,7 @@ export class AttendanceService {
             },
           },
           update: {
-            status: record.status as AttendanceStatus,
+            status: record.status,
             remarks: record.remarks,
             markedById: userId,
           },
@@ -145,7 +153,7 @@ export class AttendanceService {
             studentId: record.studentId,
             sectionId: data.sectionId,
             date: targetDate,
-            status: record.status as AttendanceStatus,
+            status: record.status,
             method: AttendanceMethod.MANUAL,
             remarks: record.remarks,
             markedById: userId,
@@ -170,7 +178,9 @@ export class AttendanceService {
     schoolId?: string;
   }) {
     if (!input.deviceId || !input.cardId) {
-      throw new BadRequestException('deviceId and cardId are required parameters');
+      throw new BadRequestException(
+        'deviceId and cardId are required parameters',
+      );
     }
 
     const punchTime = input.timestamp ? new Date(input.timestamp) : new Date();
@@ -178,12 +188,18 @@ export class AttendanceService {
       throw new BadRequestException('Invalid timestamp format');
     }
 
-    const punchDate = new Date(punchTime.getFullYear(), punchTime.getMonth(), punchTime.getDate());
+    const punchDate = new Date(
+      punchTime.getFullYear(),
+      punchTime.getMonth(),
+      punchTime.getDate(),
+    );
     const isBiometric =
       input.deviceId.toLowerCase().includes('bio') ||
       input.deviceId.toLowerCase().includes('finger') ||
       input.deviceId.toLowerCase().includes('face');
-    const method = isBiometric ? AttendanceMethod.BIOMETRIC : AttendanceMethod.RFID;
+    const method = isBiometric
+      ? AttendanceMethod.BIOMETRIC
+      : AttendanceMethod.RFID;
 
     // 1. Check if card matches a Student (by admissionNumber, aadhaarNumber, or student id)
     const student = await this.prisma.student.findFirst({
@@ -208,7 +224,9 @@ export class AttendanceService {
     if (student) {
       const sectionId = student.enrollments[0]?.sectionId;
       if (!sectionId) {
-        throw new BadRequestException(`Student ${student.admissionNumber} has no active section enrollment`);
+        throw new BadRequestException(
+          `Student ${student.admissionNumber} has no active section enrollment`,
+        );
       }
 
       const record = await this.prisma.attendanceRecord.upsert({
@@ -301,6 +319,8 @@ export class AttendanceService {
       };
     }
 
-    throw new NotFoundException(`Unregistered card/credential '${input.cardId}' on device '${input.deviceId}'`);
+    throw new NotFoundException(
+      `Unregistered card/credential '${input.cardId}' on device '${input.deviceId}'`,
+    );
   }
 }

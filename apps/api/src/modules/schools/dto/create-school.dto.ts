@@ -9,26 +9,39 @@ import {
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateSchoolDto {
-  @ApiProperty({ description: 'Official Name of the School', example: 'Delhi Public School' })
+  @ApiProperty({
+    description: 'Official Name of the School',
+    example: 'Delhi Public School',
+  })
   @IsString()
   @IsNotEmpty()
   name: string;
 
-  @ApiProperty({ description: 'Unique School Code identifier (alphanumeric)', example: 'DPS-DEL-01' })
+  @ApiProperty({
+    description: 'Unique School Code identifier (alphanumeric)',
+    example: 'DPS-DEL-01',
+  })
   @IsString()
   @IsNotEmpty()
   @Length(2, 30)
   @Matches(/^[A-Za-z0-9_-]+$/, {
-    message: 'School code must be alphanumeric with optional dashes or underscores',
+    message:
+      'School code must be alphanumeric with optional dashes or underscores',
   })
   code: string;
 
-  @ApiPropertyOptional({ description: 'Educational Board Type', example: 'CBSE' })
+  @ApiPropertyOptional({
+    description: 'Educational Board Type',
+    example: 'CBSE',
+  })
   @IsString()
   @IsOptional()
   boardType?: string;
 
-  @ApiPropertyOptional({ description: 'Board Affiliation Number', example: 'CBSE/AFF/2026/0991' })
+  @ApiPropertyOptional({
+    description: 'Board Affiliation Number',
+    example: 'CBSE/AFF/2026/0991',
+  })
   @IsString()
   @IsOptional()
   affiliationNo?: string;
@@ -38,27 +51,42 @@ export class CreateSchoolDto {
   @IsOptional()
   udiseCode?: string;
 
-  @ApiPropertyOptional({ description: 'Name of the Head of School / Principal', example: 'Dr. Ramesh Sharma' })
+  @ApiPropertyOptional({
+    description: 'Name of the Head of School / Principal',
+    example: 'Dr. Ramesh Sharma',
+  })
   @IsString()
   @IsOptional()
   principalName?: string;
 
-  @ApiPropertyOptional({ description: 'Official Phone Number', example: '+91 9876543210' })
+  @ApiPropertyOptional({
+    description: 'Official Phone Number',
+    example: '+91 9876543210',
+  })
   @IsString()
   @IsOptional()
   phone?: string;
 
-  @ApiPropertyOptional({ description: 'Official Email Address', example: 'admin@dpscampus.edu' })
+  @ApiPropertyOptional({
+    description: 'Official Email Address',
+    example: 'admin@dpscampus.edu',
+  })
   @IsEmail()
   @IsOptional()
   email?: string;
 
-  @ApiPropertyOptional({ description: 'Official Website URL', example: 'https://dpscampus.edu' })
+  @ApiPropertyOptional({
+    description: 'Official Website URL',
+    example: 'https://dpscampus.edu',
+  })
   @IsString()
   @IsOptional()
   website?: string;
 
-  @ApiPropertyOptional({ description: 'Campus Street Address', example: 'Plot 42, Knowledge Park' })
+  @ApiPropertyOptional({
+    description: 'Campus Street Address',
+    example: 'Plot 42, Knowledge Park',
+  })
   @IsString()
   @IsOptional()
   address?: string;
@@ -78,28 +106,43 @@ export class CreateSchoolDto {
   @IsOptional()
   pinCode?: string;
 
-  @ApiPropertyOptional({ description: 'Name of initial active academic year', example: '2026-2027' })
+  @ApiPropertyOptional({
+    description: 'Name of initial active academic year',
+    example: '2026-2027',
+  })
   @IsString()
   @IsOptional()
   academicYearName?: string;
 
   // Optional initial school admin account setup
-  @ApiPropertyOptional({ description: 'First name for initial school administrator', example: 'Sunita' })
+  @ApiPropertyOptional({
+    description: 'First name for initial school administrator',
+    example: 'Sunita',
+  })
   @IsString()
   @IsOptional()
   adminFirstName?: string;
 
-  @ApiPropertyOptional({ description: 'Last name for initial school administrator', example: 'Mehra' })
+  @ApiPropertyOptional({
+    description: 'Last name for initial school administrator',
+    example: 'Mehra',
+  })
   @IsString()
   @IsOptional()
   adminLastName?: string;
 
-  @ApiPropertyOptional({ description: 'Email for initial school administrator login', example: 'admin.dps@schoolerp.in' })
+  @ApiPropertyOptional({
+    description: 'Email for initial school administrator login',
+    example: 'admin.dps@schoolerp.in',
+  })
   @IsEmail()
   @IsOptional()
   adminEmail?: string;
 
-  @ApiPropertyOptional({ description: 'Password for initial school administrator login', example: 'Admin@12345' })
+  @ApiPropertyOptional({
+    description: 'Password for initial school administrator login',
+    example: 'Admin@12345',
+  })
   @IsString()
   @IsOptional()
   @Length(6, 100)

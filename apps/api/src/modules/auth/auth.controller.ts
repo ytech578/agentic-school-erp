@@ -85,7 +85,7 @@ export class AuthController {
   ) {
     const refreshToken =
       req.cookies?.['refresh_token'] ||
-      (req.body as any)?.refreshToken ||
+      req.body?.refreshToken ||
       (req.headers['x-refresh-token'] as string);
     if (refreshToken) {
       await this.authService.logout(refreshToken, user.sub);
@@ -98,14 +98,16 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtRefreshGuard)
   @ApiCookieAuth()
-  @ApiOperation({ summary: 'Refresh access token using refresh token cookie, body, or header' })
+  @ApiOperation({
+    summary: 'Refresh access token using refresh token cookie, body, or header',
+  })
   async refreshToken(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
     const refreshToken =
       req.cookies?.['refresh_token'] ||
-      (req.body as any)?.refreshToken ||
+      req.body?.refreshToken ||
       (req.headers['x-refresh-token'] as string);
     const ipAddress =
       (req.headers['x-forwarded-for'] as string) || req.ip || '';
@@ -171,7 +173,8 @@ export class AuthController {
       7 * 24 * 60 * 60 * 1000,
     );
     const sameSite = isProduction
-      ? (this.config.get<'lax' | 'none' | 'strict'>('app.cookieSameSite') || 'none')
+      ? this.config.get<'lax' | 'none' | 'strict'>('app.cookieSameSite') ||
+        'none'
       : 'lax';
 
     res.cookie('refresh_token', token, {
@@ -186,7 +189,8 @@ export class AuthController {
   private clearRefreshTokenCookie(res: Response) {
     const isProduction = this.config.get('app.nodeEnv') === 'production';
     const sameSite = isProduction
-      ? (this.config.get<'lax' | 'none' | 'strict'>('app.cookieSameSite') || 'none')
+      ? this.config.get<'lax' | 'none' | 'strict'>('app.cookieSameSite') ||
+        'none'
       : 'lax';
 
     res.clearCookie('refresh_token', {

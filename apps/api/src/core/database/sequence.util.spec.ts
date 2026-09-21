@@ -36,7 +36,12 @@ describe('SequenceUtil (FIX-02)', () => {
     mockTx.admissionApplication.findFirst.mockResolvedValue(null);
     mockTx.systemConfig.upsert.mockResolvedValue({});
 
-    const result = await generateNextSequence(mockPrisma, 'school-1', 'APP', 2026);
+    const result = await generateNextSequence(
+      mockPrisma,
+      'school-1',
+      'APP',
+      2026,
+    );
 
     expect(result).toBe('APP-2026-0005');
     expect(mockTx.systemConfig.upsert).toHaveBeenCalledWith(
@@ -53,7 +58,12 @@ describe('SequenceUtil (FIX-02)', () => {
     mockTx.receipt.findFirst.mockResolvedValue(null);
     mockTx.systemConfig.upsert.mockResolvedValue({});
 
-    const result = await generateNextSequence(mockPrisma, 'school-1', 'RCT', 2026);
+    const result = await generateNextSequence(
+      mockPrisma,
+      'school-1',
+      'RCT',
+      2026,
+    );
 
     expect(result).toBe('RCT-2026-0019');
     expect(mockTx.systemConfig.upsert).toHaveBeenCalledWith(
@@ -71,7 +81,12 @@ describe('SequenceUtil (FIX-02)', () => {
     mockTx.admissionApplication.findFirst.mockResolvedValue(null);
     mockTx.systemConfig.upsert.mockResolvedValue({});
 
-    const result = await generateNextSequence(mockPrisma, 'school-1', 'APP', 2026);
+    const result = await generateNextSequence(
+      mockPrisma,
+      'school-1',
+      'APP',
+      2026,
+    );
 
     expect(result).toBe('APP-2026-0043');
   });
@@ -85,7 +100,12 @@ describe('SequenceUtil (FIX-02)', () => {
       .mockResolvedValueOnce({ id: 'existing-app' })
       .mockResolvedValueOnce(null);
 
-    const result = await generateNextSequence(mockPrisma, 'school-1', 'APP', 2026);
+    const result = await generateNextSequence(
+      mockPrisma,
+      'school-1',
+      'APP',
+      2026,
+    );
 
     expect(result).toBe('APP-2026-0012');
   });

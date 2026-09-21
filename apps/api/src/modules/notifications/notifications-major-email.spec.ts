@@ -11,7 +11,11 @@ describe('NotificationsService - Major Email Filter & Dispatch', () => {
   beforeEach(async () => {
     prisma = {
       notification: {
-        create: jest.fn().mockImplementation((args) => Promise.resolve({ id: 'notif-1', ...args.data })),
+        create: jest
+          .fn()
+          .mockImplementation((args) =>
+            Promise.resolve({ id: 'notif-1', ...args.data }),
+          ),
       },
       user: {
         findUnique: jest.fn(),
@@ -35,30 +39,82 @@ describe('NotificationsService - Major Email Filter & Dispatch', () => {
 
   describe('isMajorNotification filter', () => {
     it('identifies explicit major notifications', () => {
-      expect(service.isMajorNotification('GENERAL', 'Notice', { isMajor: true })).toBe(true);
-      expect(service.isMajorNotification('GENERAL', 'Notice', { isMajor: false })).toBe(false);
+      expect(
+        service.isMajorNotification('GENERAL', 'Notice', { isMajor: true }),
+      ).toBe(true);
+      expect(
+        service.isMajorNotification('GENERAL', 'Notice', { isMajor: false }),
+      ).toBe(false);
     });
 
     it('identifies major categories: HOLIDAY, ANNOUNCEMENT, EMERGENCY, EXAM_SCHEDULE, CIRCULAR, FEE_DUE', () => {
-      expect(service.isMajorNotification('GENERAL', 'Notice', { category: 'HOLIDAY' })).toBe(true);
-      expect(service.isMajorNotification('GENERAL', 'Circular', { category: 'CIRCULAR' })).toBe(true);
-      expect(service.isMajorNotification('GENERAL', 'Advisory', { category: 'EMERGENCY' })).toBe(true);
-      expect(service.isMajorNotification('GENERAL', 'Fee Bill', { category: 'FEE_DUE' })).toBe(true);
+      expect(
+        service.isMajorNotification('GENERAL', 'Notice', {
+          category: 'HOLIDAY',
+        }),
+      ).toBe(true);
+      expect(
+        service.isMajorNotification('GENERAL', 'Circular', {
+          category: 'CIRCULAR',
+        }),
+      ).toBe(true);
+      expect(
+        service.isMajorNotification('GENERAL', 'Advisory', {
+          category: 'EMERGENCY',
+        }),
+      ).toBe(true);
+      expect(
+        service.isMajorNotification('GENERAL', 'Fee Bill', {
+          category: 'FEE_DUE',
+        }),
+      ).toBe(true);
     });
 
     it('identifies EXAM_RESULT as major', () => {
-      expect(service.isMajorNotification('EXAM_RESULT', 'Final Term Marksheet', {})).toBe(true);
+      expect(
+        service.isMajorNotification('EXAM_RESULT', 'Final Term Marksheet', {}),
+      ).toBe(true);
     });
 
     it('identifies major keyword titles (holiday, vacation, closure, circular, urgent)', () => {
-      expect(service.isMajorNotification('GENERAL', 'Independence Day Holiday Notice', {})).toBe(true);
-      expect(service.isMajorNotification('GENERAL', 'Summer Vacation 2026 Guidelines', {})).toBe(true);
-      expect(service.isMajorNotification('GENERAL', 'Urgent advisory regarding heavy rainfall closure', {})).toBe(true);
+      expect(
+        service.isMajorNotification(
+          'GENERAL',
+          'Independence Day Holiday Notice',
+          {},
+        ),
+      ).toBe(true);
+      expect(
+        service.isMajorNotification(
+          'GENERAL',
+          'Summer Vacation 2026 Guidelines',
+          {},
+        ),
+      ).toBe(true);
+      expect(
+        service.isMajorNotification(
+          'GENERAL',
+          'Urgent advisory regarding heavy rainfall closure',
+          {},
+        ),
+      ).toBe(true);
     });
 
     it('classifies routine daily attendance alerts and room shifts as MINOR (false)', () => {
-      expect(service.isMajorNotification('ATTENDANCE_ALERT', 'Student marked Present at 08:05 AM', {})).toBe(false);
-      expect(service.isMajorNotification('GENERAL', 'Physics class room shifted to Room 204', {})).toBe(false);
+      expect(
+        service.isMajorNotification(
+          'ATTENDANCE_ALERT',
+          'Student marked Present at 08:05 AM',
+          {},
+        ),
+      ).toBe(false);
+      expect(
+        service.isMajorNotification(
+          'GENERAL',
+          'Physics class room shifted to Room 204',
+          {},
+        ),
+      ).toBe(false);
     });
   });
 
@@ -86,7 +142,8 @@ describe('NotificationsService - Major Email Filter & Dispatch', () => {
         userId: 'student-user-1',
         type: 'GENERAL',
         title: 'Diwali Holiday Notice 2026',
-        message: 'The school shall remain closed from Oct 28 to Nov 02 for Diwali vacations.',
+        message:
+          'The school shall remain closed from Oct 28 to Nov 02 for Diwali vacations.',
         metadata: {
           category: 'HOLIDAY',
           isMajor: true,

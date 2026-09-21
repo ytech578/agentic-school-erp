@@ -22,7 +22,10 @@ export class AgentStateMachine {
    * Assert that the transition from `from` → `to` is valid.
    * Throws a machine-readable BadRequestException if not.
    */
-  static assertTransition(from: AgentActionStatus, to: AgentActionStatus): void {
+  static assertTransition(
+    from: AgentActionStatus,
+    to: AgentActionStatus,
+  ): void {
     const allowed = ALLOWED_TRANSITIONS[from] ?? [];
     if (!allowed.includes(to)) {
       throw new BadRequestException(
@@ -35,14 +38,18 @@ export class AgentStateMachine {
    * Returns true if the given status is a terminal state.
    */
   static isTerminal(status: AgentActionStatus): boolean {
-    return ['SUCCEEDED', 'FAILED', 'REJECTED', 'EXPIRED', 'CANCELLED'].includes(status);
+    return ['SUCCEEDED', 'FAILED', 'REJECTED', 'EXPIRED', 'CANCELLED'].includes(
+      status,
+    );
   }
 
   /**
    * Returns true if the action can still be confirmed (not expired, not terminal).
    */
   static canConfirm(status: AgentActionStatus): boolean {
-    return status === AgentActionStatus.AWAITING_CONFIRMATION ||
-           status === AgentActionStatus.CONFIRMED;
+    return (
+      status === AgentActionStatus.AWAITING_CONFIRMATION ||
+      status === AgentActionStatus.CONFIRMED
+    );
   }
 }

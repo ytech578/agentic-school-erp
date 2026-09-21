@@ -157,23 +157,27 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         {
           provide: MessagesService,
           useValue: {
-            broadcastAnnouncement: jest.fn().mockImplementation(async (data) => {
-              // Replicate the broadcast message creation for mock Prisma
-              const users = await prisma.user.findMany();
-              const recipients = users.filter((u: any) => u.id !== data.senderId);
-              if (recipients.length > 0) {
-                await prisma.message.createMany({
-                  data: recipients.map((r: any) => ({
-                    schoolId: data.schoolId,
-                    senderId: data.senderId,
-                    recipientId: r.id,
-                    subject: data.subject,
-                    body: data.body,
-                  })),
-                });
-              }
-              return { success: true, sent: recipients.length };
-            }),
+            broadcastAnnouncement: jest
+              .fn()
+              .mockImplementation(async (data) => {
+                // Replicate the broadcast message creation for mock Prisma
+                const users = await prisma.user.findMany();
+                const recipients = users.filter(
+                  (u: any) => u.id !== data.senderId,
+                );
+                if (recipients.length > 0) {
+                  await prisma.message.createMany({
+                    data: recipients.map((r: any) => ({
+                      schoolId: data.schoolId,
+                      senderId: data.senderId,
+                      recipientId: r.id,
+                      subject: data.subject,
+                      body: data.body,
+                    })),
+                  });
+                }
+                return { success: true, sent: recipients.length };
+              }),
             sendMessage: jest.fn(),
           },
         },

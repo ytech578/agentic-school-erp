@@ -50,9 +50,7 @@ describe('StudentsService - calculateRiskScores (Part 1 Issue 2)', () => {
           { status: 'ABSENT' },
           { status: 'ABSENT' },
         ],
-        enrollments: [
-          { section: { classId: 'class-10' } },
-        ],
+        enrollments: [{ section: { classId: 'class-10' } }],
         feePayments: [],
       },
     ]);
@@ -92,12 +90,8 @@ describe('StudentsService - calculateRiskScores (Part 1 Issue 2)', () => {
           { status: 'PRESENT' },
           { status: 'PRESENT' },
         ],
-        enrollments: [
-          { section: { classId: 'class-10' } },
-        ],
-        feePayments: [
-          { paymentStatus: 'PAID', paidAmount: 15000 },
-        ],
+        enrollments: [{ section: { classId: 'class-10' } }],
+        feePayments: [{ paymentStatus: 'PAID', paidAmount: 15000 }],
       },
     ]);
 

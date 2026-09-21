@@ -31,10 +31,15 @@ export class ReportsService {
     const [records, totalStudents] = await Promise.all([
       this.prisma.attendanceRecord.groupBy({
         by: ['status'],
-        where: { schoolId: validSchoolId, date: { gte: startOfDay, lte: endOfDay } },
+        where: {
+          schoolId: validSchoolId,
+          date: { gte: startOfDay, lte: endOfDay },
+        },
         _count: { status: true },
       }),
-      this.prisma.student.count({ where: { schoolId: validSchoolId, isActive: true } }),
+      this.prisma.student.count({
+        where: { schoolId: validSchoolId, isActive: true },
+      }),
     ]);
 
     const summary: Record<string, number> = {
@@ -70,7 +75,11 @@ export class ReportsService {
 
     // Enrollments for this section
     const enrollments = await this.prisma.studentEnrollment.findMany({
-      where: { sectionId, status: 'ACTIVE', section: { class: { schoolId: validSchoolId } } },
+      where: {
+        sectionId,
+        status: 'ACTIVE',
+        section: { class: { schoolId: validSchoolId } },
+      },
       include: {
         student: {
           include: { user: { select: { firstName: true, lastName: true } } },
@@ -80,7 +89,11 @@ export class ReportsService {
 
     // Attendance records for this section in the given month
     const records = await this.prisma.attendanceRecord.findMany({
-      where: { schoolId: validSchoolId, sectionId, date: { gte: startDate, lte: endDate } },
+      where: {
+        schoolId: validSchoolId,
+        sectionId,
+        date: { gte: startDate, lte: endDate },
+      },
     });
 
     // Build lookup: studentId → { day → status }
@@ -142,9 +155,15 @@ export class ReportsService {
     for (const s of students) {
       const [present, total] = await Promise.all([
         this.prisma.attendanceRecord.count({
-          where: { studentId: s.id, schoolId: validSchoolId, status: 'PRESENT' },
+          where: {
+            studentId: s.id,
+            schoolId: validSchoolId,
+            status: 'PRESENT',
+          },
         }),
-        this.prisma.attendanceRecord.count({ where: { studentId: s.id, schoolId: validSchoolId } }),
+        this.prisma.attendanceRecord.count({
+          where: { studentId: s.id, schoolId: validSchoolId },
+        }),
       ]);
       const pct = total > 0 ? (present / total) * 100 : 0;
       if (pct < threshold) {

@@ -28,7 +28,7 @@ export class JwtRefreshGuard extends AuthGuard('jwt-refresh') {
       const req = context.switchToHttp().getRequest<Request>();
       const refreshToken =
         req.cookies?.['refresh_token'] ||
-        (req.body as any)?.refreshToken ||
+        req.body?.refreshToken ||
         (Array.isArray(req.headers['x-refresh-token'])
           ? req.headers['x-refresh-token'][0]
           : req.headers['x-refresh-token']);

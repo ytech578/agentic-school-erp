@@ -8,9 +8,10 @@ import {
 } from '../agent-types';
 import { AgentToolHandler } from './agent-tool-handler.interface';
 
-export abstract class BaseAutomationMessageHandler
-  implements AgentToolHandler<AutomationInput, AgentHandlerResult>
-{
+export abstract class BaseAutomationMessageHandler implements AgentToolHandler<
+  AutomationInput,
+  AgentHandlerResult
+> {
   abstract readonly key: ToolHandlerKey;
 
   constructor(protected readonly prisma: PrismaService) {}

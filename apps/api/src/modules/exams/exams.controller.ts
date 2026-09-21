@@ -67,7 +67,13 @@ export class ExamsController {
   async updateExam(
     @Request() req: any,
     @Param('id') id: string,
-    @Body() body: { name?: string; examType?: string; startDate?: string; endDate?: string },
+    @Body()
+    body: {
+      name?: string;
+      examType?: string;
+      startDate?: string;
+      endDate?: string;
+    },
   ) {
     return this.service.updateExam(req.user.schoolId, id, body);
   }

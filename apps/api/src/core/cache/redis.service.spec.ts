@@ -12,10 +12,13 @@ describe('RedisService & Circuit Breaker (FIX-06)', () => {
         {
           provide: ConfigService,
           useValue: {
-            get: jest.fn().mockImplementation((key: string, defaultVal: any) => {
-              if (key === 'redis.url') return 'redis://invalid-host-for-testing:6379';
-              return defaultVal;
-            }),
+            get: jest
+              .fn()
+              .mockImplementation((key: string, defaultVal: any) => {
+                if (key === 'redis.url')
+                  return 'redis://invalid-host-for-testing:6379';
+                return defaultVal;
+              }),
           },
         },
       ],

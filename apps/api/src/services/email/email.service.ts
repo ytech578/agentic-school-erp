@@ -19,7 +19,9 @@ export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private transporter: nodemailer.Transporter;
 
-  public sentEmailsLog: Array<SendMailOptions & { timestamp: Date; category?: string }> = [];
+  public sentEmailsLog: Array<
+    SendMailOptions & { timestamp: Date; category?: string }
+  > = [];
 
   constructor(private config: ConfigService) {
     this.transporter = nodemailer.createTransport({
@@ -199,7 +201,7 @@ export class EmailService {
   ): string {
     const appUrl = this.config.get('app.appUrl', 'http://localhost:3000');
     const catUpper = (category || 'ANNOUNCEMENT').toUpperCase();
-    
+
     let badgeBg = '#2563eb';
     let badgeText = '📢 OFFICIAL SCHOOL CIRCULAR';
     if (catUpper.includes('HOLIDAY')) {
@@ -217,13 +219,18 @@ export class EmailService {
     }
 
     const actionUrl = metadata?.actionUrl
-      ? (metadata.actionUrl.startsWith('http') ? metadata.actionUrl : `${appUrl}${metadata.actionUrl}`)
+      ? metadata.actionUrl.startsWith('http')
+        ? metadata.actionUrl
+        : `${appUrl}${metadata.actionUrl}`
       : null;
 
     const formattedBody = (body || '')
       .split('\n')
       .filter((p) => p.trim().length > 0)
-      .map((p) => `<p style="color:#334155;line-height:1.7;margin:0 0 14px 0;font-size:15px;">${p}</p>`)
+      .map(
+        (p) =>
+          `<p style="color:#334155;line-height:1.7;margin:0 0 14px 0;font-size:15px;">${p}</p>`,
+      )
       .join('');
 
     return `
@@ -269,11 +276,15 @@ export class EmailService {
                     ${formattedBody}
                   </div>
 
-                  ${actionUrl ? `
+                  ${
+                    actionUrl
+                      ? `
                     <div style="text-align:center;margin:32px 0 24px;">
                       <a href="${actionUrl}" style="display:inline-block;background:linear-gradient(135deg,#1e40af,#2563eb);color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:10px;font-weight:600;font-size:14px;box-shadow:0 4px 14px rgba(37,99,235,0.35);">View in School ERP Portal &rarr;</a>
                     </div>
-                  ` : ''}
+                  `
+                      : ''
+                  }
 
                   <!-- Official Dispatch Disclaimer Box -->
                   <div style="background:#f8fafc;border-left:4px solid ${badgeBg};padding:14px 18px;border-radius:6px;margin-top:24px;">

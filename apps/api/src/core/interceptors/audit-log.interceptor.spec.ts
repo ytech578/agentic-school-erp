@@ -16,7 +16,13 @@ describe('AuditLogInterceptor (E-001)', () => {
     interceptor = new AuditLogInterceptor(mockPrisma);
   });
 
-  const createMockContext = (method: string, url: string, user: any = null, params: any = {}, body: any = {}) => {
+  const createMockContext = (
+    method: string,
+    url: string,
+    user: any = null,
+    params: any = {},
+    body: any = {},
+  ) => {
     const request = {
       method,
       url,
@@ -38,12 +44,17 @@ describe('AuditLogInterceptor (E-001)', () => {
     } as unknown as ExecutionContext;
   };
 
-  const createMockCallHandler = (responseData: any = { success: true }): CallHandler => ({
+  const createMockCallHandler = (
+    responseData: any = { success: true },
+  ): CallHandler => ({
     handle: () => of(responseData),
   });
 
   it('skips logging for GET requests', (done) => {
-    const context = createMockContext('GET', '/api/students', { id: 'user-1', role: 'ADMIN' });
+    const context = createMockContext('GET', '/api/students', {
+      id: 'user-1',
+      role: 'ADMIN',
+    });
     const handler = createMockCallHandler();
 
     interceptor.intercept(context, handler).subscribe({
@@ -67,8 +78,17 @@ describe('AuditLogInterceptor (E-001)', () => {
   });
 
   it('audits authenticated DELETE mutations with AuditAction.DELETE', (done) => {
-    const user = { id: 'user-admin', role: 'SCHOOL_ADMIN', schoolId: 'school-1' };
-    const context = createMockContext('DELETE', '/api/students/stud-123', user, { id: 'stud-123' });
+    const user = {
+      id: 'user-admin',
+      role: 'SCHOOL_ADMIN',
+      schoolId: 'school-1',
+    };
+    const context = createMockContext(
+      'DELETE',
+      '/api/students/stud-123',
+      user,
+      { id: 'stud-123' },
+    );
     const handler = createMockCallHandler({ success: true });
 
     interceptor.intercept(context, handler).subscribe({
@@ -95,8 +115,16 @@ describe('AuditLogInterceptor (E-001)', () => {
 
   it('audits authenticated POST mutations with AuditAction.CREATE', (done) => {
     const user = { id: 'user-teacher', role: 'TEACHER', schoolId: 'school-1' };
-    const context = createMockContext('POST', '/api/assignments', user, {}, { id: 'asgn-456' });
-    const handler = createMockCallHandler({ data: { id: 'asgn-456', title: 'Math Homework' } });
+    const context = createMockContext(
+      'POST',
+      '/api/assignments',
+      user,
+      {},
+      { id: 'asgn-456' },
+    );
+    const handler = createMockCallHandler({
+      data: { id: 'asgn-456', title: 'Math Homework' },
+    });
 
     interceptor.intercept(context, handler).subscribe({
       next: () => {

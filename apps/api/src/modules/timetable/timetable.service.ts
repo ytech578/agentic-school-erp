@@ -36,17 +36,18 @@ export class TimetableService {
     academicYearId?: string,
   ): Promise<string> {
     const validSchoolId = requireSchoolId(schoolId, 'Resolve active year');
-    if (academicYearId && academicYearId !== 'undefined' && academicYearId !== 'null' && academicYearId.trim() !== '') {
+    if (
+      academicYearId &&
+      academicYearId !== 'undefined' &&
+      academicYearId !== 'null' &&
+      academicYearId.trim() !== ''
+    ) {
       const trimmed = academicYearId.trim();
       const normalizedName = trimmed.replace(/^AY[-_]?/i, '');
       const year = await this.prisma.academicYear.findFirst({
         where: {
           schoolId: validSchoolId,
-          OR: [
-            { id: trimmed },
-            { name: trimmed },
-            { name: normalizedName },
-          ],
+          OR: [{ id: trimmed }, { name: trimmed }, { name: normalizedName }],
         },
       });
       if (year) return year.id;
@@ -68,7 +69,10 @@ export class TimetableService {
     query: { classId?: string; sectionId?: string; academicYearId?: string },
   ) {
     const validSchoolId = requireSchoolId(schoolId, 'Get timetable');
-    const ayId = await this.resolveActiveYear(validSchoolId, query.academicYearId);
+    const ayId = await this.resolveActiveYear(
+      validSchoolId,
+      query.academicYearId,
+    );
 
     const where: Prisma.TimetableSlotWhereInput = {
       schoolId: validSchoolId,
@@ -150,7 +154,10 @@ export class TimetableService {
     data: any,
     excludeSlotId?: string,
   ) {
-    const validSchoolId = requireSchoolId(schoolId, 'Check timetable conflicts');
+    const validSchoolId = requireSchoolId(
+      schoolId,
+      'Check timetable conflicts',
+    );
     const { dayOfWeek, startTime, endTime, staffId, roomNumber } = data;
 
     // Convert times to comparable minute offsets from midnight
@@ -200,7 +207,10 @@ export class TimetableService {
 
   async saveSlot(schoolId: string, data: any) {
     const validSchoolId = requireSchoolId(schoolId, 'Save timetable slot');
-    const ayId = await this.resolveActiveYear(validSchoolId, data.academicYearId);
+    const ayId = await this.resolveActiveYear(
+      validSchoolId,
+      data.academicYearId,
+    );
 
     if (data.staffId || data.roomNumber) {
       await this.checkConflicts(validSchoolId, ayId, data, data.id);
@@ -249,7 +259,10 @@ export class TimetableService {
   }
 
   async bulkSaveSlots(schoolId: string, slots: any[]) {
-    const validSchoolId = requireSchoolId(schoolId, 'Bulk save timetable slots');
+    const validSchoolId = requireSchoolId(
+      schoolId,
+      'Bulk save timetable slots',
+    );
     const results = [];
     const errors = [];
 
@@ -274,7 +287,12 @@ export class TimetableService {
     return { success: results.length, errors };
   }
 
-  async autoGenerateTimetable(schoolId: string, classId: string, sectionId: string, academicYearId?: string) {
+  async autoGenerateTimetable(
+    schoolId: string,
+    classId: string,
+    sectionId: string,
+    academicYearId?: string,
+  ) {
     const validSchoolId = requireSchoolId(schoolId, 'Auto generate timetable');
     const ayId = await this.resolveActiveYear(validSchoolId, academicYearId);
 
@@ -283,95 +301,115 @@ export class TimetableService {
     });
 
     if (assignments.length === 0) {
-      throw new ConflictException("No teachers assigned to this section. Assign teachers first in the Class management module.");
+      throw new ConflictException(
+        'No teachers assigned to this section. Assign teachers first in the Class management module.',
+      );
     }
 
-    const classDetails = await this.prisma.class.findFirst({ where: { id: classId, schoolId: validSchoolId } });
-    if (!classDetails) throw new NotFoundException("Class not found");
+    const classDetails = await this.prisma.class.findFirst({
+      where: { id: classId, schoolId: validSchoolId },
+    });
+    if (!classDetails) throw new NotFoundException('Class not found');
 
     const DAYS = [1, 2, 3, 4, 5, 6];
     const category = getClassCategory(classDetails.name);
     const template = TIMETABLE_TEMPLATES[category];
-    const PERIODS = template.filter((p: any) => !p.isBreak).map((p: any) => ({
-      num: p.num as number,
-      start: p.start,
-      end: p.end
-    }));
+    const PERIODS = template
+      .filter((p: any) => !p.isBreak)
+      .map((p: any) => ({
+        num: p.num as number,
+        start: p.start,
+        end: p.end,
+      }));
 
     const generatedSlots: any[] = [];
-    
+
     // Clear existing timetable slots for this section to avoid conflicts during generation
     await this.prisma.timetableSlot.updateMany({
       where: { schoolId: validSchoolId, sectionId, academicYearId: ayId },
-      data: { isActive: false }
+      data: { isActive: false },
     });
 
     // Fetch other active slots to check teacher availability
     const otherSectionsSlots = await this.prisma.timetableSlot.findMany({
-      where: { schoolId: validSchoolId, academicYearId: ayId, isActive: true }
+      where: { schoolId: validSchoolId, academicYearId: ayId, isActive: true },
     });
 
-    const isTeacherAvailable = (staffId: string, day: number, start: string, end: string) => {
+    const isTeacherAvailable = (
+      staffId: string,
+      day: number,
+      start: string,
+      end: string,
+    ) => {
       const sStart = this.parseTimeToMinutes(start);
       const sEnd = this.parseTimeToMinutes(end);
-      
-      const hasConflictInDb = otherSectionsSlots.some(slot => {
-         if (slot.staffId !== staffId || slot.dayOfWeek !== day) return false;
-         const slotStart = this.parseTimeToMinutes(slot.startTime);
-         const slotEnd = this.parseTimeToMinutes(slot.endTime);
-         return (sStart < slotEnd && sEnd > slotStart);
+
+      const hasConflictInDb = otherSectionsSlots.some((slot) => {
+        if (slot.staffId !== staffId || slot.dayOfWeek !== day) return false;
+        const slotStart = this.parseTimeToMinutes(slot.startTime);
+        const slotEnd = this.parseTimeToMinutes(slot.endTime);
+        return sStart < slotEnd && sEnd > slotStart;
       });
       if (hasConflictInDb) return false;
 
-      const hasConflictInGenerated = generatedSlots.some(slot => {
-         if (slot.staffId !== staffId || slot.dayOfWeek !== day) return false;
-         const slotStart = this.parseTimeToMinutes(slot.startTime);
-         const slotEnd = this.parseTimeToMinutes(slot.endTime);
-         return (sStart < slotEnd && sEnd > slotStart);
+      const hasConflictInGenerated = generatedSlots.some((slot) => {
+        if (slot.staffId !== staffId || slot.dayOfWeek !== day) return false;
+        const slotStart = this.parseTimeToMinutes(slot.startTime);
+        const slotEnd = this.parseTimeToMinutes(slot.endTime);
+        return sStart < slotEnd && sEnd > slotStart;
       });
       return !hasConflictInGenerated;
     };
 
     for (const day of DAYS) {
       const dailySubjectCount: Record<string, number> = {};
-      
+
       // Shuffle assignments to ensure varied schedule each day
       const dailyAssignments = [...assignments].sort(() => Math.random() - 0.5);
       let assignmentIndex = 0;
-      
+
       for (const period of PERIODS) {
         let placed = false;
         let attempts = 0;
-        
+
         while (!placed && attempts < dailyAssignments.length) {
-           const assignment = dailyAssignments[assignmentIndex % dailyAssignments.length];
-           assignmentIndex++;
-           attempts++;
-           
-           if (!assignment.subjectId) continue;
-           
-           // We have 8-9 periods per day but only 7 subjects in the DB.
-           // To avoid empty periods, we must allow some subjects to be taught up to twice per day.
-           if ((dailySubjectCount[assignment.subjectId] || 0) >= 2) continue; // max 2 periods of same subject per day
-           
-           if (isTeacherAvailable(assignment.staffId, day, period.start, period.end)) {
-              generatedSlots.push({
-                 schoolId: validSchoolId,
-                 academicYearId: ayId,
-                 classId,
-                 sectionId,
-                 dayOfWeek: day,
-                 periodNumber: period.num,
-                 startTime: period.start,
-                 endTime: period.end,
-                 subjectId: assignment.subjectId,
-                 staffId: assignment.staffId,
-                 slotType: 'CLASS',
-                 isActive: true
-              });
-              dailySubjectCount[assignment.subjectId] = (dailySubjectCount[assignment.subjectId] || 0) + 1;
-              placed = true;
-           }
+          const assignment =
+            dailyAssignments[assignmentIndex % dailyAssignments.length];
+          assignmentIndex++;
+          attempts++;
+
+          if (!assignment.subjectId) continue;
+
+          // We have 8-9 periods per day but only 7 subjects in the DB.
+          // To avoid empty periods, we must allow some subjects to be taught up to twice per day.
+          if ((dailySubjectCount[assignment.subjectId] || 0) >= 2) continue; // max 2 periods of same subject per day
+
+          if (
+            isTeacherAvailable(
+              assignment.staffId,
+              day,
+              period.start,
+              period.end,
+            )
+          ) {
+            generatedSlots.push({
+              schoolId: validSchoolId,
+              academicYearId: ayId,
+              classId,
+              sectionId,
+              dayOfWeek: day,
+              periodNumber: period.num,
+              startTime: period.start,
+              endTime: period.end,
+              subjectId: assignment.subjectId,
+              staffId: assignment.staffId,
+              slotType: 'CLASS',
+              isActive: true,
+            });
+            dailySubjectCount[assignment.subjectId] =
+              (dailySubjectCount[assignment.subjectId] || 0) + 1;
+            placed = true;
+          }
         }
       }
     }
@@ -380,7 +418,11 @@ export class TimetableService {
       await this.prisma.timetableSlot.createMany({ data: generatedSlots });
     }
 
-    return { success: true, count: generatedSlots.length, message: "Timetable generated successfully with AI Optimizer." };
+    return {
+      success: true,
+      count: generatedSlots.length,
+      message: 'Timetable generated successfully with AI Optimizer.',
+    };
   }
 
   /**
@@ -391,7 +433,10 @@ export class TimetableService {
     slotIds: string[],
     substituteStaffId: string,
   ): Promise<{ actionsCount: number }> {
-    const validSchoolId = requireSchoolId(schoolId, 'Assign timetable substitute');
+    const validSchoolId = requireSchoolId(
+      schoolId,
+      'Assign timetable substitute',
+    );
     const substituteStaff = await this.prisma.staff.findFirst({
       where: { id: substituteStaffId, schoolId: validSchoolId },
     });

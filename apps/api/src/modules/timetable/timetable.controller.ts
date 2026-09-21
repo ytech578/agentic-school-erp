@@ -51,7 +51,8 @@ export class TimetableController {
     @Param('staffId') staffId: string,
     @Query('academicYearId') academicYearId?: string,
   ) {
-    const targetStaffId = staffId === 'me' && req.user.staffId ? req.user.staffId : staffId;
+    const targetStaffId =
+      staffId === 'me' && req.user.staffId ? req.user.staffId : staffId;
     return this.timetableService.getTeacherTimetable(
       req.user.schoolId,
       targetStaffId,
@@ -100,7 +101,16 @@ export class TimetableController {
 
   @Post('auto-generate')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  autoGenerateTimetable(@Request() req: any, @Body() data: { classId: string; sectionId: string; academicYearId?: string }) {
-    return this.timetableService.autoGenerateTimetable(req.user.schoolId, data.classId, data.sectionId, data.academicYearId);
+  autoGenerateTimetable(
+    @Request() req: any,
+    @Body()
+    data: { classId: string; sectionId: string; academicYearId?: string },
+  ) {
+    return this.timetableService.autoGenerateTimetable(
+      req.user.schoolId,
+      data.classId,
+      data.sectionId,
+      data.academicYearId,
+    );
   }
 }
