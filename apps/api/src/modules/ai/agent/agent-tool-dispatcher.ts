@@ -9,6 +9,7 @@ import {
   ToolHandlerKey,
   AgentToolExecutionContext,
   AGENT_ERRORS,
+  ReconciliationResult,
 } from './agent-types';
 import {
   AgentToolHandler,
@@ -100,4 +101,26 @@ export class AgentToolDispatcher {
       await handler.verify(context, args, result);
     }
   }
+
+  /**
+   * Orchestrates ambiguous execution recovery / reconciliation for the given handlerKey.
+   * Invokes handler.reconcile() if implemented; returns null if not implemented.
+   */
+  async reconcile(
+    handlerKey: ToolHandlerKey | string,
+    context: AgentToolExecutionContext,
+    args: Record<string, unknown>,
+  ): Promise<ReconciliationResult | null> {
+    const handler = this.handlers.get(handlerKey);
+    if (!handler) {
+      throw new NotFoundException(
+        `${AGENT_ERRORS.ACTION_HANDLER_NOT_FOUND}: No handler registered for key: ${handlerKey}`,
+      );
+    }
+    if (typeof handler.reconcile === 'function') {
+      return handler.reconcile(context, args);
+    }
+    return null;
+  }
 }
+

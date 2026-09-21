@@ -17,6 +17,12 @@ import {
 import { AgentPolicyService } from './agent-policy.service';
 import { AgentStateMachine } from './agent-state-machine';
 import { AgentToolDispatcher } from './agent-tool-dispatcher';
+import {
+  validateIdempotencyKey,
+  deriveIdempotencyScope,
+  computeRequestFingerprint,
+  canonicalJson,
+} from './idempotency.util';
 import { ROLE_PERMISSIONS, type UserRole } from '@school-erp/shared';
 import {
   AgentExecutionContext,
@@ -119,7 +125,10 @@ export class AgentControlPlaneService {
       );
     }
 
-    // 4. Policy evaluation — server-authoritative, never trusts client
+    // 4. Validate client-supplied request idempotency key format if provided
+    validateIdempotencyKey(clientRequestKey);
+
+    // 5. Policy evaluation — server-authoritative, never trusts client
     const policyResult = this.policy.evaluate(ctx, tool);
     if (policyResult.decision === 'DENY') {
       throw new ForbiddenException(
@@ -127,28 +136,68 @@ export class AgentControlPlaneService {
       );
     }
 
-    // 5. REQUEST-LEVEL idempotency check (client request key, checked BEFORE identity resolution
-    //    to short-circuit expensive DB lookups on duplicate HTTP submissions).
-    if (clientRequestKey) {
-      const existingByRequestKey = await this.prisma.agentAction.findUnique({
-        where: { idempotencyKey: clientRequestKey },
+    // 6. Compute server-derived scope and request payload fingerprint
+    const idempotencyScope = clientRequestKey
+      ? deriveIdempotencyScope(ctx.schoolId, ctx.userId, tool.name)
+      : undefined;
+    const requestFingerprint = computeRequestFingerprint(
+      ctx.schoolId,
+      ctx.userId,
+      tool.name,
+      rawArgs,
+    );
+
+    // 7. REQUEST-LEVEL idempotency check (scoped by tenant, user, tool)
+    if (clientRequestKey && idempotencyScope) {
+      const existingByRequestKey = await this.prisma.agentAction.findFirst({
+        where: { idempotencyScope, idempotencyKey: clientRequestKey },
       });
       if (existingByRequestKey) {
+        // Enforce Step 4: same key + different request MUST conflict
+        if (
+          existingByRequestKey.requestFingerprint &&
+          existingByRequestKey.requestFingerprint !== requestFingerprint
+        ) {
+          throw new ConflictException(
+            `${AGENT_ERRORS.ACTION_IDEMPOTENCY_KEY_REUSE}: Idempotency-Key "${clientRequestKey}" was previously used for a different request payload`,
+          );
+        }
+
+        if (existingByRequestKey.status === AgentActionStatus.EXECUTING) {
+          const rec = await this.reconcileAction(existingByRequestKey, ctx.role);
+          if (rec.status === 'SUCCEEDED') {
+            return this.buildProposalResponse(
+              {
+                ...existingByRequestKey,
+                status: AgentActionStatus.SUCCEEDED,
+                result: rec.result,
+              },
+              tool,
+              true,
+            );
+          }
+          return this.buildProposalResponse(
+            { ...existingByRequestKey, status: AgentActionStatus.FAILED },
+            tool,
+            true,
+          );
+        }
+
         this.logger.debug(
-          `Request key "${clientRequestKey}" already processed — returning cached proposal`,
+          `Request key "${clientRequestKey}" already processed with identical payload — returning cached action`,
         );
         return this.buildProposalResponse(existingByRequestKey, tool, true);
       }
     }
 
-    // 6. Domain-level identity resolution (no guessing)
+    // 8. Domain-level identity resolution (no guessing)
     const { resolvedArgs, label, resourceId } = await this.resolveIdentity(
       ctx,
       toolName,
       rawArgs,
     );
 
-    // 7. Compute operation fingerprint (business-mutation hash)
+    // 9. Compute operation fingerprint (business-mutation hash)
     //    Distinct from the client request key — guards against double-execution.
     const operationFingerprint = this.computeOperationFingerprint(
       tool,
@@ -156,10 +205,11 @@ export class AgentControlPlaneService {
       resolvedArgs,
     );
 
-    // 8. OPERATION-LEVEL idempotency check (fingerprint of the logical mutation)
+    // 10. OPERATION-LEVEL idempotency check (fingerprint of the logical mutation)
     if (operationFingerprint) {
-      const existingByFingerprint = await this.prisma.agentAction.findUnique({
+      const existingByFingerprint = await this.prisma.agentAction.findFirst({
         where: { operationFingerprint },
+        orderBy: { createdAt: 'desc' },
       });
 
       if (existingByFingerprint) {
@@ -169,11 +219,6 @@ export class AgentControlPlaneService {
             `Operation fingerprint collision: action ${existingByFingerprint.id} already SUCCEEDED`,
           );
           return this.buildProposalResponse(existingByFingerprint, tool, true);
-        }
-
-        if (existingByFingerprint.status === AgentActionStatus.EXECUTING) {
-          // Currently in-flight — reject duplicate to prevent concurrent double-mutation
-          throw new ConflictException(AGENT_ERRORS.ACTION_FINGERPRINT_CONFLICT);
         }
 
         if (
@@ -188,57 +233,118 @@ export class AgentControlPlaneService {
           return this.buildProposalResponse(existingByFingerprint, tool, false);
         }
 
-        // FAILED or EXPIRED — clear both keys on old row so fresh row can claim the slot
-        await this.prisma.agentAction.update({
-          where: { id: existingByFingerprint.id },
-          data: {
-            operationFingerprint: null,
-            idempotencyKey: null,
-          },
-        });
-        this.logger.debug(
-          `Cleared fingerprint on ${existingByFingerprint.status} action ${existingByFingerprint.id} — allowing re-submission`,
-        );
-        // Fall through to create fresh row
+        if (existingByFingerprint.status === AgentActionStatus.EXECUTING) {
+          // Ambiguous execution state: attempt handler-level reconciliation
+          const rec = await this.reconcileAction(existingByFingerprint, ctx.role);
+          if (rec.status === 'SUCCEEDED') {
+            return this.buildProposalResponse(
+              {
+                ...existingByFingerprint,
+                status: AgentActionStatus.SUCCEEDED,
+                result: rec.result,
+              },
+              tool,
+              true,
+            );
+          }
+          this.logger.debug(
+            `Reconciled action ${existingByFingerprint.id} as NOT_APPLIED — allowing fresh proposal`,
+          );
+          // Fall through to allow creating fresh row
+        }
+
+        // If FAILED or EXPIRED:
+        // Do NOT clear keys on historical row! The historical row remains intact.
+        // A fresh proposal with new clientRequestKey can proceed.
       }
     }
 
-    // 9. Compute expiry
+    // 11. Compute expiry
     const expiresAt = new Date(Date.now() + tool.expiryMinutes * 60_000);
 
-    // 10. Determine initial status from policy decision
+    // 12. Determine initial status from policy decision
     const initialStatus =
       policyResult.decision === 'CONFIRMATION_REQUIRED'
         ? AgentActionStatus.AWAITING_CONFIRMATION
         : AgentActionStatus.CONFIRMED;
 
-    // 11. Build deterministic correlationId (traceable in logs, unique per call)
+    // 13. Build deterministic correlationId (traceable in logs, unique per call)
     const correlationId = createHash('sha256')
       .update(`${ctx.userId}:${toolName}:${Date.now()}`)
       .digest('hex')
       .slice(0, 32);
 
-    // 12. Persist AgentAction
-    const action = await this.prisma.agentAction.create({
-      data: {
-        schoolId: ctx.schoolId,
-        userId: ctx.userId,
-        toolName: tool.name,
-        arguments: resolvedArgs as Prisma.InputJsonValue,
-        riskLevel: tool.riskLevel,
-        status: initialStatus,
-        requiresConfirmation: tool.requiresConfirmation,
-        label,
-        expiresAt,
-        // Request-level dedup token — may be undefined when caller provides no header
-        idempotencyKey: clientRequestKey ?? undefined,
-        // Business-mutation fingerprint — null for REQUEST_KEY and NONE strategies
-        operationFingerprint: operationFingerprint ?? undefined,
-        correlationId,
-      },
-    });
+    // 14. Persist AgentAction with concurrent proposal race handling
+    let action: any;
+    try {
+      action = await this.prisma.agentAction.create({
+        data: {
+          schoolId: ctx.schoolId,
+          userId: ctx.userId,
+          toolName: tool.name,
+          arguments: resolvedArgs as Prisma.InputJsonValue,
+          riskLevel: tool.riskLevel,
+          status: initialStatus,
+          requiresConfirmation: tool.requiresConfirmation,
+          label,
+          expiresAt,
+          idempotencyScope: idempotencyScope ?? undefined,
+          idempotencyKey: clientRequestKey ?? undefined,
+          requestFingerprint,
+          operationFingerprint: operationFingerprint ?? undefined,
+          correlationId,
+        },
+      });
+    } catch (err: any) {
+      // Step 6: Safe concurrent proposal race handling for Prisma P2002 error
+      if (
+        err?.code === 'P2002' ||
+        err?.message?.includes('Unique constraint failed')
+      ) {
+        // Race on scoped idempotency key
+        if (clientRequestKey && idempotencyScope) {
+          const existing = await this.prisma.agentAction.findFirst({
+            where: { idempotencyScope, idempotencyKey: clientRequestKey },
+          });
+          if (existing) {
+            if (
+              existing.requestFingerprint &&
+              existing.requestFingerprint !== requestFingerprint
+            ) {
+              throw new ConflictException(
+                `${AGENT_ERRORS.ACTION_IDEMPOTENCY_KEY_REUSE}: Idempotency-Key "${clientRequestKey}" was previously used for a different request payload`,
+              );
+            }
+            return this.buildProposalResponse(existing, tool, true);
+          }
+        }
 
-    // 13. Audit proposal
+        // Race on operation fingerprint
+        if (operationFingerprint) {
+          const existing = await this.prisma.agentAction.findFirst({
+            where: { operationFingerprint },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (existing) {
+            if (existing.status === AgentActionStatus.SUCCEEDED) {
+              return this.buildProposalResponse(existing, tool, true);
+            }
+            if (
+              existing.status === AgentActionStatus.AWAITING_CONFIRMATION ||
+              existing.status === AgentActionStatus.CONFIRMED
+            ) {
+              return this.buildProposalResponse(existing, tool, false);
+            }
+            throw new ConflictException(
+              AGENT_ERRORS.ACTION_FINGERPRINT_CONFLICT,
+            );
+          }
+        }
+      }
+      throw err;
+    }
+
+    // 15. Audit proposal
     await this.writeAudit({
       schoolId: ctx.schoolId,
       userId: ctx.userId,
@@ -280,24 +386,30 @@ export class AgentControlPlaneService {
     }
 
     // 3. Expiry check (must precede execution and state checks).
-    //    Clears both idempotency keys so the client can re-propose after expiry.
-    if (action.expiresAt && action.expiresAt < new Date()) {
-      await this.prisma.agentAction.update({
-        where: { id: actionId },
-        data: {
-          status: AgentActionStatus.EXPIRED,
-          idempotencyKey: null,
-          operationFingerprint: null,
-        },
-      });
+    //    Never null out idempotency keys — preserves historical audit trail.
+    if (
+      action.status === AgentActionStatus.EXPIRED ||
+      (action.expiresAt && action.expiresAt < new Date())
+    ) {
+      if (action.status !== AgentActionStatus.EXPIRED) {
+        await this.prisma.agentAction.update({
+          where: { id: actionId },
+          data: {
+            status: AgentActionStatus.EXPIRED,
+          },
+        });
+      }
       throw new BadRequestException(AGENT_ERRORS.ACTION_EXPIRED);
     }
 
     // 4. State machine check (validate transition to EXECUTING before doing external lookups)
-    AgentStateMachine.assertTransition(
-      action.status,
-      AgentActionStatus.EXECUTING,
-    );
+    // If already in EXECUTING state, allow through for handler reconciliation below.
+    if (action.status !== AgentActionStatus.EXECUTING) {
+      AgentStateMachine.assertTransition(
+        action.status,
+        AgentActionStatus.EXECUTING,
+      );
+    }
 
     // 5. Re-resolve tool
     const tool = TOOL_REGISTRY.get(action.toolName);
@@ -314,7 +426,24 @@ export class AgentControlPlaneService {
       throw new ForbiddenException(AGENT_ERRORS.ACTION_NOT_AUTHORIZED);
     }
 
-    // 7. Re-run policy with current role (catches revoked/changed roles)
+    // 7. Reconcile if already in EXECUTING state
+    if (action.status === AgentActionStatus.EXECUTING) {
+      const rec = await this.reconcileAction(action, currentUser.role);
+      if (rec.status === 'SUCCEEDED') {
+        return {
+          actionId,
+          status: AgentActionStatus.SUCCEEDED,
+          result: rec.result,
+        };
+      }
+      return {
+        actionId,
+        status: AgentActionStatus.FAILED,
+        failureReason: rec.failureReason,
+      };
+    }
+
+    // 8. Re-run policy with current role (catches revoked/changed roles)
     const currentCtx: AgentExecutionContext = {
       userId,
       role: currentUser.role,
@@ -328,32 +457,65 @@ export class AgentControlPlaneService {
       );
     }
 
-    // 8. Atomic CAS — prevent concurrent double execution
-    await this.prisma.$transaction(async (tx) => {
-      const result = await tx.agentAction.updateMany({
-        where: {
-          id: actionId,
-          status: {
-            in: [
-              AgentActionStatus.AWAITING_CONFIRMATION,
-              AgentActionStatus.CONFIRMED,
-            ],
-          },
+    // 9. Atomic CAS — prevent concurrent double execution and race conditions
+    const casResult = await this.prisma.agentAction.updateMany({
+      where: {
+        id: actionId,
+        status: {
+          in: [
+            AgentActionStatus.AWAITING_CONFIRMATION,
+            AgentActionStatus.CONFIRMED,
+          ],
         },
-        data: {
-          status: AgentActionStatus.EXECUTING,
-          executedAt: new Date(),
-          confirmedBy: userId,
-          confirmedAt: new Date(),
-        },
-      });
-      if (result.count === 0) {
-        throw new ConflictException(AGENT_ERRORS.ACTION_ALREADY_EXECUTED);
-      }
-      return result;
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      data: {
+        status: AgentActionStatus.EXECUTING,
+        executedAt: new Date(),
+        confirmedBy: userId,
+        confirmedAt: new Date(),
+      },
     });
 
-    // 9. Execute via domain handler through dispatcher
+    if (!casResult || casResult.count === 0) {
+      const latest = await this.prisma.agentAction.findUnique({
+        where: { id: actionId },
+      });
+      if (!latest) {
+        throw new NotFoundException(AGENT_ERRORS.ACTION_NOT_FOUND);
+      }
+      if (latest.status === AgentActionStatus.SUCCEEDED) {
+        return {
+          actionId,
+          status: AgentActionStatus.SUCCEEDED,
+          result: latest.result,
+        };
+      }
+      if (latest.status === AgentActionStatus.EXECUTING) {
+        const rec = await this.reconcileAction(latest, currentUser.role);
+        if (rec.status === 'SUCCEEDED') {
+          return {
+            actionId,
+            status: AgentActionStatus.SUCCEEDED,
+            result: rec.result,
+          };
+        }
+        return {
+          actionId,
+          status: AgentActionStatus.FAILED,
+          failureReason: rec.failureReason,
+        };
+      }
+      if (
+        latest.status === AgentActionStatus.EXPIRED ||
+        (latest.expiresAt && latest.expiresAt <= new Date())
+      ) {
+        throw new BadRequestException(AGENT_ERRORS.ACTION_EXPIRED);
+      }
+      throw new ConflictException(AGENT_ERRORS.ACTION_ALREADY_EXECUTED);
+    }
+
+    // 10. Execute via domain handler through dispatcher
     try {
       const toolCtx: AgentToolExecutionContext = {
         userId,
@@ -369,10 +531,10 @@ export class AgentControlPlaneService {
         args,
       );
 
-      // 10. Post-execution domain verification via dispatcher
+      // 11. Post-execution domain verification via dispatcher
       await this.dispatcher.verify(tool.handlerKey, toolCtx, args, resultData);
 
-      // 11. Mark SUCCEEDED
+      // 12. Mark SUCCEEDED
       await this.prisma.agentAction.update({
         where: { id: actionId },
         data: {
@@ -381,7 +543,7 @@ export class AgentControlPlaneService {
         },
       });
 
-      // 12. Audit success
+      // 13. Audit success
       await this.writeAudit({
         schoolId,
         userId,
@@ -402,14 +564,12 @@ export class AgentControlPlaneService {
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
 
-      // Mark FAILED — clear both keys so the client can re-propose and retry
+      // Mark FAILED — historical keys are preserved
       await this.prisma.agentAction.update({
         where: { id: actionId },
         data: {
           status: AgentActionStatus.FAILED,
           failureReason: msg,
-          idempotencyKey: null,
-          operationFingerprint: null,
         },
       });
 
@@ -586,14 +746,91 @@ export class AgentControlPlaneService {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // RECONCILIATION FOR AMBIGUOUS EXECUTING STATES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private async reconcileAction(
+    action: {
+      id: string;
+      userId: string;
+      schoolId: string;
+      toolName: string;
+      riskLevel: RiskLevel;
+      label: string;
+      arguments: unknown;
+    },
+    role: string,
+  ): Promise<{
+    status: 'SUCCEEDED' | 'FAILED';
+    result?: unknown;
+    failureReason?: string;
+  }> {
+    const tool = TOOL_REGISTRY.get(action.toolName);
+    if (!tool) {
+      throw new NotFoundException(AGENT_ERRORS.ACTION_UNKNOWN_TOOL);
+    }
+    const toolCtx: AgentToolExecutionContext = {
+      userId: action.userId,
+      schoolId: action.schoolId,
+      role: role as UserRole,
+      actionId: action.id,
+    };
+    const reconciled = await this.dispatcher.reconcile(
+      tool.handlerKey,
+      toolCtx,
+      action.arguments as Record<string, unknown>,
+    );
+
+    if (reconciled?.status === 'APPLIED') {
+      await this.prisma.agentAction.update({
+        where: { id: action.id },
+        data: {
+          status: AgentActionStatus.SUCCEEDED,
+          result: (reconciled.result ?? {}) as Prisma.InputJsonValue,
+        },
+      });
+      await this.writeAudit({
+        schoolId: action.schoolId,
+        userId: action.userId,
+        actionId: action.id,
+        toolName: action.toolName,
+        riskLevel: action.riskLevel,
+        status: 'SUCCEEDED',
+        resourceType: 'AgentAction',
+        resourceId: action.id,
+        label: `RECONCILED: ${action.label}`,
+      }).catch((e) => this.logger.warn(`Audit write failed: ${e.message}`));
+      return { status: 'SUCCEEDED', result: reconciled.result };
+    }
+
+    if (reconciled?.status === 'NOT_APPLIED') {
+      const failureReason =
+        reconciled.reason ?? 'Execution interrupted, reconciled as not applied';
+      await this.prisma.agentAction.update({
+        where: { id: action.id },
+        data: {
+          status: AgentActionStatus.FAILED,
+          failureReason,
+        },
+      });
+      return { status: 'FAILED', failureReason };
+    }
+
+    // UNKNOWN outcome or no reconciliation handler
+    throw new ConflictException(
+      `${AGENT_ERRORS.ACTION_RECOVERY_REQUIRED}: Action ${action.id} is in-flight and could not be verified. Manual recovery required.`,
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // OPERATION FINGERPRINT (replaces old computeIdempotencyKey)
   //
   // Computes a deterministic, content-addressable hash that uniquely
   // identifies the _business mutation_ — not the HTTP request.
   //
   // Strategy dispatch is exhaustive — every case is explicit:
-  //   NATURAL_KEY  → hash(schoolId:userId:toolName:<natural-key-field>)
-  //   CONTENT_HASH → hash(schoolId:userId:toolName:<sorted-args-json>)
+  //   NATURAL_KEY  → hash(schoolId:toolName:<natural-key-field>)
+  //   CONTENT_HASH → hash(schoolId:[userId:]toolName:<canonical-args-json>)
   //   REQUEST_KEY  → null (no operation fingerprint; client request key guards)
   //   NONE         → null (deliberately non-idempotent)
   // ═══════════════════════════════════════════════════════════════════════════
@@ -606,34 +843,45 @@ export class AgentControlPlaneService {
     switch (tool.idempotencyStrategy) {
       case 'NATURAL_KEY': {
         // For approve_leave: the natural key is the resolved leaveId.
-        // For any future NATURAL_KEY tool, add its key field here explicitly.
-        const naturalKeyValue = resolvedArgs['leaveId'] as string | undefined;
+        const naturalKeyValue = (resolvedArgs['leaveId'] ??
+          resolvedArgs['leaveRequestId']) as string | undefined;
         if (!naturalKeyValue) {
-          // Defensive: fall back to content hash if natural key field is absent
           this.logger.warn(
             `Tool "${tool.name}" declares NATURAL_KEY but no natural key field found in resolvedArgs; falling back to CONTENT_HASH`,
           );
-          const stableArgs = JSON.stringify(
-            resolvedArgs,
-            Object.keys(resolvedArgs).sort(),
-          );
+          const stableArgs = canonicalJson(resolvedArgs);
           return createHash('sha256')
-            .update(`${ctx.schoolId}:${ctx.userId}:${tool.name}:${stableArgs}`)
+            .update(`${ctx.schoolId}:${tool.name}:${stableArgs}`)
             .digest('hex');
         }
+        // Actor-independent business mutation fingerprint
         return createHash('sha256')
-          .update(
-            `${ctx.schoolId}:${ctx.userId}:${tool.name}:${naturalKeyValue}`,
-          )
+          .update(`${ctx.schoolId}:${tool.name}:${naturalKeyValue}`)
           .digest('hex');
       }
 
       case 'CONTENT_HASH': {
-        // Deterministic hash of the full, resolved argument payload.
-        const stableArgs = JSON.stringify(
-          resolvedArgs,
-          Object.keys(resolvedArgs).sort(),
-        );
+        // For shared mutations like create_assignment, make fingerprint actor-independent (exclude userId).
+        if (tool.name === ToolHandlerKey.CREATE_ASSIGNMENT) {
+          const classId = (resolvedArgs['classId'] as string) ?? '';
+          const subjectId = (resolvedArgs['subjectId'] as string) ?? '';
+          const normalizedDetails = {
+            topic: (resolvedArgs['topic'] ?? resolvedArgs['title']) as
+              | string
+              | undefined,
+            description: resolvedArgs['description'] ?? null,
+            dueDate: resolvedArgs['dueDate'] ?? null,
+            totalMarks: resolvedArgs['totalMarks'] ?? 100,
+          };
+          return createHash('sha256')
+            .update(
+              `${ctx.schoolId}:${tool.name}:${classId}:${subjectId}:${canonicalJson(normalizedDetails)}`,
+            )
+            .digest('hex');
+        }
+
+        // Deterministic hash of the full resolved argument payload
+        const stableArgs = canonicalJson(resolvedArgs);
         return createHash('sha256')
           .update(`${ctx.schoolId}:${ctx.userId}:${tool.name}:${stableArgs}`)
           .digest('hex');
@@ -641,8 +889,6 @@ export class AgentControlPlaneService {
 
       case 'REQUEST_KEY':
         // No operation fingerprint — deduplication is entirely at the request level.
-        // The client must supply an Idempotency-Key header; without one, each call
-        // is treated as independent (intentional for broadcast-style tools).
         return null;
 
       case 'NONE':
@@ -730,7 +976,7 @@ export class AgentControlPlaneService {
   //
   // Covers both states so a CONFIRMED-but-never-executed action does not
   // hold its idempotency slot indefinitely.
-  // Both keys are cleared on expiry so clients can re-propose.
+  // Historical keys are preserved on expired rows.
   // ═══════════════════════════════════════════════════════════════════════════
 
   async expireStaleActions(): Promise<{ count: number }> {
@@ -746,8 +992,6 @@ export class AgentControlPlaneService {
       },
       data: {
         status: AgentActionStatus.EXPIRED,
-        idempotencyKey: null,
-        operationFingerprint: null,
       },
     });
     return { count: result.count };

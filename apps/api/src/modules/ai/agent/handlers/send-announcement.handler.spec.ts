@@ -1,10 +1,12 @@
 import { SendAnnouncementAgentHandler } from './send-announcement.handler';
 import { MessagesService } from '../../../messages/messages.service';
+import { PrismaService } from '../../../../core/database/prisma.service';
 import { ToolHandlerKey, AgentToolExecutionContext } from '../agent-types';
 
 describe('SendAnnouncementAgentHandler', () => {
   let handler: SendAnnouncementAgentHandler;
   let messagesService: jest.Mocked<Partial<MessagesService>>;
+  let prisma: any;
 
   const mockContext: AgentToolExecutionContext = {
     userId: 'user-admin',
@@ -21,8 +23,15 @@ describe('SendAnnouncementAgentHandler', () => {
       }),
     };
 
+    prisma = {
+      message: {
+        findFirst: jest.fn(),
+      },
+    };
+
     handler = new SendAnnouncementAgentHandler(
       messagesService as unknown as MessagesService,
+      prisma as unknown as PrismaService,
     );
   });
 
@@ -62,4 +71,36 @@ describe('SendAnnouncementAgentHandler', () => {
       ),
     ).resolves.toBeUndefined();
   });
+
+  it('reconciles as APPLIED when broadcast message exists', async () => {
+    prisma.message.findFirst.mockResolvedValue({
+      id: 'msg-1',
+      subject: 'School Sports Day',
+      schoolId: 'school-1',
+    });
+
+    const rec = await handler.reconcile(mockContext, {
+      title: 'School Sports Day',
+    });
+
+    expect(rec.status).toBe('APPLIED');
+    expect(rec.result).toEqual({
+      resourceType: 'Announcement',
+      status: 'SENT',
+      affectedCount: 1,
+      sentCount: 1,
+    });
+  });
+
+  it('reconciles as NOT_APPLIED when broadcast message does not exist', async () => {
+    prisma.message.findFirst.mockResolvedValue(null);
+
+    const rec = await handler.reconcile(mockContext, {
+      title: 'School Sports Day',
+    });
+
+    expect(rec.status).toBe('NOT_APPLIED');
+    expect(rec.reason).toBeDefined();
+  });
 });
+

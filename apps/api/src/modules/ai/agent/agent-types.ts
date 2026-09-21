@@ -111,6 +111,12 @@ export const AGENT_ERRORS = {
   ACTION_FINGERPRINT_CONFLICT: 'ACTION_FINGERPRINT_CONFLICT',
   // Client request key already resolved to a completed/in-flight action
   ACTION_REQUEST_ALREADY_PROCESSED: 'ACTION_REQUEST_ALREADY_PROCESSED',
+  // Same idempotency key reused with a materially different request payload
+  ACTION_IDEMPOTENCY_KEY_REUSE: 'ACTION_IDEMPOTENCY_KEY_REUSE',
+  // Client-supplied idempotency key does not conform to format/character/length requirements
+  ACTION_IDEMPOTENCY_KEY_INVALID: 'ACTION_IDEMPOTENCY_KEY_INVALID',
+  // Execution outcome is ambiguous and cannot be automatically reconciled; manual recovery required
+  ACTION_RECOVERY_REQUIRED: 'ACTION_RECOVERY_REQUIRED',
 } as const;
 
 export type AgentErrorCode = (typeof AGENT_ERRORS)[keyof typeof AGENT_ERRORS];
@@ -146,3 +152,16 @@ export interface AgentHandlerResult {
   status: string;
   [key: string]: unknown;
 }
+
+// ─── Handler Reconciliation Result (Ambiguous Execution Recovery) ──────────────
+export interface ReconciliationResult {
+  /**
+   * 'APPLIED': The mutation was definitely completed in the domain database.
+   * 'NOT_APPLIED': The mutation definitely did NOT take place; safe to retry.
+   * 'UNKNOWN': State cannot be determined with certainty; human/admin recovery required.
+   */
+  status: 'APPLIED' | 'NOT_APPLIED' | 'UNKNOWN';
+  result?: AgentHandlerResult;
+  reason?: string;
+}
+

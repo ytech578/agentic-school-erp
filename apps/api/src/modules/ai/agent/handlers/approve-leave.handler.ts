@@ -6,6 +6,7 @@ import {
   AgentToolExecutionContext,
   AGENT_ERRORS,
   AgentHandlerResult,
+  ReconciliationResult,
 } from '../agent-types';
 import { AgentToolHandler } from './agent-tool-handler.interface';
 
@@ -70,4 +71,46 @@ export class ApproveLeaveAgentHandler implements AgentToolHandler<
       throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
     }
   }
+
+  async reconcile(
+    context: AgentToolExecutionContext,
+    args: ApproveLeaveArgs,
+  ): Promise<ReconciliationResult> {
+    const leave = await this.prisma.leaveRequest.findUnique({
+      where: { id: args.leaveId },
+    });
+
+    if (!leave || leave.schoolId !== context.schoolId) {
+      return {
+        status: 'UNKNOWN',
+        reason: `Leave request ${args.leaveId} not found or tenant mismatch`,
+      };
+    }
+
+    if (leave.status === 'APPROVED') {
+      return {
+        status: 'APPLIED',
+        result: {
+          resourceId: args.leaveId,
+          resourceType: 'LeaveRequest',
+          status: 'APPROVED',
+          leaveId: args.leaveId,
+          approved: true,
+        },
+      };
+    }
+
+    if (leave.status === 'PENDING') {
+      return {
+        status: 'NOT_APPLIED',
+        reason: 'Leave request is still in PENDING status in the database',
+      };
+    }
+
+    return {
+      status: 'UNKNOWN',
+      reason: `Leave request status is ${leave.status}, neither APPROVED nor PENDING`,
+    };
+  }
 }
+

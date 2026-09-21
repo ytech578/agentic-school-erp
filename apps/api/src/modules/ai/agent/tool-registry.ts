@@ -57,6 +57,8 @@ export interface ToolDefinition<TInput = unknown> {
   /** Every mutation must be tenant-scoped */
   tenantScoped: true;
   idempotencyStrategy: IdempotencyStrategy;
+  /** Explanation for replay safety if strategy is NONE */
+  replayPolicyDoc?: string;
   executionMode: ToolExecutionMode;
   /** Key used to dispatch to the domain handler */
   handlerKey: ToolHandlerKey;
@@ -577,6 +579,17 @@ export function validateToolRegistry(
           }
         }
       }
+    }
+
+    // 8. Strategy NONE safety validation: mutating tools claiming NONE must have a documented replayPolicyDoc
+    if (
+      tool.idempotencyStrategy === 'NONE' &&
+      tool.executionMode === 'MUTATING' &&
+      (!tool.replayPolicyDoc || tool.replayPolicyDoc.trim().length === 0)
+    ) {
+      errors.push(
+        `Mutating tool "${name}" declares idempotencyStrategy 'NONE' but lacks a documented replayPolicyDoc explaining replay safety`,
+      );
     }
   }
 

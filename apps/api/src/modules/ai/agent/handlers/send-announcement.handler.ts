@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { MessagesService } from '../../../messages/messages.service';
+import { PrismaService } from '../../../../core/database/prisma.service';
 import {
   ToolHandlerKey,
   AgentToolExecutionContext,
   AgentHandlerResult,
   SendAnnouncementInput,
+  ReconciliationResult,
 } from '../agent-types';
 import { AgentToolHandler } from './agent-tool-handler.interface';
 
@@ -16,7 +18,10 @@ export class SendAnnouncementAgentHandler implements AgentToolHandler<
   readonly key = ToolHandlerKey.SEND_ANNOUNCEMENT;
   private readonly logger = new Logger(SendAnnouncementAgentHandler.name);
 
-  constructor(private readonly messagesService: MessagesService) {}
+  constructor(
+    private readonly messagesService: MessagesService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async execute(
     context: AgentToolExecutionContext,
@@ -51,4 +56,35 @@ export class SendAnnouncementAgentHandler implements AgentToolHandler<
       );
     }
   }
+
+  async reconcile(
+    context: AgentToolExecutionContext,
+    args: SendAnnouncementInput,
+  ): Promise<ReconciliationResult> {
+    const existing = await this.prisma.message.findFirst({
+      where: {
+        schoolId: context.schoolId,
+        senderId: context.userId,
+        subject: args.title,
+      },
+    });
+
+    if (existing) {
+      return {
+        status: 'APPLIED',
+        result: {
+          resourceType: 'Announcement',
+          status: 'SENT',
+          affectedCount: 1,
+          sentCount: 1,
+        },
+      };
+    }
+
+    return {
+      status: 'NOT_APPLIED',
+      reason: `No broadcast message found with subject "${args.title}"`,
+    };
+  }
 }
+

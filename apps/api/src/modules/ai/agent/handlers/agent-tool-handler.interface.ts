@@ -1,4 +1,8 @@
-import { ToolHandlerKey, AgentToolExecutionContext } from '../agent-types';
+import {
+  ToolHandlerKey,
+  AgentToolExecutionContext,
+  ReconciliationResult,
+} from '../agent-types';
 
 /**
  * Domain handler interface for executing agent actions.
@@ -28,6 +32,17 @@ export interface AgentToolHandler<
     args: TArgs,
     result: TResult,
   ): Promise<void>;
+
+  /**
+   * Optional ambiguous execution recovery / reconciliation.
+   * Inspects domain database to determine whether an in-flight mutation
+   * was already applied, definitely not applied, or in an unknown state.
+   */
+  reconcile?(
+    context: AgentToolExecutionContext,
+    args: TArgs,
+  ): Promise<ReconciliationResult>;
 }
 
 export const AGENT_TOOL_HANDLERS = Symbol('AGENT_TOOL_HANDLERS');
+

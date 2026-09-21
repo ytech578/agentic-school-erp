@@ -6,6 +6,7 @@ import {
   AgentToolExecutionContext,
   AGENT_ERRORS,
   AgentHandlerResult,
+  ReconciliationResult,
 } from '../agent-types';
 import { AgentToolHandler } from './agent-tool-handler.interface';
 
@@ -99,4 +100,39 @@ export class CreateAssignmentAgentHandler implements AgentToolHandler<
       throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
     }
   }
+
+  async reconcile(
+    context: AgentToolExecutionContext,
+    args: CreateAssignmentArgs,
+  ): Promise<ReconciliationResult> {
+    const existing = await this.prisma.assignment.findFirst({
+      where: {
+        schoolId: context.schoolId,
+        classId: args.classId,
+        subjectId: args.subjectId,
+        title: args.topic,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (existing) {
+      return {
+        status: 'APPLIED',
+        result: {
+          resourceId: existing.id,
+          resourceType: 'Assignment',
+          status: 'CREATED',
+          assignmentId: existing.id,
+          classId: existing.classId,
+          subjectId: existing.subjectId,
+        },
+      };
+    }
+
+    return {
+      status: 'NOT_APPLIED',
+      reason: `No assignment titled "${args.topic}" found for class ${args.classId} and subject ${args.subjectId}`,
+    };
+  }
 }
+

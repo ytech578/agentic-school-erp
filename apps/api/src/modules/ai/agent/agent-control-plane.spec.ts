@@ -40,6 +40,12 @@ import {
   ToolDefinition,
   validateToolRegistry,
 } from './tool-registry';
+import {
+  validateIdempotencyKey,
+  deriveIdempotencyScope,
+  computeRequestFingerprint,
+  canonicalJson,
+} from './idempotency.util';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -88,7 +94,8 @@ const buildPrismaMock = () => ({
       }),
     ),
     findUnique: jest.fn(),
-    updateMany: jest.fn(),
+    findFirst: jest.fn().mockResolvedValue(null),
+    updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     update: jest.fn().mockResolvedValue({}),
   },
   activityLog: {
@@ -338,7 +345,7 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         },
       ]);
       // fingerprint lookup returns a SUCCEEDED action
-      prisma.agentAction.findUnique.mockResolvedValue({
+      prisma.agentAction.findFirst.mockResolvedValue({
         id: 'action-existing',
         status: AgentActionStatus.SUCCEEDED,
         label: 'Approve leave for Ravi Kumar',
@@ -368,8 +375,14 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
           staff: { user: { firstName: 'Ravi', lastName: 'Kumar' } },
         },
       ]);
-      prisma.agentAction.findUnique.mockResolvedValue({
+      prisma.agentAction.findFirst.mockResolvedValue({
         id: 'action-in-flight',
+        userId: 'user-admin',
+        schoolId: 'school-1',
+        toolName: 'approve_leave',
+        riskLevel: 'HIGH',
+        label: 'Approve leave',
+        arguments: { leaveId: 'leave-1' },
         status: AgentActionStatus.EXECUTING,
       });
 
@@ -392,8 +405,8 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         requiresConfirmation: true,
         result: null,
       };
-      // First findUnique call (request key lookup) returns cached action
-      prisma.agentAction.findUnique.mockResolvedValueOnce(cachedAction);
+      // First findFirst call (request key lookup) returns cached action
+      prisma.agentAction.findFirst.mockResolvedValueOnce(cachedAction);
 
       const res = await service.proposeAction(
         adminCtx,
@@ -420,7 +433,7 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         },
       ]);
       // fingerprint lookup finds an already-pending action
-      prisma.agentAction.findUnique.mockResolvedValue({
+      prisma.agentAction.findFirst.mockResolvedValue({
         id: 'action-pending',
         status: AgentActionStatus.AWAITING_CONFIRMATION,
         label: 'Approve leave for Ravi Kumar',
@@ -439,9 +452,9 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
       expect(res.pendingAction['idempotent']).toBe(false);
     });
 
-    // ─── Hardening Test 3: FAILED re-submission clears old keys ──────────────
+    // ─── Hardening Test 3: FAILED re-submission preserves historical keys ──────────────
 
-    it('[H3] FAILED action re-submission: clears old fingerprint and creates a fresh row', async () => {
+    it('[H3] FAILED action re-submission: preserves old keys and creates a fresh row', async () => {
       prisma.leaveRequest.findMany.mockResolvedValue([
         {
           id: 'leave-1',
@@ -449,7 +462,7 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         },
       ]);
       // fingerprint lookup finds a FAILED action
-      prisma.agentAction.findUnique.mockResolvedValue({
+      prisma.agentAction.findFirst.mockResolvedValue({
         id: 'action-failed',
         status: AgentActionStatus.FAILED,
         operationFingerprint: 'old-fp',
@@ -460,10 +473,9 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         staffName: 'Ravi Kumar',
       });
 
-      // Must clear both keys on the old failed row
-      expect(prisma.agentAction.update).toHaveBeenCalledWith(
+      // Must NOT clear keys on the old failed row
+      expect(prisma.agentAction.update).not.toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'action-failed' },
           data: expect.objectContaining({
             operationFingerprint: null,
             idempotencyKey: null,
@@ -475,16 +487,16 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
       expect(res.pendingAction['actionId']).toBe('action-1');
     });
 
-    // ─── Hardening Test 4: EXPIRED re-submission clears old keys ─────────────
+    // ─── Hardening Test 4: EXPIRED re-submission preserves historical keys ─────────────
 
-    it('[H4] EXPIRED action re-submission: clears old fingerprint and creates a fresh row', async () => {
+    it('[H4] EXPIRED action re-submission: preserves old keys and creates a fresh row', async () => {
       prisma.leaveRequest.findMany.mockResolvedValue([
         {
           id: 'leave-1',
           staff: { user: { firstName: 'Ravi', lastName: 'Kumar' } },
         },
       ]);
-      prisma.agentAction.findUnique.mockResolvedValue({
+      prisma.agentAction.findFirst.mockResolvedValue({
         id: 'action-expired',
         status: AgentActionStatus.EXPIRED,
         operationFingerprint: 'old-fp-2',
@@ -495,9 +507,8 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         staffName: 'Ravi Kumar',
       });
 
-      expect(prisma.agentAction.update).toHaveBeenCalledWith(
+      expect(prisma.agentAction.update).not.toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'action-expired' },
           data: expect.objectContaining({
             operationFingerprint: null,
             idempotencyKey: null,
@@ -512,14 +523,13 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
 
     it('[H5] REQUEST_KEY strategy (send_announcement): stores clientRequestKey, no operation fingerprint', async () => {
       // No clientRequestKey passed — no request key dedup; fingerprint is null for REQUEST_KEY
-      // So findUnique is NOT called for fingerprint (fingerprint = null → skipped)
-      // agentAction.findUnique should not be called at all
+      // So findFirst is NOT called for fingerprint (fingerprint = null → skipped)
       const res = await service.proposeAction(adminCtx, 'send_announcement', {
         title: 'School Holiday Announcement',
       });
 
-      // No findUnique call for fingerprint (REQUEST_KEY → fingerprint = null)
-      expect(prisma.agentAction.findUnique).not.toHaveBeenCalled();
+      // No findFirst call for fingerprint (REQUEST_KEY → fingerprint = null)
+      expect(prisma.agentAction.findFirst).not.toHaveBeenCalled();
       expect(prisma.agentAction.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -540,9 +550,8 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
           staff: { user: { firstName: 'Priya', lastName: 'Sharma' } },
         },
       ]);
-      // No prior row for this request key
-      prisma.agentAction.findUnique.mockResolvedValueOnce(null); // request key lookup
-      prisma.agentAction.findUnique.mockResolvedValueOnce(null); // fingerprint lookup
+      // No prior row for this request key or fingerprint
+      prisma.agentAction.findFirst.mockResolvedValue(null);
 
       await service.proposeAction(
         adminCtx,
@@ -561,7 +570,498 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
     });
   });
 
-  // ── confirmAndExecute ──────────────────────────────────────────────────────
+  // ── CHANGE #8A Correction: Idempotency Closure & Recovery (Step 18) ────────
+
+  describe('CHANGE #8A Correction: Idempotency Closure & Recovery', () => {
+    describe('Idempotency Key Validation', () => {
+      it('rejects keys with whitespace, illegal characters, or excessive length', async () => {
+        await expect(
+          service.proposeAction(
+            adminCtx,
+            'send_announcement',
+            { title: 'Test' },
+            'key with spaces',
+          ),
+        ).rejects.toThrow(BadRequestException);
+
+        await expect(
+          service.proposeAction(
+            adminCtx,
+            'send_announcement',
+            { title: 'Test' },
+            'key$invalid!',
+          ),
+        ).rejects.toThrow(BadRequestException);
+
+        await expect(
+          service.proposeAction(
+            adminCtx,
+            'send_announcement',
+            { title: 'Test' },
+            'a'.repeat(129),
+          ),
+        ).rejects.toThrow(BadRequestException);
+
+        await expect(
+          service.proposeAction(
+            adminCtx,
+            'send_announcement',
+            { title: 'Test' },
+            '   ',
+          ),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('accepts valid alphanumeric, hyphen, dot, colon, and underscore keys up to 128 chars', async () => {
+        prisma.agentAction.findFirst.mockResolvedValue(null);
+        const validKey = 'req_123.ABC-456:789';
+        const res = await service.proposeAction(
+          adminCtx,
+          'send_announcement',
+          { title: 'Valid Key Announcement' },
+          validKey,
+        );
+        expect(res.pendingAction).toBeDefined();
+        expect(prisma.agentAction.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              idempotencyKey: validKey,
+              idempotencyScope: 'school-1:user-admin:send_announcement',
+            }),
+          }),
+        );
+      });
+    });
+
+    describe('Scoped Idempotency Key Lookup', () => {
+      it('queries existing proposals using both idempotencyScope and idempotencyKey', async () => {
+        const key = 'scoped-key-001';
+        prisma.agentAction.findFirst.mockResolvedValue(null);
+
+        await service.proposeAction(
+          adminCtx,
+          'send_announcement',
+          { title: 'Notice' },
+          key,
+        );
+
+        expect(prisma.agentAction.findFirst).toHaveBeenCalledWith({
+          where: {
+            idempotencyScope: 'school-1:user-admin:send_announcement',
+            idempotencyKey: key,
+          },
+        });
+      });
+
+      it('allows identical idempotency keys across different users or schools without collision', async () => {
+        const scopeUser1 = deriveIdempotencyScope(
+          'school-1',
+          'user-1',
+          'send_announcement',
+        );
+        const scopeUser2 = deriveIdempotencyScope(
+          'school-1',
+          'user-2',
+          'send_announcement',
+        );
+        const scopeSchool2 = deriveIdempotencyScope(
+          'school-2',
+          'user-1',
+          'send_announcement',
+        );
+
+        expect(scopeUser1).toBe('school-1:user-1:send_announcement');
+        expect(scopeUser2).toBe('school-1:user-2:send_announcement');
+        expect(scopeSchool2).toBe('school-2:user-1:send_announcement');
+        expect(scopeUser1).not.toBe(scopeUser2);
+        expect(scopeUser1).not.toBe(scopeSchool2);
+      });
+    });
+
+    describe('Same-Key / Different-Request Conflict (409)', () => {
+      it('throws ConflictException with ACTION_IDEMPOTENCY_KEY_REUSE when key is reused with different payload', async () => {
+        const key = 'reused-key-1';
+        const scope = 'school-1:user-admin:send_announcement';
+        const existingFingerprint = computeRequestFingerprint(
+          'school-1',
+          'user-admin',
+          'send_announcement',
+          { title: 'Original Announcement Title' },
+        );
+
+        prisma.agentAction.findFirst.mockResolvedValueOnce({
+          id: 'action-original',
+          idempotencyScope: scope,
+          idempotencyKey: key,
+          requestFingerprint: existingFingerprint,
+          status: AgentActionStatus.AWAITING_CONFIRMATION,
+          label: 'Original Announcement',
+          riskLevel: 'LOW',
+        });
+
+        await expect(
+          service.proposeAction(
+            adminCtx,
+            'send_announcement',
+            { title: 'Tampered or Different Announcement Title' },
+            key,
+          ),
+        ).rejects.toThrow(ConflictException);
+
+        try {
+          await service.proposeAction(
+            adminCtx,
+            'send_announcement',
+            { title: 'Tampered or Different Announcement Title' },
+            key,
+          );
+        } catch (err: any) {
+          expect(err.message).toContain(
+            AGENT_ERRORS.ACTION_IDEMPOTENCY_KEY_REUSE,
+          );
+        }
+      });
+    });
+
+    describe('Concurrent Proposal Race Handling (Prisma P2002)', () => {
+      it('recovers safely on P2002 race when winning row has identical request payload', async () => {
+        const key = 'concurrent-race-key';
+        const rawArgs = { title: 'Concurrent Announcement' };
+        const reqFp = computeRequestFingerprint(
+          'school-1',
+          'user-admin',
+          'send_announcement',
+          rawArgs,
+        );
+
+        // First findFirst before create returns null (simulating concurrent gap)
+        prisma.agentAction.findFirst.mockResolvedValueOnce(null);
+
+        // create() throws Prisma P2002 unique constraint error
+        const p2002Error: any = new Error(
+          'Unique constraint failed on the fields: (`idempotencyScope`,`idempotencyKey`)',
+        );
+        p2002Error.code = 'P2002';
+        prisma.agentAction.create.mockRejectedValueOnce(p2002Error);
+
+        // findFirst in catch block finds the row committed by the concurrent winner
+        prisma.agentAction.findFirst.mockResolvedValueOnce({
+          id: 'action-winner',
+          idempotencyScope: 'school-1:user-admin:send_announcement',
+          idempotencyKey: key,
+          requestFingerprint: reqFp,
+          status: AgentActionStatus.AWAITING_CONFIRMATION,
+          label: 'Execute Send announcement',
+          riskLevel: 'LOW',
+          expiresAt: new Date(Date.now() + 15 * 60_000),
+          requiresConfirmation: false,
+        });
+
+        const res = await service.proposeAction(
+          adminCtx,
+          'send_announcement',
+          rawArgs,
+          key,
+        );
+
+        expect(res.pendingAction['actionId']).toBe('action-winner');
+        expect(res.pendingAction['idempotent']).toBe(true);
+      });
+
+      it('throws ACTION_IDEMPOTENCY_KEY_REUSE on P2002 race when winning row has different request payload', async () => {
+        const key = 'concurrent-race-conflict';
+        const rawArgs = { title: 'New Announcement' };
+
+        prisma.agentAction.findFirst.mockResolvedValueOnce(null);
+
+        const p2002Error: any = new Error('Unique constraint failed');
+        p2002Error.code = 'P2002';
+        prisma.agentAction.create.mockRejectedValueOnce(p2002Error);
+
+        // findFirst in catch finds existing row with DIFFERENT fingerprint
+        prisma.agentAction.findFirst.mockResolvedValueOnce({
+          id: 'action-winner',
+          idempotencyScope: 'school-1:user-admin:send_announcement',
+          idempotencyKey: key,
+          requestFingerprint: 'different-fingerprint-xyz',
+          status: AgentActionStatus.AWAITING_CONFIRMATION,
+        });
+
+        await expect(
+          service.proposeAction(adminCtx, 'send_announcement', rawArgs, key),
+        ).rejects.toThrow(ConflictException);
+      });
+    });
+
+    describe('Ambiguous Execution Reconciliation', () => {
+      it('reconciles EXECUTING action as APPLIED and marks SUCCEEDED', async () => {
+        prisma.leaveRequest.findMany.mockResolvedValue([
+          {
+            id: 'leave-10',
+            staff: { user: { firstName: 'Ravi', lastName: 'Kumar' } },
+          },
+        ]);
+        prisma.agentAction.findFirst.mockResolvedValueOnce({
+          id: 'action-executing',
+          userId: 'user-admin',
+          schoolId: 'school-1',
+          toolName: 'approve_leave',
+          riskLevel: 'HIGH',
+          label: 'Approve leave for Ravi Kumar',
+          arguments: { leaveId: 'leave-10' },
+          status: AgentActionStatus.EXECUTING,
+        });
+
+        // Domain check confirms leave request was actually APPROVED in DB
+        prisma.leaveRequest.findUnique.mockResolvedValueOnce({
+          id: 'leave-10',
+          status: 'APPROVED',
+          schoolId: 'school-1',
+        });
+
+        const res = await service.proposeAction(adminCtx, 'approve_leave', {
+          staffName: 'Ravi Kumar',
+        });
+
+        expect(prisma.agentAction.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'action-executing' },
+            data: expect.objectContaining({
+              status: AgentActionStatus.SUCCEEDED,
+            }),
+          }),
+        );
+        expect(res.pendingAction['actionId']).toBe('action-executing');
+        expect(res.pendingAction['status']).toBe(AgentActionStatus.SUCCEEDED);
+        expect(res.pendingAction['idempotent']).toBe(true);
+      });
+
+      it('reconciles EXECUTING action as NOT_APPLIED, marks FAILED, and allows fresh proposal', async () => {
+        prisma.leaveRequest.findMany.mockResolvedValue([
+          {
+            id: 'leave-11',
+            staff: { user: { firstName: 'Ravi', lastName: 'Kumar' } },
+          },
+        ]);
+        prisma.agentAction.findFirst.mockResolvedValueOnce({
+          id: 'action-executing-stalled',
+          userId: 'user-admin',
+          schoolId: 'school-1',
+          toolName: 'approve_leave',
+          riskLevel: 'HIGH',
+          label: 'Approve leave for Ravi Kumar',
+          arguments: { leaveId: 'leave-11' },
+          status: AgentActionStatus.EXECUTING,
+        });
+
+        // Domain check confirms leave request is still PENDING in DB
+        prisma.leaveRequest.findUnique.mockResolvedValueOnce({
+          id: 'leave-11',
+          status: 'PENDING',
+          schoolId: 'school-1',
+        });
+
+        const res = await service.proposeAction(adminCtx, 'approve_leave', {
+          staffName: 'Ravi Kumar',
+        });
+
+        // Marks stalled row FAILED
+        expect(prisma.agentAction.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'action-executing-stalled' },
+            data: expect.objectContaining({
+              status: AgentActionStatus.FAILED,
+            }),
+          }),
+        );
+        // Allows creating fresh proposal
+        expect(prisma.agentAction.create).toHaveBeenCalled();
+        expect(res.pendingAction['actionId']).toBe('action-1');
+      });
+
+      it('throws ACTION_RECOVERY_REQUIRED when reconciliation outcome is UNKNOWN', async () => {
+        prisma.leaveRequest.findMany.mockResolvedValue([
+          {
+            id: 'leave-12',
+            staff: { user: { firstName: 'Ravi', lastName: 'Kumar' } },
+          },
+        ]);
+        prisma.agentAction.findFirst.mockResolvedValueOnce({
+          id: 'action-executing-unknown',
+          userId: 'user-admin',
+          schoolId: 'school-1',
+          toolName: 'approve_leave',
+          riskLevel: 'HIGH',
+          label: 'Approve leave for Ravi Kumar',
+          arguments: { leaveId: 'leave-12' },
+          status: AgentActionStatus.EXECUTING,
+        });
+
+        // Domain check returns REJECTED (ambiguous in approve_leave context -> UNKNOWN)
+        prisma.leaveRequest.findUnique.mockResolvedValueOnce({
+          id: 'leave-12',
+          status: 'REJECTED',
+          schoolId: 'school-1',
+        });
+
+        await expect(
+          service.proposeAction(adminCtx, 'approve_leave', {
+            staffName: 'Ravi Kumar',
+          }),
+        ).rejects.toThrow(ConflictException);
+
+        try {
+          await service.proposeAction(adminCtx, 'approve_leave', {
+            staffName: 'Ravi Kumar',
+          });
+        } catch (err: any) {
+          expect(err.message).toContain(AGENT_ERRORS.ACTION_RECOVERY_REQUIRED);
+        }
+      });
+    });
+
+    describe('Actor-Independent Shared Business Fingerprints', () => {
+      it('computes identical operationFingerprint for approve_leave across different admin users', async () => {
+        const leaveId = 'leave-shared-123';
+        const fp1 = (service as any).computeOperationFingerprint(
+          TOOL_REGISTRY.get('approve_leave')!,
+          {
+            schoolId: 'school-1',
+            userId: 'admin-alpha',
+            role: 'SCHOOL_ADMIN',
+            permissions: [],
+          },
+          { leaveId },
+        );
+        const fp2 = (service as any).computeOperationFingerprint(
+          TOOL_REGISTRY.get('approve_leave')!,
+          {
+            schoolId: 'school-1',
+            userId: 'admin-beta',
+            role: 'SCHOOL_ADMIN',
+            permissions: [],
+          },
+          { leaveId },
+        );
+
+        expect(fp1).toBeDefined();
+        expect(fp1).toBe(fp2);
+      });
+
+      it('computes identical operationFingerprint for create_assignment across different teachers', async () => {
+        const resolvedArgs = {
+          classId: 'class-1',
+          subjectId: 'sub-1',
+          topic: 'Algebra Basics',
+          description: 'Chapter 1 exercises',
+          dueDate: '2026-10-01',
+          totalMarks: 50,
+        };
+        const fp1 = (service as any).computeOperationFingerprint(
+          TOOL_REGISTRY.get('create_assignment')!,
+          {
+            schoolId: 'school-1',
+            userId: 'teacher-1',
+            role: 'TEACHER',
+            permissions: [],
+          },
+          resolvedArgs,
+        );
+        const fp2 = (service as any).computeOperationFingerprint(
+          TOOL_REGISTRY.get('create_assignment')!,
+          {
+            schoolId: 'school-1',
+            userId: 'teacher-2',
+            role: 'TEACHER',
+            permissions: [],
+          },
+          resolvedArgs,
+        );
+
+        expect(fp1).toBeDefined();
+        expect(fp1).toBe(fp2);
+      });
+    });
+
+    describe('Race-Safe CAS Confirmation & Recovery', () => {
+      it('returns cached result when CAS returns 0 and action already completed (SUCCEEDED)', async () => {
+        prisma.agentAction.findUnique
+          .mockResolvedValueOnce({
+            id: 'action-cas-race',
+            userId: 'user-admin',
+            schoolId: 'school-1',
+            status: AgentActionStatus.AWAITING_CONFIRMATION,
+            expiresAt: new Date(Date.now() + 60_000),
+            toolName: 'send_announcement',
+            arguments: { title: 'Test' },
+            label: 'Test Announcement',
+            riskLevel: 'LOW',
+          })
+          .mockResolvedValueOnce({
+            id: 'action-cas-race',
+            userId: 'user-admin',
+            schoolId: 'school-1',
+            status: AgentActionStatus.SUCCEEDED,
+            result: { sentCount: 42 },
+          });
+
+        prisma.user.findUnique.mockResolvedValue({
+          id: 'user-admin',
+          role: 'SCHOOL_ADMIN',
+          schoolId: 'school-1',
+          status: 'ACTIVE',
+        });
+        prisma.agentAction.updateMany.mockResolvedValue({ count: 0 });
+
+        const result = await service.confirmAndExecute(
+          'action-cas-race',
+          'user-admin',
+          'school-1',
+        );
+
+        expect(result.status).toBe(AgentActionStatus.SUCCEEDED);
+        expect(result.result).toEqual({ sentCount: 42 });
+      });
+
+      it('throws ACTION_EXPIRED when CAS returns 0 and action expired concurrently', async () => {
+        prisma.agentAction.findUnique
+          .mockResolvedValueOnce({
+            id: 'action-cas-expired',
+            userId: 'user-admin',
+            schoolId: 'school-1',
+            status: AgentActionStatus.AWAITING_CONFIRMATION,
+            expiresAt: new Date(Date.now() + 60_000),
+            toolName: 'send_announcement',
+            arguments: { title: 'Test' },
+            label: 'Test Announcement',
+            riskLevel: 'LOW',
+          })
+          .mockResolvedValueOnce({
+            id: 'action-cas-expired',
+            userId: 'user-admin',
+            schoolId: 'school-1',
+            status: AgentActionStatus.EXPIRED,
+            expiresAt: new Date(Date.now() - 1000),
+          });
+
+        prisma.user.findUnique.mockResolvedValue({
+          id: 'user-admin',
+          role: 'SCHOOL_ADMIN',
+          schoolId: 'school-1',
+          status: 'ACTIVE',
+        });
+        prisma.agentAction.updateMany.mockResolvedValue({ count: 0 });
+
+        await expect(
+          service.confirmAndExecute(
+            'action-cas-expired',
+            'user-admin',
+            'school-1',
+          ),
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+  });
 
   describe('confirmAndExecute', () => {
     it('throws NotFoundException for unknown actionId', async () => {
@@ -574,34 +1074,43 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
     it('throws ForbiddenException if tenant mismatches', async () => {
       prisma.agentAction.findUnique.mockResolvedValue({
         id: 'action-1',
+        schoolId: 'other-school',
         userId: 'user-admin',
-        schoolId: 'school-1',
-        status: AgentActionStatus.AWAITING_CONFIRMATION,
-        expiresAt: new Date(Date.now() + 60_000),
-        toolName: 'approve_leave',
-        arguments: { leaveId: 'leave-1' },
-        label: 'Approve leave',
-        riskLevel: 'HIGH',
       });
       await expect(
-        service.confirmAndExecute('action-1', 'user-admin', 'school-OTHER'),
+        service.confirmAndExecute('action-1', 'user-admin', 'school-1'),
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('throws ForbiddenException if userId mismatches (cross-user)', async () => {
+    it('throws ForbiddenException if ownership mismatches', async () => {
       prisma.agentAction.findUnique.mockResolvedValue({
         id: 'action-1',
-        userId: 'user-admin',
+        schoolId: 'school-1',
+        userId: 'other-user',
+      });
+      await expect(
+        service.confirmAndExecute('action-1', 'user-admin', 'school-1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws ForbiddenException if user is inactive at confirmation time', async () => {
+      prisma.agentAction.findUnique.mockResolvedValue({
+        id: 'action-1',
+        userId: 'user-inactive',
         schoolId: 'school-1',
         status: AgentActionStatus.AWAITING_CONFIRMATION,
         expiresAt: new Date(Date.now() + 60_000),
         toolName: 'approve_leave',
         arguments: { leaveId: 'leave-1' },
-        label: 'Approve leave',
-        riskLevel: 'HIGH',
+      });
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-inactive',
+        role: 'SCHOOL_ADMIN',
+        schoolId: 'school-1',
+        status: 'SUSPENDED',
       });
       await expect(
-        service.confirmAndExecute('action-1', 'user-OTHER', 'school-1'),
+        service.confirmAndExecute('action-1', 'user-inactive', 'school-1'),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -610,11 +1119,11 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         id: 'action-1',
         userId: 'user-admin',
         schoolId: 'school-1',
-        status: AgentActionStatus.SUCCEEDED, // terminal
-        expiresAt: null,
+        status: AgentActionStatus.SUCCEEDED,
+        expiresAt: new Date(Date.now() + 60_000),
         toolName: 'approve_leave',
-        arguments: {},
-        label: 'Test',
+        arguments: { leaveId: 'leave-1' },
+        label: 'Approve leave',
         riskLevel: 'HIGH',
       });
       await expect(
@@ -628,10 +1137,10 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         userId: 'user-admin',
         schoolId: 'school-1',
         status: AgentActionStatus.AWAITING_CONFIRMATION,
-        expiresAt: new Date(Date.now() - 5_000), // in the past
+        expiresAt: new Date(Date.now() - 1000), // in the past
         toolName: 'approve_leave',
-        arguments: {},
-        label: 'Test',
+        arguments: { leaveId: 'leave-1' },
+        label: 'Approve leave',
         riskLevel: 'HIGH',
       });
 
@@ -639,30 +1148,47 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         service.confirmAndExecute('action-1', 'user-admin', 'school-1'),
       ).rejects.toThrow(BadRequestException);
 
-      // ─── Hardening Test 7: expiry path clears BOTH idempotency keys ──────
+      // ─── Hardening Test 7: expiry path preserves historical idempotency keys ──────
       expect(prisma.agentAction.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             status: AgentActionStatus.EXPIRED,
+          }),
+        }),
+      );
+      expect(prisma.agentAction.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
             idempotencyKey: null,
-            operationFingerprint: null,
           }),
         }),
       );
     });
 
     it('throws ConflictException when CAS update gets 0 rows (concurrent race)', async () => {
-      prisma.agentAction.findUnique.mockResolvedValue({
-        id: 'action-1',
-        userId: 'user-admin',
-        schoolId: 'school-1',
-        status: AgentActionStatus.AWAITING_CONFIRMATION,
-        expiresAt: new Date(Date.now() + 60_000),
-        toolName: 'automation_daily_digest',
-        arguments: {},
-        label: 'Daily digest',
-        riskLevel: 'LOW',
-      });
+      prisma.agentAction.findUnique
+        .mockResolvedValueOnce({
+          id: 'action-1',
+          userId: 'user-admin',
+          schoolId: 'school-1',
+          status: AgentActionStatus.AWAITING_CONFIRMATION,
+          expiresAt: new Date(Date.now() + 60_000),
+          toolName: 'automation_daily_digest',
+          arguments: {},
+          label: 'Daily digest',
+          riskLevel: 'LOW',
+        })
+        .mockResolvedValueOnce({
+          id: 'action-1',
+          userId: 'user-admin',
+          schoolId: 'school-1',
+          status: AgentActionStatus.EXECUTING,
+          expiresAt: new Date(Date.now() + 60_000),
+          toolName: 'automation_daily_digest',
+          arguments: {},
+          label: 'Daily digest',
+          riskLevel: 'LOW',
+        });
       prisma.user.findUnique.mockResolvedValue({
         id: 'user-admin',
         role: 'SCHOOL_ADMIN',
@@ -670,18 +1196,7 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         status: 'ACTIVE',
       });
       // Simulate concurrent execution already claimed the row
-      prisma.$transaction.mockImplementation(
-        async (cb: (tx: unknown) => Promise<unknown>) => {
-          const txPrisma = {
-            ...prisma,
-            agentAction: {
-              ...prisma.agentAction,
-              updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-            },
-          };
-          return cb(txPrisma);
-        },
-      );
+      prisma.agentAction.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(
         service.confirmAndExecute('action-1', 'user-admin', 'school-1'),
@@ -784,9 +1299,9 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
       );
     });
 
-    // ─── Hardening Test 8: FAILED path clears both idempotency keys ──────────
+    // ─── Hardening Test 8: FAILED path preserves historical idempotency keys ──────────
 
-    it('[H8] FAILED execution path clears idempotencyKey and operationFingerprint on DB row', async () => {
+    it('[H8] FAILED execution path preserves idempotencyKey and operationFingerprint on DB row', async () => {
       prisma.agentAction.findUnique.mockResolvedValue({
         id: 'action-1',
         userId: 'user-admin',
@@ -819,8 +1334,13 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
           where: { id: 'action-1' },
           data: expect.objectContaining({
             status: AgentActionStatus.FAILED,
+          }),
+        }),
+      );
+      expect(prisma.agentAction.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
             idempotencyKey: null,
-            operationFingerprint: null,
           }),
         }),
       );
@@ -923,19 +1443,24 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
       );
     });
 
-    // ─── Hardening Test 10: expiry clears both idempotency keys ──────────────
+    // ─── Hardening Test 10: expiry preserves historical idempotency keys ──────────────
 
-    it('[H10] expireStaleActions clears idempotencyKey and operationFingerprint on expired rows', async () => {
+    it('[H10] expireStaleActions preserves idempotencyKey and operationFingerprint on expired rows', async () => {
       prisma.agentAction.updateMany.mockResolvedValue({ count: 2 });
 
       await service.expireStaleActions();
 
       expect(prisma.agentAction.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
+          data: {
             status: AgentActionStatus.EXPIRED,
+          },
+        }),
+      );
+      expect(prisma.agentAction.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
             idempotencyKey: null,
-            operationFingerprint: null,
           }),
         }),
       );

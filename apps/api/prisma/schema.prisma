@@ -1511,13 +1511,14 @@ model AgentAction {
   requiresConfirmation Boolean           @default(false)
   label                String
   explanation          String?
-  // Request-level deduplication key: client-supplied Idempotency-Key header value.
-  // Cleared on FAILED/EXPIRED to allow legitimate retries.
-  idempotencyKey       String?           @unique
-  // Business-mutation fingerprint: content-addressable hash of the logical operation.
-  // Distinct from idempotencyKey — blocks double-execution of the same business event.
-  // Cleared on FAILED/EXPIRED to allow legitimate retries.
-  operationFingerprint String?           @unique
+  // Server-derived scope: schoolId:userId:toolName
+  idempotencyScope     String?
+  // Request-level deduplication key: client-supplied Idempotency-Key header value
+  idempotencyKey       String?
+  // Cryptographic hash of canonical validated request payload: sha256(schoolId:userId:toolName:canonicalJson(args))
+  requestFingerprint   String?
+  // Business-mutation fingerprint: content-addressable hash of the logical operation
+  operationFingerprint String?
   correlationId        String?
   expiresAt            DateTime?
   confirmedAt          DateTime?
@@ -1530,9 +1531,12 @@ model AgentAction {
 
   school School @relation(fields: [schoolId], references: [id])
 
+  @@unique([idempotencyScope, idempotencyKey])
   @@index([userId, status])
   @@index([schoolId, status, createdAt])
   @@index([idempotencyKey])
+  @@index([idempotencyScope])
+  @@index([requestFingerprint])
   @@index([operationFingerprint])
   @@map("agent_actions")
 }
