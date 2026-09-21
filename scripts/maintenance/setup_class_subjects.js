@@ -90,20 +90,22 @@ async function main() {
       const classTeacher = staff[staffIdx % staff.length];
       await prisma.teacherAssignment.upsert({
         where: {
-          staffId_sectionId_subjectId: {
+          academicYearId_staffId_sectionId_subjectId: {
+            academicYearId: ay.id,
             staffId: classTeacher.id,
             sectionId: sec.id,
             subjectId: sec.class.subjects[0]?.subjectId || null
           }
         },
         create: {
+          schoolId: sid,
           staffId: classTeacher.id,
           sectionId: sec.id,
           subjectId: sec.class.subjects[0]?.subjectId || null,
           isClassTeacher: true,
           academicYearId: ay.id
         },
-        update: { isClassTeacher: true }
+        update: { isClassTeacher: true, schoolId: sid }
       });
       taCount++;
 
@@ -113,20 +115,22 @@ async function main() {
         const teacher = staff[staffIdx % staff.length];
         await prisma.teacherAssignment.upsert({
           where: {
-            staffId_sectionId_subjectId: {
+            academicYearId_staffId_sectionId_subjectId: {
+              academicYearId: ay.id,
               staffId: teacher.id,
               sectionId: sec.id,
               subjectId: cs.subjectId
             }
           },
           create: {
+            schoolId: sid,
             staffId: teacher.id,
             sectionId: sec.id,
             subjectId: cs.subjectId,
             isClassTeacher: false,
             academicYearId: ay.id
           },
-          update: {}
+          update: { schoolId: sid }
         });
         taCount++;
       }

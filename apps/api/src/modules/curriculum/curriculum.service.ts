@@ -11,7 +11,11 @@ import {
   UpdateSchoolOfferingDto,
   EnrollStudentSubjectsDto,
 } from './dto/curriculum.dto';
-import { OfferingSource, SubjectClassification, SubjectSelectionType } from '@prisma/client';
+import {
+  OfferingSource,
+  SubjectClassification,
+  SubjectSelectionType,
+} from '@prisma/client';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
 
 @Injectable()
@@ -80,7 +84,9 @@ export class CurriculumService {
     });
 
     if (!curriculum) {
-      throw new NotFoundException(`Curriculum with ID "${curriculumId}" not found`);
+      throw new NotFoundException(
+        `Curriculum with ID "${curriculumId}" not found`,
+      );
     }
 
     return curriculum;
@@ -89,7 +95,10 @@ export class CurriculumService {
   // -------------------------------------------------------------
   // SCHOOL ONBOARDING & "LOAD RECOMMENDED CURRICULUM"
   // -------------------------------------------------------------
-  async initializeSchoolCurriculum(schoolId: string, dto: InitializeCurriculumDto) {
+  async initializeSchoolCurriculum(
+    schoolId: string,
+    dto: InitializeCurriculumDto,
+  ) {
     const validSchoolId = requireSchoolId(schoolId);
     const school = await this.prisma.school.findUnique({
       where: { id: validSchoolId },
@@ -102,7 +111,9 @@ export class CurriculumService {
     });
 
     if (!school) {
-      throw new NotFoundException(`School with ID "${validSchoolId}" not found`);
+      throw new NotFoundException(
+        `School with ID "${validSchoolId}" not found`,
+      );
     }
 
     const curriculum = await this.prisma.curriculum.findUnique({
@@ -117,7 +128,9 @@ export class CurriculumService {
     });
 
     if (!curriculum) {
-      throw new NotFoundException(`Curriculum with ID "${dto.curriculumId}" not found`);
+      throw new NotFoundException(
+        `Curriculum with ID "${dto.curriculumId}" not found`,
+      );
     }
 
     // Determine active academic year
@@ -125,7 +138,9 @@ export class CurriculumService {
     if (!academicYearId) {
       const activeYear = school.academicYears[0];
       if (!activeYear) {
-        throw new BadRequestException('No active Academic Year found for this school');
+        throw new BadRequestException(
+          'No active Academic Year found for this school',
+        );
       }
       academicYearId = activeYear.id;
     }
@@ -278,7 +293,11 @@ export class CurriculumService {
         globalSubject: true,
         legacySubject: true,
       },
-      orderBy: [{ gradeFrom: 'asc' }, { gradeTo: 'asc' }, { globalSubject: { name: 'asc' } }],
+      orderBy: [
+        { gradeFrom: 'asc' },
+        { gradeTo: 'asc' },
+        { globalSubject: { name: 'asc' } },
+      ],
     });
   }
 
@@ -288,14 +307,36 @@ export class CurriculumService {
       where: { schoolId: validSchoolId, isActive: true },
     });
     if (!activeYear) {
-      throw new BadRequestException('No active Academic Year found for this school');
+      throw new BadRequestException(
+        'No active Academic Year found for this school',
+      );
     }
 
     const school = await this.prisma.school.findUnique({
       where: { id: validSchoolId },
     });
     if (!school?.activeCurriculumId) {
-      throw new BadRequestException('School does not have an active curriculum configured');
+      throw new BadRequestException(
+        'School does not have an active curriculum configured',
+      );
+    }
+
+    const maxMarks = dto.maxMarks ?? 100;
+    const passMarks = dto.passMarks ?? 35;
+    if (maxMarks <= 0 || passMarks < 0 || passMarks > maxMarks) {
+      throw new BadRequestException(
+        'Invalid marks configuration: passMarks must be between 0 and maxMarks, and maxMarks > 0',
+      );
+    }
+
+    if (dto.gradeFrom < 1 || dto.gradeTo > 12 || dto.gradeFrom > dto.gradeTo) {
+      throw new BadRequestException(
+        'Invalid grade range: gradeFrom and gradeTo must be between 1 and 12, and gradeFrom <= gradeTo',
+      );
+    }
+
+    if (dto.periodsPerWeek !== undefined && dto.periodsPerWeek <= 0) {
+      throw new BadRequestException('periodsPerWeek must be greater than 0');
     }
 
     let globalSubjectId = dto.globalSubjectId;
@@ -303,11 +344,15 @@ export class CurriculumService {
     // If SCHOOL_CUSTOM, ensure global subject exists or create one
     if (dto.source === OfferingSource.SCHOOL_CUSTOM) {
       if (!dto.customName) {
-        throw new BadRequestException('customName is required for custom school subjects');
+        throw new BadRequestException(
+          'customName is required for custom school subjects',
+        );
       }
 
       if (!globalSubjectId) {
-        const customCode = (dto.customCode || dto.customName.replace(/\s+/g, '_').toUpperCase()).slice(0, 20);
+        const customCode = (
+          dto.customCode || dto.customName.replace(/\s+/g, '_').toUpperCase()
+        ).slice(0, 20);
         const globalSub = await this.prisma.globalSubject.upsert({
           where: { code: customCode },
           update: { name: dto.customName },
@@ -327,7 +372,14 @@ export class CurriculumService {
     }
 
     // Bridge with legacy Subject table
-    const subjectName = dto.customName || (await this.prisma.globalSubject.findUnique({ where: { id: globalSubjectId } }))?.name || 'Subject';
+    const subjectName =
+      dto.customName ||
+      (
+        await this.prisma.globalSubject.findUnique({
+          where: { id: globalSubjectId },
+        })
+      )?.name ||
+      'Subject';
     let legacySubject = await this.prisma.subject.findFirst({
       where: { schoolId: validSchoolId, name: subjectName },
     });
@@ -375,14 +427,20 @@ export class CurriculumService {
     });
   }
 
-  async updateSchoolOffering(schoolId: string, id: string, dto: UpdateSchoolOfferingDto) {
+  async updateSchoolOffering(
+    schoolId: string,
+    id: string,
+    dto: UpdateSchoolOfferingDto,
+  ) {
     const validSchoolId = requireSchoolId(schoolId);
     const offering = await this.prisma.schoolSubjectOffering.findFirst({
       where: { id, schoolId: validSchoolId },
     });
 
     if (!offering) {
-      throw new NotFoundException(`School subject offering with ID "${id}" not found`);
+      throw new NotFoundException(
+        `School subject offering with ID "${id}" not found`,
+      );
     }
 
     return this.prisma.schoolSubjectOffering.update({
@@ -405,7 +463,9 @@ export class CurriculumService {
     });
 
     if (!offering) {
-      throw new NotFoundException(`School subject offering with ID "${id}" not found`);
+      throw new NotFoundException(
+        `School subject offering with ID "${id}" not found`,
+      );
     }
 
     // Soft-deactivate to prevent breaking historical marks, assignments, or report cards!
@@ -434,7 +494,10 @@ export class CurriculumService {
     const nameMatch = classRecord.name.match(/\d+/);
     if (nameMatch) {
       gradeLevel = parseInt(nameMatch[0], 10);
-    } else if (classRecord.numericLevel >= 3 && classRecord.numericLevel <= 12) {
+    } else if (
+      classRecord.numericLevel >= 3 &&
+      classRecord.numericLevel <= 12
+    ) {
       gradeLevel = classRecord.numericLevel - 2;
     }
 
@@ -493,7 +556,11 @@ export class CurriculumService {
     });
   }
 
-  async enrollStudentSubjects(schoolId: string, studentId: string, dto: EnrollStudentSubjectsDto) {
+  async enrollStudentSubjects(
+    schoolId: string,
+    studentId: string,
+    dto: EnrollStudentSubjectsDto,
+  ) {
     const validSchoolId = requireSchoolId(schoolId);
     const student = await this.prisma.student.findFirst({
       where: { id: studentId, schoolId: validSchoolId },
@@ -536,7 +603,23 @@ export class CurriculumService {
     });
 
     if (offerings.length !== dto.offeringIds.length) {
-      throw new BadRequestException('One or more selected offerings are invalid or not offered by the school');
+      throw new BadRequestException(
+        'One or more selected offerings are invalid or not offered by the school',
+      );
+    }
+
+    const studentGrade = currentEnrollment.section?.class?.numericLevel ?? 1;
+    for (const off of offerings) {
+      if (off.academicYearId !== activeYear.id) {
+        throw new BadRequestException(
+          `Subject offering "${off.id}" belongs to a different academic session`,
+        );
+      }
+      if (studentGrade < off.gradeFrom || studentGrade > off.gradeTo) {
+        throw new BadRequestException(
+          `Subject offering "${off.globalSubject?.name || off.customName || off.id}" is only valid for grades ${off.gradeFrom} to ${off.gradeTo}, but student is enrolled in Grade ${studentGrade}`,
+        );
+      }
     }
 
     // Upsert student enrollments inside a transaction
@@ -616,7 +699,9 @@ export class CurriculumService {
 
     const byGrade: Record<number, number> = {};
     for (let g = 1; g <= 10; g++) {
-      byGrade[g] = offerings.filter((o) => o.gradeFrom <= g && o.gradeTo >= g).length;
+      byGrade[g] = offerings.filter(
+        (o) => o.gradeFrom <= g && o.gradeTo >= g,
+      ).length;
     }
 
     return {
@@ -624,9 +709,12 @@ export class CurriculumService {
       board: school.board,
       curriculum: activeCurriculum,
       totalOfferings: offerings.length,
-      customOfferingsCount: offerings.filter((o) => o.source === OfferingSource.SCHOOL_CUSTOM).length,
+      customOfferingsCount: offerings.filter(
+        (o) => o.source === OfferingSource.SCHOOL_CUSTOM,
+      ).length,
       gradeOfferingsCount: byGrade,
-      isConfigured: !!school.boardId && !!school.activeCurriculumId && offerings.length > 0,
+      isConfigured:
+        !!school.boardId && !!school.activeCurriculumId && offerings.length > 0,
     };
   }
 
@@ -702,7 +790,10 @@ export class CurriculumService {
       throw new NotFoundException('Section not found');
     }
 
-    const classOfferings = await this.getClassOfferings(schoolId, section.classId);
+    const classOfferings = await this.getClassOfferings(
+      schoolId,
+      section.classId,
+    );
 
     return {
       section: {

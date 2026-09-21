@@ -69,6 +69,7 @@ async function main() {
           staffId: teacher.id,
           sectionId: section.id,
           subjectId: subject.id,
+          schoolId: ay.schoolId,
           academicYearId: ay.id,
         }
       });

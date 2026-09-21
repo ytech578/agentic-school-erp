@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
 
@@ -66,14 +71,31 @@ export class ClassesService {
           where: { schoolId: validSchoolId },
         }));
       if (!activeYear) {
-        throw new BadRequestException('No active academic year found for this school');
+        throw new BadRequestException(
+          'No active academic year found for this school',
+        );
       }
       resolvedYearId = activeYear.id;
+    } else {
+      const verifiedYear = await this.prisma.academicYear.findFirst({
+        where: { id: resolvedYearId, schoolId: validSchoolId },
+      });
+      if (!verifiedYear) {
+        throw new BadRequestException(
+          'Specified academic year does not belong to this school',
+        );
+      }
     }
 
     const cleanName = data.name.trim();
     const numericLevel =
       data.numericLevel ?? (parseInt(cleanName.replace(/\D/g, ''), 10) || 1);
+
+    if (numericLevel < 1 || numericLevel > 12) {
+      throw new BadRequestException(
+        'Class numeric level must be between 1 and 12',
+      );
+    }
 
     const existing = await this.prisma.class.findUnique({
       where: {
@@ -86,7 +108,9 @@ export class ClassesService {
     });
 
     if (existing) {
-      throw new ConflictException(`Class "${cleanName}" already exists for this academic session`);
+      throw new ConflictException(
+        `Class "${cleanName}" already exists for this academic session`,
+      );
     }
 
     const sectionsList =
@@ -121,6 +145,15 @@ export class ClassesService {
       where: { id: classId, schoolId: validSchoolId },
     });
     if (!existing) throw new NotFoundException('Class not found');
+
+    if (
+      data.numericLevel !== undefined &&
+      (data.numericLevel < 1 || data.numericLevel > 12)
+    ) {
+      throw new BadRequestException(
+        'Class numeric level must be between 1 and 12',
+      );
+    }
 
     return this.prisma.class.update({
       where: { id: classId },
@@ -157,7 +190,10 @@ export class ClassesService {
     }
 
     await this.prisma.class.delete({ where: { id: classId } });
-    return { success: true, message: `Class ${existing.name} deleted successfully` };
+    return {
+      success: true,
+      message: `Class ${existing.name} deleted successfully`,
+    };
   }
 
   async createSection(
@@ -181,7 +217,9 @@ export class ClassesService {
       },
     });
     if (existingSec) {
-      throw new ConflictException(`Section ${cleanName} already exists in ${existingClass.name}`);
+      throw new ConflictException(
+        `Section ${cleanName} already exists in ${existingClass.name}`,
+      );
     }
 
     return this.prisma.section.create({

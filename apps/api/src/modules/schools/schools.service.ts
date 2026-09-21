@@ -148,7 +148,8 @@ export class SchoolsService {
 
       // Create Initial Active Academic Year
       const currentYear = new Date().getFullYear();
-      const academicYearName = data.academicYearName?.trim() || `${currentYear}-${currentYear + 1}`;
+      const academicYearName =
+        data.academicYearName?.trim() || `${currentYear}-${currentYear + 1}`;
       const startDate = new Date(currentYear, 3, 1); // April 1
       const endDate = new Date(currentYear + 1, 2, 31); // March 31 of next year
 
@@ -164,11 +165,31 @@ export class SchoolsService {
 
       // Seed standard initial departments
       const starterDepartments = [
-        { name: 'Science', code: 'SCI', desc: 'Physics, Chemistry, Biology & Laboratory Sciences' },
-        { name: 'Mathematics', code: 'MATH', desc: 'Core & Applied Mathematics' },
-        { name: 'Languages & Literature', code: 'LANG', desc: 'English, Hindi, and Regional Languages' },
-        { name: 'Social Sciences', code: 'SOC', desc: 'History, Geography, Political Science & Economics' },
-        { name: 'Administration & Operations', code: 'ADMIN', desc: 'School Operations, Accounts & Front Office' },
+        {
+          name: 'Science',
+          code: 'SCI',
+          desc: 'Physics, Chemistry, Biology & Laboratory Sciences',
+        },
+        {
+          name: 'Mathematics',
+          code: 'MATH',
+          desc: 'Core & Applied Mathematics',
+        },
+        {
+          name: 'Languages & Literature',
+          code: 'LANG',
+          desc: 'English, Hindi, and Regional Languages',
+        },
+        {
+          name: 'Social Sciences',
+          code: 'SOC',
+          desc: 'History, Geography, Political Science & Economics',
+        },
+        {
+          name: 'Administration & Operations',
+          code: 'ADMIN',
+          desc: 'School Operations, Accounts & Front Office',
+        },
       ];
 
       for (const dept of starterDepartments) {
@@ -210,15 +231,17 @@ export class SchoolsService {
 
       // Log activity
       if (creatorUserId) {
-        await tx.activityLog.create({
-          data: {
-            schoolId: school.id,
-            userId: creatorUserId,
-            action: 'CREATE',
-            module: 'SCHOOL',
-            description: `School campus '${school.name}' (${school.code}) onboarded successfully into the multi-tenant fleet.`,
-          },
-        }).catch(() => {});
+        await tx.activityLog
+          .create({
+            data: {
+              schoolId: school.id,
+              userId: creatorUserId,
+              action: 'CREATE',
+              module: 'SCHOOL',
+              description: `School campus '${school.name}' (${school.code}) onboarded successfully into the multi-tenant fleet.`,
+            },
+          })
+          .catch(() => {});
       }
 
       return {
@@ -242,16 +265,30 @@ export class SchoolsService {
       data: {
         ...(data.name && { name: data.name.trim() }),
         ...(data.boardType !== undefined && { boardType: data.boardType }),
-        ...(data.affiliationNo !== undefined && { affiliationNo: data.affiliationNo?.trim() || null }),
-        ...(data.udiseCode !== undefined && { udiseCode: data.udiseCode?.trim() || null }),
-        ...(data.principalName !== undefined && { principalName: data.principalName?.trim() || null }),
+        ...(data.affiliationNo !== undefined && {
+          affiliationNo: data.affiliationNo?.trim() || null,
+        }),
+        ...(data.udiseCode !== undefined && {
+          udiseCode: data.udiseCode?.trim() || null,
+        }),
+        ...(data.principalName !== undefined && {
+          principalName: data.principalName?.trim() || null,
+        }),
         ...(data.phone !== undefined && { phone: data.phone?.trim() || null }),
-        ...(data.email !== undefined && { email: data.email?.trim().toLowerCase() || null }),
-        ...(data.website !== undefined && { website: data.website?.trim() || null }),
-        ...(data.address !== undefined && { address: data.address?.trim() || null }),
+        ...(data.email !== undefined && {
+          email: data.email?.trim().toLowerCase() || null,
+        }),
+        ...(data.website !== undefined && {
+          website: data.website?.trim() || null,
+        }),
+        ...(data.address !== undefined && {
+          address: data.address?.trim() || null,
+        }),
         ...(data.city !== undefined && { city: data.city?.trim() || null }),
         ...(data.state !== undefined && { state: data.state?.trim() || null }),
-        ...(data.pinCode !== undefined && { pinCode: data.pinCode?.trim() || null }),
+        ...(data.pinCode !== undefined && {
+          pinCode: data.pinCode?.trim() || null,
+        }),
       },
     });
   }
@@ -296,14 +333,35 @@ export class SchoolsService {
     data: { name: string; startDate: string; endDate: string },
   ) {
     const validSchoolId = requireSchoolId(schoolId);
-    return this.prisma.academicYear.create({
-      data: {
-        schoolId: validSchoolId,
-        name: data.name,
-        startDate: new Date(data.startDate),
-        endDate: new Date(data.endDate),
-        isActive: true,
-      },
+    const startDate = new Date(data.startDate);
+    const endDate = new Date(data.endDate);
+
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      throw new BadRequestException('Invalid startDate or endDate format');
+    }
+
+    if (startDate >= endDate) {
+      throw new BadRequestException(
+        'Academic year startDate must be strictly before endDate',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // Deactivate existing active years to enforce single-active invariant
+      await tx.academicYear.updateMany({
+        where: { schoolId: validSchoolId, isActive: true },
+        data: { isActive: false },
+      });
+
+      return tx.academicYear.create({
+        data: {
+          schoolId: validSchoolId,
+          name: data.name.trim(),
+          startDate,
+          endDate,
+          isActive: true,
+        },
+      });
     });
   }
 
@@ -313,21 +371,24 @@ export class SchoolsService {
   async setActiveAcademicYear(schoolId: string, yearId: string) {
     const validSchoolId = requireSchoolId(schoolId);
 
-    const year = await this.prisma.academicYear.findFirst({
-      where: { id: yearId, schoolId: validSchoolId },
-    });
-    if (!year) {
-      throw new NotFoundException('Academic year not found');
-    }
+    return this.prisma.$transaction(async (tx) => {
+      const year = await tx.academicYear.findFirst({
+        where: { id: yearId, schoolId: validSchoolId },
+      });
+      if (!year) {
+        throw new NotFoundException('Academic year not found');
+      }
 
-    // Deactivate all for this school, then activate selected
-    await this.prisma.academicYear.updateMany({
-      where: { schoolId: validSchoolId },
-      data: { isActive: false },
-    });
-    return this.prisma.academicYear.update({
-      where: { id: year.id },
-      data: { isActive: true },
+      // Deactivate all for this school, then activate selected
+      await tx.academicYear.updateMany({
+        where: { schoolId: validSchoolId, isActive: true },
+        data: { isActive: false },
+      });
+
+      return tx.academicYear.update({
+        where: { id: year.id },
+        data: { isActive: true },
+      });
     });
   }
 }

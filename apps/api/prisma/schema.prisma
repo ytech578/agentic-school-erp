@@ -219,6 +219,7 @@ model School {
   board                 Board?                 @relation(fields: [boardId], references: [id])
   users                 User[]
   academicYears         AcademicYear[]
+  classes               Class[]
   departments           Department[]
   admissionEnquiries    AdmissionEnquiry[]
   admissionApplications AdmissionApplication[]
@@ -226,6 +227,7 @@ model School {
   feeHeads              FeeHead[]
   subjects              Subject[]
   schoolSubjectOfferings SchoolSubjectOffering[]
+  teacherAssignments   TeacherAssignment[]
   notifications         Notification[]
   activityLogs          ActivityLog[]
   systemConfigs         SystemConfig[]
@@ -267,6 +269,10 @@ model AcademicYear {
   timetableSlots        TimetableSlot[]
   admissionEnquiries    AdmissionEnquiry[]
   admissionApplications AdmissionApplication[]
+  schoolSubjectOfferings SchoolSubjectOffering[]
+  teacherAssignments   TeacherAssignment[]
+  studentSubjectEnrollments StudentSubjectEnrollment[]
+  studentEnrollments   StudentEnrollment[]
 
   @@unique([schoolId, name])
   @@index([schoolId, isActive])
@@ -405,6 +411,7 @@ model Class {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  school         School          @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   academicYear   AcademicYear    @relation(fields: [academicYearId], references: [id])
   sections       Section[]
   subjects       ClassSubject[]
@@ -640,14 +647,17 @@ model SchoolSubjectOffering {
   updatedAt                 DateTime              @updatedAt
 
   school             School                     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  academicYear       AcademicYear               @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
   curriculum         Curriculum                 @relation(fields: [curriculumId], references: [id])
   curriculumSubject  CurriculumSubject?         @relation(fields: [curriculumSubjectId], references: [id])
   globalSubject      GlobalSubject              @relation(fields: [globalSubjectId], references: [id])
   legacySubject      Subject?                   @relation(fields: [legacySubjectId], references: [id])
   studentEnrollments StudentSubjectEnrollment[]
+  teacherAssignments TeacherAssignment[]
 
   @@unique([schoolId, academicYearId, globalSubjectId, gradeFrom, gradeTo])
   @@index([schoolId, academicYearId, isOffered])
+  @@index([schoolId, legacySubjectId])
   @@map("school_subject_offerings")
 }
 
@@ -666,6 +676,7 @@ model StudentSubjectEnrollment {
   updatedAt               DateTime             @updatedAt
 
   student               Student               @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  academicYear          AcademicYear          @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
   schoolSubjectOffering SchoolSubjectOffering @relation(fields: [schoolSubjectOfferingId], references: [id], onDelete: Cascade)
 
   @@unique([studentId, schoolSubjectOfferingId, academicYearId])
@@ -771,19 +782,22 @@ model StudentDocument {
 }
 
 model StudentEnrollment {
-  id         String           @id @default(cuid())
-  studentId  String
-  sectionId  String
-  rollNumber String?
-  status     EnrollmentStatus @default(ACTIVE)
-  joinedAt   DateTime         @default(now())
-  leftAt     DateTime?
+  id             String           @id @default(cuid())
+  studentId      String
+  sectionId      String
+  academicYearId String?
+  rollNumber     String?
+  status         EnrollmentStatus @default(ACTIVE)
+  joinedAt       DateTime         @default(now())
+  leftAt         DateTime?
 
-  student Student @relation(fields: [studentId], references: [id])
-  section Section @relation(fields: [sectionId], references: [id])
+  student      Student       @relation(fields: [studentId], references: [id])
+  section      Section       @relation(fields: [sectionId], references: [id])
+  academicYear AcademicYear? @relation(fields: [academicYearId], references: [id])
 
   @@unique([studentId, sectionId])
   @@index([sectionId, status])
+  @@index([studentId, academicYearId])
   @@map("student_enrollments")
 }
 
@@ -963,19 +977,25 @@ model Designation {
 }
 
 model TeacherAssignment {
-  id             String   @id @default(cuid())
-  staffId        String
-  sectionId      String
-  subjectId      String?
-  isClassTeacher Boolean  @default(false)
-  academicYearId String
-  createdAt      DateTime @default(now())
+  id                      String   @id @default(cuid())
+  schoolId                String
+  staffId                 String
+  sectionId               String
+  subjectId               String?
+  schoolSubjectOfferingId String?
+  isClassTeacher          Boolean  @default(false)
+  academicYearId          String
+  createdAt               DateTime @default(now())
 
-  staff   Staff    @relation(fields: [staffId], references: [id])
-  section Section  @relation(fields: [sectionId], references: [id])
-  subject Subject? @relation(fields: [subjectId], references: [id])
+  school                School                 @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  academicYear          AcademicYear           @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  staff                 Staff                  @relation(fields: [staffId], references: [id])
+  section               Section                @relation(fields: [sectionId], references: [id])
+  subject               Subject?               @relation(fields: [subjectId], references: [id])
+  schoolSubjectOffering SchoolSubjectOffering? @relation(fields: [schoolSubjectOfferingId], references: [id])
 
-  @@unique([staffId, sectionId, subjectId])
+  @@unique([academicYearId, staffId, sectionId, subjectId])
+  @@index([schoolId, academicYearId])
   @@index([staffId])
   @@index([sectionId])
   @@map("teacher_assignments")
