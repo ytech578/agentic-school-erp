@@ -75,9 +75,12 @@ describe('Academic Year Locking & Integrity Enforcement', () => {
       ],
     }).compile();
 
-    academicYearsService = module.get<AcademicYearsService>(AcademicYearsService);
+    academicYearsService =
+      module.get<AcademicYearsService>(AcademicYearsService);
     classesService = module.get<ClassesService>(ClassesService);
-    enrollmentService = module.get<StudentEnrollmentService>(StudentEnrollmentService);
+    enrollmentService = module.get<StudentEnrollmentService>(
+      StudentEnrollmentService,
+    );
     curriculumService = module.get<CurriculumService>(CurriculumService);
   });
 
@@ -107,7 +110,10 @@ describe('Academic Year Locking & Integrity Enforcement', () => {
         isActive: true,
       });
 
-      const result = await academicYearsService.setActiveAcademicYear(schoolId, openYearId);
+      const result = await academicYearsService.setActiveAcademicYear(
+        schoolId,
+        openYearId,
+      );
 
       expect(prisma.academicYear.updateMany).toHaveBeenCalledWith({
         where: { schoolId, isActive: true },
@@ -124,7 +130,10 @@ describe('Academic Year Locking & Integrity Enforcement', () => {
   describe('Locked Academic Year Mutation Enforcement', () => {
     beforeEach(() => {
       prisma.academicYear.findFirst.mockImplementation(({ where }: any) => {
-        if (where.id === lockedYearId || (where.isActive && where.schoolId === schoolId)) {
+        if (
+          where.id === lockedYearId ||
+          (where.isActive && where.schoolId === schoolId)
+        ) {
           return Promise.resolve({
             id: lockedYearId,
             schoolId,

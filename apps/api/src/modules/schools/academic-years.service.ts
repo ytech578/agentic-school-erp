@@ -144,7 +144,9 @@ export class AcademicYearsService {
       );
     }
 
-    const startDate = data.startDate ? new Date(data.startDate) : year.startDate;
+    const startDate = data.startDate
+      ? new Date(data.startDate)
+      : year.startDate;
     const endDate = data.endDate ? new Date(data.endDate) : year.endDate;
 
     if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
@@ -200,7 +202,10 @@ export class AcademicYearsService {
    * When locked, structural changes (classes, sections, offerings, assignments) are rejected.
    */
   async setLockAcademicYear(schoolId: string, id: string, isLocked: boolean) {
-    const validSchoolId = requireSchoolId(schoolId, 'Lock/Unlock academic year');
+    const validSchoolId = requireSchoolId(
+      schoolId,
+      'Lock/Unlock academic year',
+    );
     const year = await this.prisma.academicYear.findFirst({
       where: { id, schoolId: validSchoolId },
     });

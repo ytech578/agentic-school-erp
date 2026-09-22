@@ -1,9 +1,33 @@
 /**
  * Academic Foundation Diagnostic & Integrity Validation Tool (CLI)
- * Change #8E — Reusable integrity audit utility
+ * Change #8E Correction — Comprehensive Academic Integrity Audit Utility
  */
 
 const path = require('path');
+const fs = require('fs');
+
+const envPath = path.resolve(__dirname, '../../apps/api/.env');
+if (fs.existsSync(envPath) && !process.env.DATABASE_URL) {
+  const envContent = fs.readFileSync(envPath, 'utf8');
+  envContent.split('\n').forEach((line) => {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('#')) {
+      const idx = trimmed.indexOf('=');
+      if (idx > 0) {
+        const k = trimmed.slice(0, idx).trim();
+        let v = trimmed.slice(idx + 1).trim();
+        if (
+          (v.startsWith('"') && v.endsWith('"')) ||
+          (v.startsWith("'") && v.endsWith("'"))
+        ) {
+          v = v.slice(1, -1);
+        }
+        if (!process.env[k]) process.env[k] = v;
+      }
+    }
+  });
+}
+
 let PrismaClient;
 try {
   PrismaClient = require('@prisma/client').PrismaClient;
@@ -121,7 +145,7 @@ async function validateAcademicIntegrity() {
 
   // 4. Audit SchoolSubjectOffering
   const offerings = await prisma.schoolSubjectOffering.findMany({
-    include: { globalSubject: true, curriculumSubject: true },
+    include: { globalSubject: true, curriculumSubject: true, academicYear: true },
   });
   totalChecked += offerings.length;
   const offeringKeySet = new Set();
@@ -138,6 +162,16 @@ async function validateAcademicIntegrity() {
       });
     }
     offeringKeySet.add(key);
+
+    if (off.academicYear && off.schoolId !== off.academicYear.schoolId) {
+      findings.push({
+        severity: 'P0',
+        entity: 'SchoolSubjectOffering',
+        id: off.id,
+        issue: 'Offering schoolId does not match AcademicYear schoolId',
+        context: { offeringSchool: off.schoolId, yearSchool: off.academicYear.schoolId },
+      });
+    }
 
     if (off.gradeFrom > off.gradeTo) {
       findings.push({
@@ -176,6 +210,7 @@ async function validateAcademicIntegrity() {
   });
   totalChecked += studentEnrollments.length;
   const activeStudentSessions = new Set();
+  const enrollmentIdentitySet = new Set();
 
   for (const enr of studentEnrollments) {
     if (!enr.student) {
@@ -200,6 +235,24 @@ async function validateAcademicIntegrity() {
       continue;
     }
 
+    if (!enr.academicYearId) {
+      findings.push({
+        severity: 'P0',
+        entity: 'StudentEnrollment',
+        id: enr.id,
+        issue: 'Student enrollment missing mandatory academicYearId',
+        context: { enrollmentId: enr.id },
+      });
+    } else if (enr.academicYearId !== enr.section.class.academicYearId) {
+      findings.push({
+        severity: 'P0',
+        entity: 'StudentEnrollment',
+        id: enr.id,
+        issue: 'Cross-year student enrollment: enrollment academicYearId !== section class academicYearId',
+        context: { enrollmentYear: enr.academicYearId, classYear: enr.section.class.academicYearId },
+      });
+    }
+
     if (enr.student.schoolId !== enr.section.class.schoolId) {
       findings.push({
         severity: 'P0',
@@ -209,6 +262,19 @@ async function validateAcademicIntegrity() {
         context: { studentSchool: enr.student.schoolId, classSchool: enr.section.class.schoolId },
       });
     }
+
+    // Check year-aware uniqueness
+    const enrKey = `${enr.studentId}:${enr.sectionId}:${enr.academicYearId}`;
+    if (enrollmentIdentitySet.has(enrKey)) {
+      findings.push({
+        severity: 'P0',
+        entity: 'StudentEnrollment',
+        id: enr.id,
+        issue: 'Duplicate student enrollment for student, section, and academic year',
+        context: { studentId: enr.studentId, sectionId: enr.sectionId, academicYearId: enr.academicYearId },
+      });
+    }
+    enrollmentIdentitySet.add(enrKey);
 
     if (enr.status === 'ACTIVE') {
       const activeKey = `${enr.studentId}:${enr.section.class.academicYearId}`;
@@ -287,10 +353,11 @@ async function validateAcademicIntegrity() {
 
   // 7. Audit TeacherAssignments
   const teacherAssignments = await prisma.teacherAssignment.findMany({
-    include: { staff: true, section: { include: { class: true } } },
+    include: { staff: true, section: { include: { class: true } }, schoolSubjectOffering: true },
   });
   totalChecked += teacherAssignments.length;
   const teacherAssgnKeySet = new Set();
+  const classTeacherKeySet = new Set();
 
   for (const ta of teacherAssignments) {
     if (!ta.staff || !ta.section || !ta.section.class) {
@@ -324,14 +391,66 @@ async function validateAcademicIntegrity() {
       });
     }
 
-    const key = `${ta.academicYearId}:${ta.staffId}:${ta.sectionId}:${ta.subjectId || 'NONE'}`;
+    if (ta.academicYearId !== ta.section.class.academicYearId) {
+      findings.push({
+        severity: 'P0',
+        entity: 'TeacherAssignment',
+        id: ta.id,
+        issue: 'Cross-year teacher assignment: assignment.academicYearId !== section.class.academicYearId',
+        context: { assignmentYear: ta.academicYearId, sectionClassYear: ta.section.class.academicYearId },
+      });
+    }
+
+    if (ta.schoolSubjectOffering) {
+      if (ta.schoolSubjectOffering.academicYearId !== ta.academicYearId) {
+        findings.push({
+          severity: 'P0',
+          entity: 'TeacherAssignment',
+          id: ta.id,
+          issue: 'Cross-year teacher assignment offering: offering.academicYearId !== assignment.academicYearId',
+          context: { offeringYear: ta.schoolSubjectOffering.academicYearId, assignmentYear: ta.academicYearId },
+        });
+      }
+      if (ta.schoolSubjectOffering.schoolId !== ta.schoolId) {
+        findings.push({
+          severity: 'P0',
+          entity: 'TeacherAssignment',
+          id: ta.id,
+          issue: 'Cross-school teacher assignment offering: offering.schoolId !== assignment.schoolId',
+          context: { offeringSchool: ta.schoolSubjectOffering.schoolId, assignmentSchool: ta.schoolId },
+        });
+      }
+    }
+
+    // Check duplicate class teacher
+    if (ta.isClassTeacher) {
+      const ctKey = `${ta.academicYearId}:${ta.sectionId}`;
+      if (classTeacherKeySet.has(ctKey)) {
+        findings.push({
+          severity: 'P0',
+          entity: 'TeacherAssignment',
+          id: ta.id,
+          issue: 'Duplicate class teacher designated for section in same academic year',
+          context: { academicYearId: ta.academicYearId, sectionId: ta.sectionId, staffId: ta.staffId },
+        });
+      }
+      classTeacherKeySet.add(ctKey);
+    }
+
+    // Check NULL-safe duplicate assignment key
+    const subjectKey = ta.schoolSubjectOfferingId
+      ? `OFF:${ta.schoolSubjectOfferingId}`
+      : ta.subjectId
+      ? `SUB:${ta.subjectId}`
+      : 'NONE';
+    const key = `${ta.academicYearId}:${ta.staffId}:${ta.sectionId}:${subjectKey}`;
     if (teacherAssgnKeySet.has(key)) {
       findings.push({
         severity: 'P0',
         entity: 'TeacherAssignment',
         id: ta.id,
         issue: 'Duplicate teacher assignment in same academic year',
-        context: { academicYearId: ta.academicYearId, staffId: ta.staffId, sectionId: ta.sectionId, subjectId: ta.subjectId },
+        context: { academicYearId: ta.academicYearId, staffId: ta.staffId, sectionId: ta.sectionId, subjectKey },
       });
     }
     teacherAssgnKeySet.add(key);

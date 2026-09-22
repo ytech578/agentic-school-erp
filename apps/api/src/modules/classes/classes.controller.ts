@@ -98,7 +98,10 @@ export class ClassesController {
   @Delete('sections/:sectionId')
   @ApiOperation({ summary: 'Delete a section (legacy path alias)' })
   @Permissions(PERMISSIONS.SECTION_MANAGE)
-  deleteSectionLegacy(@Request() req: any, @Param('sectionId') sectionId: string) {
+  deleteSectionLegacy(
+    @Request() req: any,
+    @Param('sectionId') sectionId: string,
+  ) {
     return this.service.deleteSection(req.user.schoolId, sectionId);
   }
 }
@@ -171,7 +174,9 @@ export class TeacherAssignmentsController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Assign a teacher to a section and course offering' })
+  @ApiOperation({
+    summary: 'Assign a teacher to a section and course offering',
+  })
   @Permissions(PERMISSIONS.SUBJECT_ASSIGN)
   create(@Request() req: any, @Body() dto: CreateTeacherAssignmentDto) {
     return this.service.createTeacherAssignment(req.user.schoolId, dto);
@@ -204,7 +209,9 @@ export class SubjectsController {
   constructor(private service: ClassesService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List active subjects (legacy compatibility adapter)' })
+  @ApiOperation({
+    summary: 'List active subjects (legacy compatibility adapter)',
+  })
   @Permissions(PERMISSIONS.SUBJECT_READ)
   findAll(@Request() req: any) {
     return this.service.findAllSubjects(req.user.schoolId);

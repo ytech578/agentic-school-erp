@@ -38,7 +38,8 @@ export class StudentEnrollmentService {
     if (filter.sectionId) where.sectionId = filter.sectionId;
     if (filter.academicYearId) where.academicYearId = filter.academicYearId;
     if (filter.status) where.status = filter.status;
-    if (filter.classId) where.section = { ...where.section, classId: filter.classId };
+    if (filter.classId)
+      where.section = { ...where.section, classId: filter.classId };
 
     return this.prisma.studentEnrollment.findMany({
       where,
@@ -121,7 +122,10 @@ export class StudentEnrollmentService {
    * Enforces single active enrollment per student per academic session.
    */
   async createEnrollment(schoolId: string, data: CreateStudentEnrollmentDto) {
-    const validSchoolId = requireSchoolId(schoolId, 'Create student enrollment');
+    const validSchoolId = requireSchoolId(
+      schoolId,
+      'Create student enrollment',
+    );
 
     // 1. Verify student exists and belongs to this school
     const student = await this.prisma.student.findFirst({
@@ -143,8 +147,22 @@ export class StudentEnrollmentService {
       throw new NotFoundException('Section not found in this school');
     }
 
+    if (student.schoolId !== section.class.schoolId) {
+      throw new BadRequestException(
+        'Cross-school student enrollments are not permitted',
+      );
+    }
+
     // 3. Resolve and verify academic year
-    const resolvedYearId = data.academicYearId || section.class.academicYearId;
+    if (
+      data.academicYearId &&
+      data.academicYearId !== section.class.academicYearId
+    ) {
+      throw new BadRequestException(
+        'Specified academic year does not match section class academic year',
+      );
+    }
+    const resolvedYearId = section.class.academicYearId;
     const academicYear = await this.prisma.academicYear.findFirst({
       where: { id: resolvedYearId, schoolId: validSchoolId },
     });
@@ -218,7 +236,10 @@ export class StudentEnrollmentService {
     id: string,
     data: UpdateEnrollmentStatusDto,
   ) {
-    const validSchoolId = requireSchoolId(schoolId, 'Update student enrollment');
+    const validSchoolId = requireSchoolId(
+      schoolId,
+      'Update student enrollment',
+    );
     const existing = await this.prisma.studentEnrollment.findFirst({
       where: {
         id,
@@ -241,7 +262,10 @@ export class StudentEnrollmentService {
       where: { id },
       data: {
         status: data.status,
-        rollNumber: data.rollNumber !== undefined ? data.rollNumber?.trim() : existing.rollNumber,
+        rollNumber:
+          data.rollNumber !== undefined
+            ? data.rollNumber?.trim()
+            : existing.rollNumber,
         leftAt: data.leftAt ? new Date(data.leftAt) : existing.leftAt,
       },
     });
@@ -251,7 +275,10 @@ export class StudentEnrollmentService {
    * Deletes a student enrollment.
    */
   async deleteEnrollment(schoolId: string, id: string) {
-    const validSchoolId = requireSchoolId(schoolId, 'Delete student enrollment');
+    const validSchoolId = requireSchoolId(
+      schoolId,
+      'Delete student enrollment',
+    );
     const existing = await this.prisma.studentEnrollment.findFirst({
       where: {
         id,

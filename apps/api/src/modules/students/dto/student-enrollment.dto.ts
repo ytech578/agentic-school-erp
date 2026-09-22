@@ -24,7 +24,8 @@ export class CreateStudentEnrollmentDto {
   sectionId: string;
 
   @ApiPropertyOptional({
-    description: 'Target Academic Year ID (defaults to section class academic year)',
+    description:
+      'Target Academic Year ID (defaults to section class academic year)',
   })
   @IsString()
   @IsOptional()
@@ -56,7 +57,8 @@ export class UpdateEnrollmentStatusDto {
   rollNumber?: string;
 
   @ApiPropertyOptional({
-    description: 'Date student left the section (if status changed to TRANSFERRED, DROPPED, GRADUATED)',
+    description:
+      'Date student left the section (if status changed to TRANSFERRED, DROPPED, GRADUATED)',
   })
   @IsDateString()
   @IsOptional()

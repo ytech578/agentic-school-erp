@@ -36,7 +36,10 @@ export class SchoolsController {
   @Post()
   @UseGuards(RolesGuard)
   @Roles('SUPER_ADMIN')
-  @ApiOperation({ summary: 'Onboard a new school into the multi-tenant fleet (Super Admin only)' })
+  @ApiOperation({
+    summary:
+      'Onboard a new school into the multi-tenant fleet (Super Admin only)',
+  })
   createSchool(@Request() req: any, @Body() data: CreateSchoolDto) {
     return this.schoolsService.createSchool(data, req.user?.id);
   }
@@ -83,7 +86,9 @@ export class SchoolsController {
   @Get(':id')
   @UseGuards(RolesGuard)
   @Roles('SUPER_ADMIN')
-  @ApiOperation({ summary: 'Get detailed school profile by ID (Super Admin only)' })
+  @ApiOperation({
+    summary: 'Get detailed school profile by ID (Super Admin only)',
+  })
   getSchoolById(@Param('id') id: string) {
     return this.schoolsService.findById(id);
   }
@@ -99,8 +104,13 @@ export class SchoolsController {
   @Patch(':id/status')
   @UseGuards(RolesGuard)
   @Roles('SUPER_ADMIN')
-  @ApiOperation({ summary: 'Activate or suspend school campus by ID (Super Admin only)' })
-  toggleSchoolStatus(@Param('id') id: string, @Body() data: ToggleSchoolStatusDto) {
+  @ApiOperation({
+    summary: 'Activate or suspend school campus by ID (Super Admin only)',
+  })
+  toggleSchoolStatus(
+    @Param('id') id: string,
+    @Body() data: ToggleSchoolStatusDto,
+  ) {
     return this.schoolsService.toggleSchoolStatus(id, data.isActive);
   }
 }

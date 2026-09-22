@@ -103,7 +103,8 @@ export class CurriculumService {
         name: dto.name?.trim(),
         code: dto.code ? dto.code.trim().toUpperCase() : undefined,
         category: dto.category as any,
-        description: dto.description !== undefined ? dto.description?.trim() : undefined,
+        description:
+          dto.description !== undefined ? dto.description?.trim() : undefined,
         isActive: dto.isActive,
       },
     });
@@ -125,14 +126,18 @@ export class CurriculumService {
   }
 
   async createCurriculum(dto: CreateCurriculumDto) {
-    const board = await this.prisma.board.findUnique({ where: { id: dto.boardId } });
+    const board = await this.prisma.board.findUnique({
+      where: { id: dto.boardId },
+    });
     if (!board) throw new NotFoundException('Parent Board not found');
 
     const existing = await this.prisma.curriculum.findFirst({
       where: { boardId: dto.boardId, code: dto.code.trim().toUpperCase() },
     });
     if (existing) {
-      throw new ConflictException(`Curriculum code '${dto.code}' already exists for this board`);
+      throw new ConflictException(
+        `Curriculum code '${dto.code}' already exists for this board`,
+      );
     }
 
     return this.prisma.curriculum.create({
@@ -156,7 +161,8 @@ export class CurriculumService {
       data: {
         name: dto.name?.trim(),
         version: dto.version?.trim(),
-        description: dto.description !== undefined ? dto.description?.trim() : undefined,
+        description:
+          dto.description !== undefined ? dto.description?.trim() : undefined,
         isActive: dto.isActive,
       },
     });
@@ -166,7 +172,10 @@ export class CurriculumService {
     return this.prisma.subjectGroup.findMany({
       where: { curriculumId },
       include: {
-        subjects: { where: { isActive: true }, include: { globalSubject: true } },
+        subjects: {
+          where: { isActive: true },
+          include: { globalSubject: true },
+        },
       },
       orderBy: { sortOrder: 'asc' },
     });
@@ -185,17 +194,23 @@ export class CurriculumService {
   }
 
   async createSubjectGroup(curriculumId: string, dto: CreateSubjectGroupDto) {
-    const curriculum = await this.prisma.curriculum.findUnique({ where: { id: curriculumId } });
+    const curriculum = await this.prisma.curriculum.findUnique({
+      where: { id: curriculumId },
+    });
     if (!curriculum) throw new NotFoundException('Curriculum not found');
 
     const existing = await this.prisma.subjectGroup.findFirst({
       where: { curriculumId, code: dto.code.trim().toUpperCase() },
     });
     if (existing) {
-      throw new ConflictException(`Subject group code '${dto.code}' already exists in this curriculum`);
+      throw new ConflictException(
+        `Subject group code '${dto.code}' already exists in this curriculum`,
+      );
     }
 
-    const count = await this.prisma.subjectGroup.count({ where: { curriculumId } });
+    const count = await this.prisma.subjectGroup.count({
+      where: { curriculumId },
+    });
 
     return this.prisma.subjectGroup.create({
       data: {
@@ -212,13 +227,16 @@ export class CurriculumService {
   }
 
   async updateSubjectGroup(id: string, dto: UpdateSubjectGroupDto) {
-    const existing = await this.prisma.subjectGroup.findUnique({ where: { id } });
+    const existing = await this.prisma.subjectGroup.findUnique({
+      where: { id },
+    });
     if (!existing) throw new NotFoundException('Subject group not found');
     return this.prisma.subjectGroup.update({
       where: { id },
       data: {
         name: dto.name?.trim(),
-        description: dto.description !== undefined ? dto.description?.trim() : undefined,
+        description:
+          dto.description !== undefined ? dto.description?.trim() : undefined,
         minSelection: dto.minSelection ?? dto.minSubjects,
         maxSelection: dto.maxSelection ?? dto.maxSubjects,
         isRequired: dto.isRequired,
@@ -531,7 +549,7 @@ export class CurriculumService {
         ).slice(0, 20);
         const globalSub = await this.prisma.globalSubject.upsert({
           where: { code: customCode },
-          update: { name: dto.customName },
+          update: {}, // Preserve global master data immutability
           create: {
             code: customCode,
             name: dto.customName,

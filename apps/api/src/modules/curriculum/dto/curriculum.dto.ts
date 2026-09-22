@@ -305,7 +305,9 @@ export class UpdateCurriculumDto {
 }
 
 export class CreateSubjectGroupDto {
-  @ApiProperty({ description: 'Subject Group Name (e.g. Compulsory Languages)' })
+  @ApiProperty({
+    description: 'Subject Group Name (e.g. Compulsory Languages)',
+  })
   @IsString()
   @IsNotEmpty()
   name: string;

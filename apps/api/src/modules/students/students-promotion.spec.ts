@@ -78,14 +78,16 @@ describe('StudentsService - Promotion & Status Lifecycle', () => {
       // New enrollments created
       expect(prisma.studentEnrollment.upsert).toHaveBeenCalledWith({
         where: {
-          studentId_sectionId: {
+          studentId_sectionId_academicYearId: {
             studentId: 'std-1',
             sectionId: 'sec-10a',
+            academicYearId: 'ay-2027',
           },
         },
         create: expect.objectContaining({
           studentId: 'std-1',
           sectionId: 'sec-10a',
+          academicYearId: 'ay-2027',
           status: 'ACTIVE',
         }),
         update: expect.objectContaining({

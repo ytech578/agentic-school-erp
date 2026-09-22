@@ -78,7 +78,10 @@ export class ClassesService {
                 },
                 subject: { select: { id: true, name: true } },
                 schoolSubjectOffering: {
-                  select: { id: true, globalSubject: { select: { name: true } } },
+                  select: {
+                    id: true,
+                    globalSubject: { select: { name: true } },
+                  },
                 },
               },
             },
@@ -379,7 +382,9 @@ export class ClassesService {
       );
     }
 
-    const cleanName = data.name ? data.name.trim().toUpperCase() : existing.name;
+    const cleanName = data.name
+      ? data.name.trim().toUpperCase()
+      : existing.name;
 
     if (data.name && cleanName !== existing.name) {
       const duplicate = await this.prisma.section.findUnique({
@@ -402,7 +407,10 @@ export class ClassesService {
       data: {
         name: cleanName,
         capacity: data.capacity ?? existing.capacity,
-        roomNumber: data.roomNumber !== undefined ? data.roomNumber?.trim() : existing.roomNumber,
+        roomNumber:
+          data.roomNumber !== undefined
+            ? data.roomNumber?.trim()
+            : existing.roomNumber,
       },
     });
   }
@@ -481,7 +489,10 @@ export class ClassesService {
           },
         },
       },
-      orderBy: [{ section: { class: { numericLevel: 'asc' } } }, { createdAt: 'desc' }],
+      orderBy: [
+        { section: { class: { numericLevel: 'asc' } } },
+        { createdAt: 'desc' },
+      ],
     });
   }
 
@@ -526,14 +537,19 @@ export class ClassesService {
     schoolId: string,
     data: CreateTeacherAssignmentDto,
   ) {
-    const validSchoolId = requireSchoolId(schoolId, 'Create teacher assignment');
+    const validSchoolId = requireSchoolId(
+      schoolId,
+      'Create teacher assignment',
+    );
 
     // 1. Verify staff belongs to school and is active
     const staff = await this.prisma.staff.findFirst({
       where: { id: data.staffId, schoolId: validSchoolId },
     });
     if (!staff) {
-      throw new NotFoundException('Faculty / Staff member not found in this school');
+      throw new NotFoundException(
+        'Faculty / Staff member not found in this school',
+      );
     }
     if (!staff.isActive) {
       throw new BadRequestException('Cannot assign inactive staff member');
@@ -549,7 +565,15 @@ export class ClassesService {
     }
 
     // 3. Resolve and verify academic year
-    const resolvedYearId = data.academicYearId || section.class.academicYearId;
+    if (
+      data.academicYearId &&
+      data.academicYearId !== section.class.academicYearId
+    ) {
+      throw new BadRequestException(
+        'Specified academic year does not match section class academic year',
+      );
+    }
+    const resolvedYearId = section.class.academicYearId;
     const academicYear = await this.prisma.academicYear.findFirst({
       where: { id: resolvedYearId, schoolId: validSchoolId },
     });
@@ -563,18 +587,46 @@ export class ClassesService {
       );
     }
 
+    if (staff.schoolId !== section.class.schoolId) {
+      throw new BadRequestException(
+        'Cross-school teacher assignments are not permitted',
+      );
+    }
+
     // 4. Verify Offering / Subject if provided
-    let resolvedOfferingId = data.schoolSubjectOfferingId || null;
+    const resolvedOfferingId = data.schoolSubjectOfferingId || null;
     let resolvedSubjectId = data.subjectId || null;
+
+    if (!data.isClassTeacher && !resolvedOfferingId && !resolvedSubjectId) {
+      throw new BadRequestException(
+        'Subject offering or subject is required for teacher assignment when not designated as class teacher',
+      );
+    }
 
     if (resolvedOfferingId) {
       const offering = await this.prisma.schoolSubjectOffering.findFirst({
-        where: { id: resolvedOfferingId, schoolId: validSchoolId, academicYearId: resolvedYearId },
+        where: {
+          id: resolvedOfferingId,
+          schoolId: validSchoolId,
+          academicYearId: resolvedYearId,
+        },
       });
       if (!offering) {
         throw new BadRequestException(
           'Specified school subject offering does not exist or belong to this academic year',
         );
+      }
+      if (
+        offering.gradeFrom !== undefined &&
+        offering.gradeTo !== undefined &&
+        section.class?.numericLevel !== undefined
+      ) {
+        const classLevel = section.class.numericLevel;
+        if (classLevel < offering.gradeFrom || classLevel > offering.gradeTo) {
+          throw new BadRequestException(
+            `Subject offering grade band (${offering.gradeFrom}-${offering.gradeTo}) does not cover class level (${classLevel})`,
+          );
+        }
       }
       if (!resolvedSubjectId && offering.legacySubjectId) {
         resolvedSubjectId = offering.legacySubjectId;
@@ -592,14 +644,15 @@ export class ClassesService {
 
     // 5. Enforce single class teacher constraint if requested
     if (data.isClassTeacher) {
-      const existingClassTeacher = await this.prisma.teacherAssignment.findFirst({
-        where: {
-          sectionId: data.sectionId,
-          academicYearId: resolvedYearId,
-          isClassTeacher: true,
-        },
-        include: { staff: { include: { user: true } } },
-      });
+      const existingClassTeacher =
+        await this.prisma.teacherAssignment.findFirst({
+          where: {
+            sectionId: data.sectionId,
+            academicYearId: resolvedYearId,
+            isClassTeacher: true,
+          },
+          include: { staff: { include: { user: true } } },
+        });
 
       if (existingClassTeacher) {
         const teacherName = existingClassTeacher.staff?.user
@@ -611,19 +664,29 @@ export class ClassesService {
       }
     }
 
-    // 6. Check for duplicate assignment
+    // 6. Check for duplicate assignment (handling NULL subject and offering cases)
+    const duplicateWhere: any = {
+      academicYearId: resolvedYearId,
+      staffId: data.staffId,
+      sectionId: data.sectionId,
+    };
+
+    if (resolvedOfferingId) {
+      duplicateWhere.schoolSubjectOfferingId = resolvedOfferingId;
+    } else if (resolvedSubjectId) {
+      duplicateWhere.subjectId = resolvedSubjectId;
+    } else {
+      duplicateWhere.subjectId = null;
+      duplicateWhere.schoolSubjectOfferingId = null;
+    }
+
     const duplicate = await this.prisma.teacherAssignment.findFirst({
-      where: {
-        academicYearId: resolvedYearId,
-        staffId: data.staffId,
-        sectionId: data.sectionId,
-        subjectId: resolvedSubjectId,
-      },
+      where: duplicateWhere,
     });
 
     if (duplicate) {
       throw new ConflictException(
-        'This teacher is already assigned to this section and subject for this academic year',
+        'This teacher is already assigned to this section and subject/offering for this academic year',
       );
     }
 
@@ -638,8 +701,15 @@ export class ClassesService {
         isClassTeacher: data.isClassTeacher || false,
       },
       include: {
-        staff: { select: { id: true, user: { select: { firstName: true, lastName: true } } } },
-        section: { select: { id: true, name: true, class: { select: { name: true } } } },
+        staff: {
+          select: {
+            id: true,
+            user: { select: { firstName: true, lastName: true } },
+          },
+        },
+        section: {
+          select: { id: true, name: true, class: { select: { name: true } } },
+        },
         subject: { select: { id: true, name: true } },
         schoolSubjectOffering: {
           select: { id: true, globalSubject: { select: { name: true } } },
@@ -653,7 +723,10 @@ export class ClassesService {
     id: string,
     data: UpdateTeacherAssignmentDto,
   ) {
-    const validSchoolId = requireSchoolId(schoolId, 'Update teacher assignment');
+    const validSchoolId = requireSchoolId(
+      schoolId,
+      'Update teacher assignment',
+    );
     const existing = await this.prisma.teacherAssignment.findFirst({
       where: { id, schoolId: validSchoolId },
       include: { academicYear: true, section: true },
@@ -671,14 +744,15 @@ export class ClassesService {
 
     // If changing to class teacher, verify single class teacher rule
     if (data.isClassTeacher && !existing.isClassTeacher) {
-      const existingClassTeacher = await this.prisma.teacherAssignment.findFirst({
-        where: {
-          sectionId: existing.sectionId,
-          academicYearId: existing.academicYearId,
-          isClassTeacher: true,
-          id: { not: id },
-        },
-      });
+      const existingClassTeacher =
+        await this.prisma.teacherAssignment.findFirst({
+          where: {
+            sectionId: existing.sectionId,
+            academicYearId: existing.academicYearId,
+            isClassTeacher: true,
+            id: { not: id },
+          },
+        });
       if (existingClassTeacher) {
         throw new ConflictException(
           'Section already has a designated class teacher for this academic year',
@@ -690,19 +764,25 @@ export class ClassesService {
       where: { id },
       data: {
         staffId: data.staffId || existing.staffId,
-        subjectId: data.subjectId !== undefined ? data.subjectId : existing.subjectId,
+        subjectId:
+          data.subjectId !== undefined ? data.subjectId : existing.subjectId,
         schoolSubjectOfferingId:
           data.schoolSubjectOfferingId !== undefined
             ? data.schoolSubjectOfferingId
             : existing.schoolSubjectOfferingId,
         isClassTeacher:
-          data.isClassTeacher !== undefined ? data.isClassTeacher : existing.isClassTeacher,
+          data.isClassTeacher !== undefined
+            ? data.isClassTeacher
+            : existing.isClassTeacher,
       },
     });
   }
 
   async deleteTeacherAssignment(schoolId: string, id: string) {
-    const validSchoolId = requireSchoolId(schoolId, 'Delete teacher assignment');
+    const validSchoolId = requireSchoolId(
+      schoolId,
+      'Delete teacher assignment',
+    );
     const existing = await this.prisma.teacherAssignment.findFirst({
       where: { id, schoolId: validSchoolId },
       include: { academicYear: true },
@@ -719,7 +799,10 @@ export class ClassesService {
     }
 
     await this.prisma.teacherAssignment.delete({ where: { id } });
-    return { success: true, message: 'Teacher assignment removed successfully' };
+    return {
+      success: true,
+      message: 'Teacher assignment removed successfully',
+    };
   }
 
   // -------------------------------------------------------------

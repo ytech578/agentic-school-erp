@@ -99,6 +99,7 @@ async function main() {
       newEnrollments.push({
         studentId: studentId,
         sectionId: section.id,
+        academicYearId: section.class.academicYearId,
         rollNumber: rollNo,
         status: EnrollmentStatus.ACTIVE,
       });

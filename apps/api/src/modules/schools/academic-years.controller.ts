@@ -81,6 +81,10 @@ export class AcademicYearsController {
     @Param('id') id: string,
     @Body() dto: LockAcademicYearDto,
   ) {
-    return this.service.setLockAcademicYear(req.user.schoolId, id, dto.isLocked);
+    return this.service.setLockAcademicYear(
+      req.user.schoolId,
+      id,
+      dto.isLocked,
+    );
   }
 }

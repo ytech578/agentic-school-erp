@@ -1,9 +1,4 @@
-import {
-  IsString,
-  IsNotEmpty,
-  IsOptional,
-  IsBoolean,
-} from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateTeacherAssignmentDto {
@@ -43,7 +38,8 @@ export class CreateTeacherAssignmentDto {
   academicYearId?: string;
 
   @ApiPropertyOptional({
-    description: 'Designate this teacher as the primary Class Teacher for the section',
+    description:
+      'Designate this teacher as the primary Class Teacher for the section',
     default: false,
   })
   @IsBoolean()
@@ -74,7 +70,8 @@ export class UpdateTeacherAssignmentDto {
   subjectId?: string;
 
   @ApiPropertyOptional({
-    description: 'Designate this teacher as the primary Class Teacher for the section',
+    description:
+      'Designate this teacher as the primary Class Teacher for the section',
   })
   @IsBoolean()
   @IsOptional()

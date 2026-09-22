@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ClassesService } from './classes.service';
 import { PrismaService } from '../../core/database/prisma.service';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 
 describe('TeacherAssignment API Domain Enforcement', () => {
   let service: ClassesService;
@@ -37,7 +41,11 @@ describe('TeacherAssignment API Domain Enforcement', () => {
             name: 'Class 10',
             schoolId,
             academicYearId,
-            academicYear: { id: academicYearId, name: '2026-2027', isLocked: false },
+            academicYear: {
+              id: academicYearId,
+              name: '2026-2027',
+              isLocked: false,
+            },
           },
         }),
       },
@@ -74,10 +82,7 @@ describe('TeacherAssignment API Domain Enforcement', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ClassesService,
-        { provide: PrismaService, useValue: prisma },
-      ],
+      providers: [ClassesService, { provide: PrismaService, useValue: prisma }],
     }).compile();
 
     service = module.get<ClassesService>(ClassesService);

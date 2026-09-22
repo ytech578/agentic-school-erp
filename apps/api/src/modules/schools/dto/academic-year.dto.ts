@@ -64,7 +64,8 @@ export class UpdateAcademicYearDto {
 
 export class LockAcademicYearDto {
   @ApiProperty({
-    description: 'Whether the academic session is locked against structural changes',
+    description:
+      'Whether the academic session is locked against structural changes',
     example: true,
   })
   @IsBoolean()

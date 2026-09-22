@@ -4,7 +4,11 @@ import { StudentEnrollmentService } from '../students/student-enrollment.service
 import { CurriculumService } from '../curriculum/curriculum.service';
 import { AcademicYearsService } from '../schools/academic-years.service';
 import { PrismaService } from '../../core/database/prisma.service';
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 
 describe('Academic API Tenant Security & Boundary Isolation', () => {
   let classesService: ClassesService;
@@ -57,17 +61,28 @@ describe('Academic API Tenant Security & Boundary Isolation', () => {
     }).compile();
 
     classesService = module.get<ClassesService>(ClassesService);
-    enrollmentService = module.get<StudentEnrollmentService>(StudentEnrollmentService);
+    enrollmentService = module.get<StudentEnrollmentService>(
+      StudentEnrollmentService,
+    );
     curriculumService = module.get<CurriculumService>(CurriculumService);
-    academicYearsService = module.get<AcademicYearsService>(AcademicYearsService);
+    academicYearsService =
+      module.get<AcademicYearsService>(AcademicYearsService);
   });
 
   describe('Server-authoritative tenant requirement', () => {
     it('rejects unauthenticated/empty schoolId with ForbiddenException (fail-closed)', async () => {
-      await expect(classesService.findAll('')).rejects.toThrow(ForbiddenException);
-      await expect(enrollmentService.listEnrollments('', {})).rejects.toThrow(ForbiddenException);
-      await expect(curriculumService.getSchoolOfferings('')).rejects.toThrow(ForbiddenException);
-      await expect(academicYearsService.getAcademicYears('')).rejects.toThrow(ForbiddenException);
+      await expect(classesService.findAll('')).rejects.toThrow(
+        ForbiddenException,
+      );
+      await expect(enrollmentService.listEnrollments('', {})).rejects.toThrow(
+        ForbiddenException,
+      );
+      await expect(curriculumService.getSchoolOfferings('')).rejects.toThrow(
+        ForbiddenException,
+      );
+      await expect(academicYearsService.getAcademicYears('')).rejects.toThrow(
+        ForbiddenException,
+      );
     });
   });
 

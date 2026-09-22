@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ClassesService } from './classes.service';
 import { PrismaService } from '../../core/database/prisma.service';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 
 describe('ClassesService - CRUD Operations', () => {
   let service: ClassesService;
@@ -10,7 +14,11 @@ describe('ClassesService - CRUD Operations', () => {
   beforeEach(async () => {
     prisma = {
       academicYear: {
-        findFirst: jest.fn().mockResolvedValue({ id: 'ay-active', name: '2026-27', isActive: true }),
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'ay-active',
+          name: '2026-27',
+          isActive: true,
+        }),
       },
       class: {
         findMany: jest.fn(),
@@ -33,10 +41,7 @@ describe('ClassesService - CRUD Operations', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ClassesService,
-        { provide: PrismaService, useValue: prisma },
-      ],
+      providers: [ClassesService, { provide: PrismaService, useValue: prisma }],
     }).compile();
 
     service = module.get<ClassesService>(ClassesService);
@@ -48,7 +53,10 @@ describe('ClassesService - CRUD Operations', () => {
       id: 'class-1',
       name: 'Class 10',
       numericLevel: 10,
-      sections: [{ id: 'sec-a', name: 'A' }, { id: 'sec-b', name: 'B' }],
+      sections: [
+        { id: 'sec-a', name: 'A' },
+        { id: 'sec-b', name: 'B' },
+      ],
     });
 
     const res = await service.createClass('school-1', {
@@ -82,18 +90,25 @@ describe('ClassesService - CRUD Operations', () => {
     prisma.class.findFirst.mockResolvedValue({
       id: 'class-1',
       name: 'Class 10',
-      sections: [
-        { id: 'sec-a', _count: { enrollments: 35 } },
-      ],
+      sections: [{ id: 'sec-a', _count: { enrollments: 35 } }],
     });
 
-    await expect(service.deleteClass('school-1', 'class-1')).rejects.toThrow(BadRequestException);
+    await expect(service.deleteClass('school-1', 'class-1')).rejects.toThrow(
+      BadRequestException,
+    );
   });
 
   it('creates section in existing class', async () => {
-    prisma.class.findFirst.mockResolvedValue({ id: 'class-1', name: 'Class 10' });
+    prisma.class.findFirst.mockResolvedValue({
+      id: 'class-1',
+      name: 'Class 10',
+    });
     prisma.section.findUnique.mockResolvedValue(null);
-    prisma.section.create.mockResolvedValue({ id: 'sec-c', name: 'C', capacity: 45 });
+    prisma.section.create.mockResolvedValue({
+      id: 'sec-c',
+      name: 'C',
+      capacity: 45,
+    });
 
     const res = await service.createSection('school-1', 'class-1', {
       name: 'C',

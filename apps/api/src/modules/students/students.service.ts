@@ -502,14 +502,16 @@ export class StudentsService {
         if (data.toSectionId) {
           await tx.studentEnrollment.upsert({
             where: {
-              studentId_sectionId: {
+              studentId_sectionId_academicYearId: {
                 studentId,
                 sectionId: data.toSectionId,
+                academicYearId: data.academicYearId,
               },
             },
             create: {
               studentId,
               sectionId: data.toSectionId,
+              academicYearId: data.academicYearId,
               status: 'ACTIVE',
               joinedAt: new Date(),
             },

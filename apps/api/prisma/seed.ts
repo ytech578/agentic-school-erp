@@ -339,11 +339,18 @@ async function main() {
 
     // Enroll in first section (Class 9A)
     await prisma.studentEnrollment.upsert({
-      where: { studentId_sectionId: { studentId: student.id, sectionId: sections[0].id } },
+      where: {
+        studentId_sectionId_academicYearId: {
+          studentId: student.id,
+          sectionId: sections[0].id,
+          academicYearId: academicYear.id,
+        },
+      },
       update: {},
       create: {
         studentId: student.id,
         sectionId: sections[0].id,
+        academicYearId: academicYear.id,
         rollNumber: String(idx + 1).padStart(2, '0'),
         status: 'ACTIVE',
       },

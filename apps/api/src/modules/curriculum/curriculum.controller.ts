@@ -133,7 +133,9 @@ export class CurriculumController {
   }
 
   @Post('curriculums/:id/subject-groups')
-  @ApiOperation({ summary: 'Create a Subject Group under Curriculum (Super Admin only)' })
+  @ApiOperation({
+    summary: 'Create a Subject Group under Curriculum (Super Admin only)',
+  })
   @Roles('SUPER_ADMIN')
   createSubjectGroup(
     @Param('id') curriculumId: string,
@@ -196,10 +198,7 @@ export class CurriculumController {
   @Post('offerings')
   @ApiOperation({ summary: 'Add a school-level offering or custom subject' })
   @Permissions(PERMISSIONS.CURRICULUM_MANAGE)
-  createOffering(
-    @Request() req: any,
-    @Body() dto: CreateSchoolOfferingDto,
-  ) {
+  createOffering(@Request() req: any, @Body() dto: CreateSchoolOfferingDto) {
     return this.service.createSchoolOffering(req.user.schoolId, dto);
   }
 
@@ -233,7 +232,11 @@ export class CurriculumController {
     @Param('id') id: string,
     @Body() dto: UpdateOfferingStatusDto,
   ) {
-    return this.service.toggleOfferingStatus(req.user.schoolId, id, dto.isOffered);
+    return this.service.toggleOfferingStatus(
+      req.user.schoolId,
+      id,
+      dto.isOffered,
+    );
   }
 
   @Delete('offerings/:id')
@@ -245,7 +248,9 @@ export class CurriculumController {
 
   // Backwards compatibility aliases for school-offerings
   @Get('school-offerings')
-  @ApiOperation({ summary: 'Get all active school subject offerings (legacy alias)' })
+  @ApiOperation({
+    summary: 'Get all active school subject offerings (legacy alias)',
+  })
   @Permissions(PERMISSIONS.CURRICULUM_READ)
   getSchoolOfferings(
     @Request() req: any,
@@ -283,7 +288,9 @@ export class CurriculumController {
   }
 
   @Delete('school-offerings/:id')
-  @ApiOperation({ summary: 'Soft-deactivate a school subject offering (legacy alias)' })
+  @ApiOperation({
+    summary: 'Soft-deactivate a school subject offering (legacy alias)',
+  })
   @Permissions(PERMISSIONS.CURRICULUM_MANAGE)
   deleteSchoolOffering(@Request() req: any, @Param('id') id: string) {
     return this.service.deleteSchoolOffering(req.user.schoolId, id);
@@ -313,7 +320,9 @@ export class CurriculumController {
   }
 
   @Get('students/:studentId/subject-enrollments')
-  @ApiOperation({ summary: 'Get student enrolled curriculum subjects (canonical alias)' })
+  @ApiOperation({
+    summary: 'Get student enrolled curriculum subjects (canonical alias)',
+  })
   @Permissions(PERMISSIONS.CURRICULUM_READ)
   getStudentSubjectEnrollments(
     @Request() req: any,
@@ -341,7 +350,8 @@ export class CurriculumController {
 
   @Post('students/:studentId/subject-enrollments')
   @ApiOperation({
-    summary: 'Enroll student in selected elective and language offerings (canonical alias)',
+    summary:
+      'Enroll student in selected elective and language offerings (canonical alias)',
   })
   @Permissions(PERMISSIONS.CURRICULUM_ASSIGN)
   enrollStudentSubjectsAlias(
@@ -372,7 +382,9 @@ export class CurriculumController {
   }
 
   @Delete('students/:studentId/subject-enrollments/:offeringId')
-  @ApiOperation({ summary: 'Unenroll student from a subject offering (canonical alias)' })
+  @ApiOperation({
+    summary: 'Unenroll student from a subject offering (canonical alias)',
+  })
   @Permissions(PERMISSIONS.CURRICULUM_ASSIGN)
   unenrollStudentSubjectAlias(
     @Request() req: any,
