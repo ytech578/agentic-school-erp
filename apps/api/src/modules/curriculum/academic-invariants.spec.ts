@@ -454,7 +454,7 @@ describe('Change #8E — Academic Invariants & Constraints Enforcement', () => {
           globalSubject: { name: 'Mathematics' },
         },
       ]);
-      mockPrisma.$transaction.mockImplementation(async (cb) => cb({
+      mockPrisma.$transaction.mockImplementation(async (cb: any) => cb({
         studentSubjectEnrollment: {
           updateMany: jest.fn().mockResolvedValue({ count: 0 }),
           upsert: jest.fn().mockResolvedValue({}),

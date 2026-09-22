@@ -60,15 +60,25 @@ const buildPrismaMock = () => {
     .fn()
     .mockImplementation((args?: any) => mockLeaveRequest.findUnique(args));
 
+  const mockClass: {
+    findFirst: jest.Mock;
+    findMany: jest.Mock;
+  } = {
+    findFirst: jest.fn(),
+    findMany: jest.fn(),
+  };
+  mockClass.findMany.mockImplementation(async (args?: any) => {
+    const first = await mockClass.findFirst(args);
+    return first ? [first] : [];
+  });
+
   return {
     user: {
       findUnique: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
     },
     leaveRequest: mockLeaveRequest,
-    class: {
-      findFirst: jest.fn(),
-    },
+    class: mockClass,
     subject: {
       findFirst: jest.fn(),
     },
@@ -119,7 +129,7 @@ const buildPrismaMock = () => {
     },
     $transaction: jest
       .fn()
-      .mockImplementation(async (cb) => cb(buildPrismaMock())),
+      .mockImplementation(async (cb: any) => cb(buildPrismaMock())),
   };
 };
 
