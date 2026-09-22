@@ -52,7 +52,9 @@ export class ApproveLeaveAgentHandler implements AgentToolHandler<
   async verify(
     context: AgentToolExecutionContext,
     args: ApproveLeaveArgs,
+    result?: AgentHandlerResult,
   ): Promise<void> {
+    void result;
     const check = await this.hrService.verifyLeaveApproval(
       context.schoolId,
       args.leaveId,

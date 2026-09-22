@@ -8,7 +8,7 @@ import {
 
 describe('ApproveLeaveAgentHandler', () => {
   let handler: ApproveLeaveAgentHandler;
-  let hrService: jest.Mocked<Partial<HRService>>;
+  let hrService: { [K in keyof HRService]?: jest.Mock };
 
   const mockContext: AgentToolExecutionContext = {
     userId: 'user-admin',

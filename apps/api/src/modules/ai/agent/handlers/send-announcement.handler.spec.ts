@@ -8,7 +8,7 @@ import {
 
 describe('SendAnnouncementAgentHandler', () => {
   let handler: SendAnnouncementAgentHandler;
-  let messagesService: jest.Mocked<Partial<MessagesService>>;
+  let messagesService: { [K in keyof MessagesService]?: jest.Mock };
 
   const mockContext: AgentToolExecutionContext = {
     userId: 'user-admin',

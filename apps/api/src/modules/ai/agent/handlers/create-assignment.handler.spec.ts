@@ -8,7 +8,7 @@ import {
 
 describe('CreateAssignmentAgentHandler', () => {
   let handler: CreateAssignmentAgentHandler;
-  let assignmentsService: jest.Mocked<Partial<AssignmentsService>>;
+  let assignmentsService: { [K in keyof AssignmentsService]?: jest.Mock };
 
   const mockContext: AgentToolExecutionContext = {
     userId: 'user-teacher',

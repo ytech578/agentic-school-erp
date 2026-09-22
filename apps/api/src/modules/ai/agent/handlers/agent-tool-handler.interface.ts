@@ -8,10 +8,7 @@ import {
  * Domain handler interface for executing agent actions.
  * Translates server-authoritative context and validated arguments into domain service calls.
  */
-export interface AgentToolHandler<
-  TArgs = Record<string, unknown>,
-  TResult = Record<string, unknown>,
-> {
+export interface AgentToolHandler<TArgs = any, TResult = any> {
   /** The unique ToolHandlerKey this handler executes */
   readonly key: ToolHandlerKey;
 
@@ -30,7 +27,7 @@ export interface AgentToolHandler<
   verify?(
     context: AgentToolExecutionContext,
     args: TArgs,
-    result: TResult,
+    result?: TResult,
   ): Promise<void>;
 
   /**

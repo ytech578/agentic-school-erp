@@ -52,7 +52,9 @@ export class AutomationReportCardPublishHandler implements AgentToolHandler<
   async verify(
     context: AgentToolExecutionContext,
     args: AutomationInput<ReportPublishItem>,
+    result?: AgentHandlerResult,
   ): Promise<void> {
+    void result;
     const items = args.items ?? [];
     const readyExams = items.filter((i) => i.isComplete && i.id);
 

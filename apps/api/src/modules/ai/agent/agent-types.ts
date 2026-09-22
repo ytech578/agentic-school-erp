@@ -68,7 +68,7 @@ export interface TimetableCoverItem {
 
 export interface LeaveRecommendationItem {
   id: string; // leaveId
-  recommendation?: 'APPROVE' | 'REJECT' | 'REVIEW';
+  recommendation?: 'APPROVE' | 'REJECT' | 'REVIEW' | (string & {});
   reasoning?: string;
   staffName?: string;
 }

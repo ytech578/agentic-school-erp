@@ -8,7 +8,7 @@ import {
 
 describe('AutomationTimetableCoverHandler', () => {
   let handler: AutomationTimetableCoverHandler;
-  let timetableService: jest.Mocked<Partial<TimetableService>>;
+  let timetableService: { [K in keyof TimetableService]?: jest.Mock };
 
   const mockContext: AgentToolExecutionContext = {
     userId: 'user-admin',

@@ -8,7 +8,7 @@ import {
 
 describe('AutomationDailyDigestHandler', () => {
   let handler: AutomationDailyDigestHandler;
-  let messagesService: jest.Mocked<Partial<MessagesService>>;
+  let messagesService: { [K in keyof MessagesService]?: jest.Mock };
 
   const mockContext: AgentToolExecutionContext = {
     userId: 'user-admin',

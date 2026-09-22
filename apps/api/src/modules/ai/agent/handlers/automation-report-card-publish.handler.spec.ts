@@ -8,7 +8,7 @@ import {
 
 describe('AutomationReportCardPublishHandler', () => {
   let handler: AutomationReportCardPublishHandler;
-  let examsService: jest.Mocked<Partial<ExamsService>>;
+  let examsService: { [K in keyof ExamsService]?: jest.Mock };
 
   const mockContext: AgentToolExecutionContext = {
     userId: 'user-admin',
