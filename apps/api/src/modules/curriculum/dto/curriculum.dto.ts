@@ -41,6 +41,20 @@ export class InitializeCurriculumDto {
 
 export class CreateSchoolOfferingDto {
   @ApiPropertyOptional({
+    description: 'Academic Year ID to attach the offering to',
+  })
+  @IsString()
+  @IsOptional()
+  academicYearId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Curriculum ID to attach the offering to',
+  })
+  @IsString()
+  @IsOptional()
+  curriculumId?: string;
+
+  @ApiPropertyOptional({
     description: 'Curriculum Subject ID if sourcing from standard curriculum',
   })
   @IsString()

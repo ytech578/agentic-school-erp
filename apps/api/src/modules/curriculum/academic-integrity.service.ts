@@ -1,6 +1,6 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { resolveGradeLevel } from '../../core/academic/grade-resolver.util';
 
 export interface IntegrityFinding {
   severity: 'P0' | 'P1' | 'P2';
@@ -355,12 +355,7 @@ export class AcademicIntegrityService {
 
       const activeClass = se.student.enrollments?.[0]?.section?.class;
       if (activeClass) {
-        const nameMatch = activeClass.name.match(/\d+/);
-        const gradeLevel = nameMatch
-          ? parseInt(nameMatch[0], 10)
-          : activeClass.numericLevel >= 3 && activeClass.numericLevel <= 12
-            ? activeClass.numericLevel - 2
-            : activeClass.numericLevel;
+        const gradeLevel = resolveGradeLevel(activeClass);
 
         if (
           gradeLevel < se.schoolSubjectOffering.gradeFrom ||

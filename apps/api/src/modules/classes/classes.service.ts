@@ -16,6 +16,7 @@ import {
   CreateTeacherAssignmentDto,
   UpdateTeacherAssignmentDto,
 } from './dto/teacher-assignment.dto';
+import { resolveGradeLevel } from '../../core/academic/grade-resolver.util';
 
 @Injectable()
 export class ClassesService {
@@ -207,10 +208,27 @@ export class ClassesService {
       );
     }
 
+    const cleanName = data.name?.trim();
+    if (cleanName && cleanName !== existing.name) {
+      const duplicate = await this.prisma.class.findFirst({
+        where: {
+          schoolId: validSchoolId,
+          academicYearId: existing.academicYearId,
+          name: cleanName,
+          id: { not: classId },
+        },
+      });
+      if (duplicate) {
+        throw new ConflictException(
+          `Class "${cleanName}" already exists for this academic session`,
+        );
+      }
+    }
+
     return this.prisma.class.update({
       where: { id: classId },
       data: {
-        name: data.name?.trim(),
+        name: cleanName,
         numericLevel: data.numericLevel,
       },
       include: { sections: true },
@@ -616,17 +634,22 @@ export class ClassesService {
           'Specified school subject offering does not exist or belong to this academic year',
         );
       }
-      if (
-        offering.gradeFrom !== undefined &&
-        offering.gradeTo !== undefined &&
-        section.class?.numericLevel !== undefined
-      ) {
-        const classLevel = section.class.numericLevel;
+      if (offering.gradeFrom !== undefined && offering.gradeTo !== undefined) {
+        const classLevel = resolveGradeLevel(section.class);
         if (classLevel < offering.gradeFrom || classLevel > offering.gradeTo) {
           throw new BadRequestException(
             `Subject offering grade band (${offering.gradeFrom}-${offering.gradeTo}) does not cover class level (${classLevel})`,
           );
         }
+      }
+      if (
+        resolvedSubjectId &&
+        offering.legacySubjectId &&
+        resolvedSubjectId !== offering.legacySubjectId
+      ) {
+        throw new BadRequestException(
+          'Subject ID contradicts the legacy subject mapped to the specified subject offering',
+        );
       }
       if (!resolvedSubjectId && offering.legacySubjectId) {
         resolvedSubjectId = offering.legacySubjectId;
@@ -729,7 +752,10 @@ export class ClassesService {
     );
     const existing = await this.prisma.teacherAssignment.findFirst({
       where: { id, schoolId: validSchoolId },
-      include: { academicYear: true, section: true },
+      include: {
+        academicYear: true,
+        section: { include: { class: { include: { academicYear: true } } } },
+      },
     });
 
     if (!existing) {
@@ -742,8 +768,82 @@ export class ClassesService {
       );
     }
 
+    const targetStaffId = data.staffId || existing.staffId;
+    const targetStaff = await this.prisma.staff.findFirst({
+      where: { id: targetStaffId, schoolId: validSchoolId },
+    });
+    if (!targetStaff) {
+      throw new NotFoundException(
+        'Faculty / Staff member not found in this school',
+      );
+    }
+    if (!targetStaff.isActive) {
+      throw new BadRequestException('Cannot assign inactive staff member');
+    }
+
+    let targetOfferingId =
+      data.schoolSubjectOfferingId !== undefined
+        ? data.schoolSubjectOfferingId
+        : existing.schoolSubjectOfferingId;
+    let targetSubjectId =
+      data.subjectId !== undefined ? data.subjectId : existing.subjectId;
+    const targetIsClassTeacher =
+      data.isClassTeacher !== undefined
+        ? data.isClassTeacher
+        : existing.isClassTeacher;
+
+    if (!targetIsClassTeacher && !targetOfferingId && !targetSubjectId) {
+      throw new BadRequestException(
+        'Subject offering or subject is required for teacher assignment when not designated as class teacher',
+      );
+    }
+
+    if (targetOfferingId) {
+      const offering = await this.prisma.schoolSubjectOffering.findFirst({
+        where: {
+          id: targetOfferingId,
+          schoolId: validSchoolId,
+          academicYearId: existing.academicYearId,
+        },
+      });
+      if (!offering) {
+        throw new BadRequestException(
+          'Specified school subject offering does not exist or belong to this academic year',
+        );
+      }
+      if (offering.gradeFrom !== undefined && offering.gradeTo !== undefined) {
+        const classLevel = resolveGradeLevel(existing.section.class);
+        if (classLevel < offering.gradeFrom || classLevel > offering.gradeTo) {
+          throw new BadRequestException(
+            `Subject offering grade band (${offering.gradeFrom}-${offering.gradeTo}) does not cover class level (${classLevel})`,
+          );
+        }
+      }
+      if (
+        targetSubjectId &&
+        offering.legacySubjectId &&
+        targetSubjectId !== offering.legacySubjectId
+      ) {
+        throw new BadRequestException(
+          'Subject ID contradicts the legacy subject mapped to the specified subject offering',
+        );
+      }
+      if (!targetSubjectId && offering.legacySubjectId) {
+        targetSubjectId = offering.legacySubjectId;
+      }
+    }
+
+    if (targetSubjectId) {
+      const subject = await this.prisma.subject.findFirst({
+        where: { id: targetSubjectId, schoolId: validSchoolId },
+      });
+      if (!subject) {
+        throw new NotFoundException('Subject not found for this school');
+      }
+    }
+
     // If changing to class teacher, verify single class teacher rule
-    if (data.isClassTeacher && !existing.isClassTeacher) {
+    if (targetIsClassTeacher) {
       const existingClassTeacher =
         await this.prisma.teacherAssignment.findFirst({
           where: {
@@ -760,20 +860,40 @@ export class ClassesService {
       }
     }
 
+    // Check for duplicate assignment
+    const duplicateWhere: any = {
+      academicYearId: existing.academicYearId,
+      staffId: targetStaffId,
+      sectionId: existing.sectionId,
+      id: { not: id },
+    };
+
+    if (targetOfferingId) {
+      duplicateWhere.schoolSubjectOfferingId = targetOfferingId;
+    } else if (targetSubjectId) {
+      duplicateWhere.subjectId = targetSubjectId;
+    } else {
+      duplicateWhere.subjectId = null;
+      duplicateWhere.schoolSubjectOfferingId = null;
+    }
+
+    const duplicate = await this.prisma.teacherAssignment.findFirst({
+      where: duplicateWhere,
+    });
+
+    if (duplicate) {
+      throw new ConflictException(
+        'This teacher is already assigned to this section and subject/offering for this academic year',
+      );
+    }
+
     return this.prisma.teacherAssignment.update({
       where: { id },
       data: {
-        staffId: data.staffId || existing.staffId,
-        subjectId:
-          data.subjectId !== undefined ? data.subjectId : existing.subjectId,
-        schoolSubjectOfferingId:
-          data.schoolSubjectOfferingId !== undefined
-            ? data.schoolSubjectOfferingId
-            : existing.schoolSubjectOfferingId,
-        isClassTeacher:
-          data.isClassTeacher !== undefined
-            ? data.isClassTeacher
-            : existing.isClassTeacher,
+        staffId: targetStaffId,
+        subjectId: targetSubjectId,
+        schoolSubjectOfferingId: targetOfferingId,
+        isClassTeacher: targetIsClassTeacher,
       },
     });
   }

@@ -137,6 +137,9 @@ export class StudentEnrollmentService {
     if (!student) {
       throw new NotFoundException('Student not found in this school');
     }
+    if (student.isActive === false) {
+      throw new BadRequestException('Cannot enroll inactive student');
+    }
 
     // 2. Verify section exists and belongs to this school
     const section = await this.prisma.section.findFirst({
@@ -245,29 +248,99 @@ export class StudentEnrollmentService {
         id,
         section: { class: { schoolId: validSchoolId } },
       },
-      include: { academicYear: true },
+      include: {
+        academicYear: true,
+        student: true,
+        section: { include: { class: true } },
+      },
     });
 
     if (!existing) {
       throw new NotFoundException('Student enrollment not found');
     }
 
-    if (existing.academicYear?.isLocked) {
+    // 1. Academic year exists and belongs to school
+    if (
+      !existing.academicYear ||
+      (existing.academicYear.schoolId &&
+        existing.academicYear.schoolId !== validSchoolId)
+    ) {
+      throw new BadRequestException(
+        'Enrollment academic session does not belong to this school',
+      );
+    }
+
+    // 2. Academic year belongs to the enrollment
+    if (existing.academicYearId !== existing.academicYear.id) {
+      throw new BadRequestException(
+        'Enrollment academic session reference mismatch',
+      );
+    }
+
+    // 3. Locked year check
+    if (existing.academicYear.isLocked) {
       throw new BadRequestException(
         `Academic session '${existing.academicYear.name}' is locked. Structural changes are not permitted.`,
       );
     }
 
+    // 4. Student belongs to school
+    if (
+      !existing.student ||
+      (existing.student.schoolId && existing.student.schoolId !== validSchoolId)
+    ) {
+      throw new BadRequestException('Enrolled student does not belong to this school');
+    }
+
+    // 5. Section belongs to same school and academic year
+    if (
+      !existing.section ||
+      (existing.section.class?.schoolId &&
+        existing.section.class.schoolId !== validSchoolId)
+    ) {
+      throw new BadRequestException('Enrolled section does not belong to this school');
+    }
+    if (
+      existing.section.class?.academicYearId &&
+      existing.section.class.academicYearId !== existing.academicYearId
+    ) {
+      throw new BadRequestException(
+        'Enrolled section academic session does not match enrollment session',
+      );
+    }
+
+    // 6. Valid status transition: if transitioning to ACTIVE, check for conflicting active enrollment
+    if (
+      data.status === EnrollmentStatus.ACTIVE &&
+      existing.status !== EnrollmentStatus.ACTIVE
+    ) {
+      const activeConflict = await this.prisma.studentEnrollment.findFirst({
+        where: {
+          studentId: existing.studentId,
+          academicYearId: existing.academicYearId,
+          status: EnrollmentStatus.ACTIVE,
+          id: { not: id },
+        },
+        include: { section: { include: { class: true } } },
+      });
+      if (activeConflict) {
+        throw new ConflictException(
+          `Student already has an active enrollment in ${activeConflict.section.class.name} (${activeConflict.section.name}) for this session`,
+        );
+      }
+    }
+
+    // 7. Whitelist mutable fields - immutable identity cannot be mutated
+    const updateData: any = {};
+    if (data.status !== undefined) updateData.status = data.status;
+    if (data.rollNumber !== undefined)
+      updateData.rollNumber = data.rollNumber?.trim();
+    if (data.leftAt !== undefined)
+      updateData.leftAt = data.leftAt ? new Date(data.leftAt) : null;
+
     return this.prisma.studentEnrollment.update({
       where: { id },
-      data: {
-        status: data.status,
-        rollNumber:
-          data.rollNumber !== undefined
-            ? data.rollNumber?.trim()
-            : existing.rollNumber,
-        leftAt: data.leftAt ? new Date(data.leftAt) : existing.leftAt,
-      },
+      data: updateData,
     });
   }
 

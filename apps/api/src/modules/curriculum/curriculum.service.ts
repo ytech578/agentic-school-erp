@@ -24,6 +24,7 @@ import {
   SubjectSelectionType,
 } from '@prisma/client';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
+import { resolveGradeLevel } from '../../core/academic/grade-resolver.util';
 
 @Injectable()
 export class CurriculumService {
@@ -304,6 +305,13 @@ export class CurriculumService {
       );
     }
 
+    const board = await this.prisma.board.findUnique({
+      where: { id: dto.boardId },
+    });
+    if (!board) {
+      throw new NotFoundException(`Board with ID "${dto.boardId}" not found`);
+    }
+
     const curriculum = await this.prisma.curriculum.findUnique({
       where: { id: dto.curriculumId },
       include: {
@@ -321,134 +329,161 @@ export class CurriculumService {
       );
     }
 
-    // Determine active academic year
-    let academicYearId = dto.academicYearId;
-    if (!academicYearId) {
-      const activeYear = school.academicYears[0];
-      if (!activeYear) {
+    if (curriculum.boardId !== dto.boardId) {
+      throw new BadRequestException(
+        'Selected curriculum does not belong to the requested education board',
+      );
+    }
+
+    // Determine target academic year and validate lock / school ownership
+    let targetYear: any;
+    if (dto.academicYearId) {
+      targetYear = await this.prisma.academicYear.findFirst({
+        where: { id: dto.academicYearId, schoolId: validSchoolId },
+      });
+      if (!targetYear) {
+        throw new NotFoundException('Academic year not found for this school');
+      }
+    } else {
+      targetYear = school.academicYears[0];
+      if (!targetYear) {
         throw new BadRequestException(
           'No active Academic Year found for this school',
         );
       }
-      academicYearId = activeYear.id;
     }
 
-    // 1. Update school's board and active curriculum
-    await this.prisma.school.update({
-      where: { id: schoolId },
-      data: {
-        boardId: dto.boardId,
-        activeCurriculumId: dto.curriculumId,
-        boardType: curriculum.board.category, // keep legacy field synced
-      },
-    });
+    if (targetYear.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${targetYear.name}' is locked. Structural changes are not permitted.`,
+      );
+    }
+    const academicYearId = targetYear.id;
 
-    // 2. Load and initialize recommended curriculum subjects into SchoolSubjectOffering
-    let createdCount = 0;
-    let updatedCount = 0;
+    if (!curriculum.subjects || curriculum.subjects.length === 0) {
+      throw new BadRequestException(
+        'Curriculum framework has no active subjects configured',
+      );
+    }
 
-    for (const cs of curriculum.subjects) {
-      // Find or create legacy Subject record to guarantee zero breakage for timetable, marks, exams
-      let legacySubject = await this.prisma.subject.findFirst({
-        where: {
-          schoolId,
-          name: cs.displayName,
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Update school's board and active curriculum
+      await tx.school.update({
+        where: { id: validSchoolId },
+        data: {
+          boardId: dto.boardId,
+          activeCurriculumId: dto.curriculumId,
+          boardType: curriculum.board.category, // keep legacy field synced
         },
       });
 
-      if (!legacySubject) {
-        // Also try matching by global subject name
-        legacySubject = await this.prisma.subject.findFirst({
+      // 2. Load and initialize recommended curriculum subjects into SchoolSubjectOffering
+      let createdCount = 0;
+      let updatedCount = 0;
+
+      for (const cs of curriculum.subjects) {
+        // Find or create legacy Subject record to guarantee zero breakage for timetable, marks, exams
+        let legacySubject = await tx.subject.findFirst({
           where: {
-            schoolId,
-            name: cs.globalSubject.name,
-          },
-        });
-      }
-
-      if (!legacySubject) {
-        legacySubject = await this.prisma.subject.create({
-          data: {
-            schoolId,
+            schoolId: validSchoolId,
             name: cs.displayName,
-            code: cs.subjectCode,
-            isElective: cs.selectionType === SubjectSelectionType.ELECTIVE,
-            isActive: true,
           },
         });
-      }
 
-      // Upsert SchoolSubjectOffering
-      const existing = await this.prisma.schoolSubjectOffering.findFirst({
-        where: {
-          schoolId,
-          academicYearId,
-          globalSubjectId: cs.globalSubjectId,
-          gradeFrom: cs.gradeFrom,
-          gradeTo: cs.gradeTo,
-        },
-      });
+        if (!legacySubject) {
+          // Also try matching by global subject name
+          legacySubject = await tx.subject.findFirst({
+            where: {
+              schoolId: validSchoolId,
+              name: cs.globalSubject.name,
+            },
+          });
+        }
 
-      if (existing) {
-        await this.prisma.schoolSubjectOffering.update({
-          where: { id: existing.id },
-          data: {
-            curriculumId: dto.curriculumId,
-            curriculumSubjectId: cs.id,
-            legacySubjectId: legacySubject.id,
-            isOffered: true,
-            periodsPerWeek: cs.periodsPerWeek,
-            subjectType: cs.subjectType,
-            selectionType: cs.selectionType,
-            theoryEnabled: cs.theoryEnabled,
-            practicalEnabled: cs.practicalEnabled,
-            internalAssessmentEnabled: cs.internalAssessmentEnabled,
-            examEnabled: cs.examEnabled,
-            maxMarks: cs.maxMarks,
-            passMarks: cs.passMarks,
-          },
-        });
-        updatedCount++;
-      } else {
-        await this.prisma.schoolSubjectOffering.create({
-          data: {
-            schoolId,
-            curriculumId: dto.curriculumId,
+        if (!legacySubject) {
+          legacySubject = await tx.subject.create({
+            data: {
+              schoolId: validSchoolId,
+              name: cs.displayName,
+              code: cs.subjectCode,
+              isElective: cs.selectionType === SubjectSelectionType.ELECTIVE,
+              isActive: true,
+            },
+          });
+        }
+
+        // Upsert SchoolSubjectOffering
+        const existing = await tx.schoolSubjectOffering.findFirst({
+          where: {
+            schoolId: validSchoolId,
             academicYearId,
-            curriculumSubjectId: cs.id,
             globalSubjectId: cs.globalSubjectId,
-            legacySubjectId: legacySubject.id,
             gradeFrom: cs.gradeFrom,
             gradeTo: cs.gradeTo,
-            isOffered: true,
-            periodsPerWeek: cs.periodsPerWeek,
-            subjectType: cs.subjectType,
-            selectionType: cs.selectionType,
-            source: OfferingSource.CURRICULUM,
-            theoryEnabled: cs.theoryEnabled,
-            practicalEnabled: cs.practicalEnabled,
-            internalAssessmentEnabled: cs.internalAssessmentEnabled,
-            examEnabled: cs.examEnabled,
-            maxMarks: cs.maxMarks,
-            passMarks: cs.passMarks,
           },
         });
-        createdCount++;
+
+        if (existing) {
+          await tx.schoolSubjectOffering.update({
+            where: { id: existing.id },
+            data: {
+              curriculumId: dto.curriculumId,
+              curriculumSubjectId: cs.id,
+              legacySubjectId: legacySubject.id,
+              isOffered: true,
+              periodsPerWeek: cs.periodsPerWeek,
+              subjectType: cs.subjectType,
+              selectionType: cs.selectionType,
+              theoryEnabled: cs.theoryEnabled,
+              practicalEnabled: cs.practicalEnabled,
+              internalAssessmentEnabled: cs.internalAssessmentEnabled,
+              examEnabled: cs.examEnabled,
+              maxMarks: cs.maxMarks,
+              passMarks: cs.passMarks,
+            },
+          });
+          updatedCount++;
+        } else {
+          await tx.schoolSubjectOffering.create({
+            data: {
+              schoolId: validSchoolId,
+              curriculumId: dto.curriculumId,
+              academicYearId,
+              curriculumSubjectId: cs.id,
+              globalSubjectId: cs.globalSubjectId,
+              legacySubjectId: legacySubject.id,
+              gradeFrom: cs.gradeFrom,
+              gradeTo: cs.gradeTo,
+              isOffered: true,
+              periodsPerWeek: cs.periodsPerWeek,
+              subjectType: cs.subjectType,
+              selectionType: cs.selectionType,
+              source: OfferingSource.CURRICULUM,
+              theoryEnabled: cs.theoryEnabled,
+              practicalEnabled: cs.practicalEnabled,
+              internalAssessmentEnabled: cs.internalAssessmentEnabled,
+              examEnabled: cs.examEnabled,
+              maxMarks: cs.maxMarks,
+              passMarks: cs.passMarks,
+            },
+          });
+          createdCount++;
+        }
       }
-    }
 
-    this.logger.log(
-      `School ${schoolId} initialized with ${curriculum.name}: ${createdCount} created, ${updatedCount} updated.`,
-    );
+      this.logger.log(
+        `School ${validSchoolId} initialized with ${curriculum.name}: ${createdCount} created, ${updatedCount} updated.`,
+      );
 
-    return {
-      message: 'Recommended curriculum loaded successfully',
-      board: curriculum.board.name,
-      curriculum: curriculum.name,
-      createdOfferings: createdCount,
-      updatedOfferings: updatedCount,
-      totalOfferings: createdCount + updatedCount,
-    };
+      return {
+        message: 'Recommended curriculum loaded successfully',
+        board: curriculum.board.name,
+        curriculum: curriculum.name,
+        createdOfferings: createdCount,
+        updatedOfferings: updatedCount,
+        totalOfferings: createdCount + updatedCount,
+      };
+    });
   }
 
   // -------------------------------------------------------------
@@ -491,29 +526,6 @@ export class CurriculumService {
 
   async createSchoolOffering(schoolId: string, dto: CreateSchoolOfferingDto) {
     const validSchoolId = requireSchoolId(schoolId);
-    const activeYear = await this.prisma.academicYear.findFirst({
-      where: { schoolId: validSchoolId, isActive: true },
-    });
-    if (!activeYear) {
-      throw new BadRequestException(
-        'No active Academic Year found for this school',
-      );
-    }
-
-    if (activeYear.isLocked) {
-      throw new BadRequestException(
-        `Academic session '${activeYear.name}' is locked. Structural changes are not permitted.`,
-      );
-    }
-
-    const school = await this.prisma.school.findUnique({
-      where: { id: validSchoolId },
-    });
-    if (!school?.activeCurriculumId) {
-      throw new BadRequestException(
-        'School does not have an active curriculum configured',
-      );
-    }
 
     const maxMarks = dto.maxMarks ?? 100;
     const passMarks = dto.passMarks ?? 35;
@@ -533,9 +545,81 @@ export class CurriculumService {
       throw new BadRequestException('periodsPerWeek must be greater than 0');
     }
 
+    // 1. Resolve and validate target academic year
+    let targetYear: any;
+    if (dto.academicYearId) {
+      targetYear = await this.prisma.academicYear.findFirst({
+        where: { id: dto.academicYearId, schoolId: validSchoolId },
+      });
+      if (!targetYear) {
+        throw new NotFoundException('Academic year not found for this school');
+      }
+    } else {
+      targetYear = await this.prisma.academicYear.findFirst({
+        where: { schoolId: validSchoolId, isActive: true },
+      });
+      if (!targetYear) {
+        throw new BadRequestException(
+          'No active Academic Year found for this school',
+        );
+      }
+    }
+
+    if (targetYear.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${targetYear.name}' is locked. Structural changes are not permitted.`,
+      );
+    }
+
+    const school = await this.prisma.school.findUnique({
+      where: { id: validSchoolId },
+    });
+    if (!school) {
+      throw new NotFoundException('School not found');
+    }
+
+    // 2. Resolve and validate curriculum
+    const targetCurriculumId = dto.curriculumId || school.activeCurriculumId;
+    if (!targetCurriculumId) {
+      throw new BadRequestException(
+        'School does not have an active curriculum configured',
+      );
+    }
+    if (dto.curriculumId) {
+      const curriculum = await this.prisma.curriculum.findUnique({
+        where: { id: dto.curriculumId },
+      });
+      if (!curriculum) {
+        throw new NotFoundException('Curriculum not found');
+      }
+    }
+
     let globalSubjectId = dto.globalSubjectId;
 
-    // If SCHOOL_CUSTOM, ensure global subject exists or create one
+    // 3. If curriculumSubjectId provided, validate belongs to curriculum and matches globalSubjectId
+    if (dto.curriculumSubjectId) {
+      const cs = await this.prisma.curriculumSubject.findUnique({
+        where: { id: dto.curriculumSubjectId },
+      });
+      if (!cs) {
+        throw new NotFoundException('Curriculum subject not found');
+      }
+      if (cs.curriculumId !== targetCurriculumId) {
+        throw new BadRequestException(
+          'Curriculum subject does not belong to the target curriculum',
+        );
+      }
+      if (globalSubjectId && globalSubjectId !== cs.globalSubjectId) {
+        throw new BadRequestException(
+          'Specified globalSubjectId contradicts the specified curriculum subject',
+        );
+      }
+      if (!globalSubjectId) {
+        globalSubjectId = cs.globalSubjectId;
+      }
+    }
+
+    // 4. If SCHOOL_CUSTOM, ensure global subject exists or create one without mutating master
     if (dto.source === OfferingSource.SCHOOL_CUSTOM) {
       if (!dto.customName) {
         throw new BadRequestException(
@@ -565,6 +649,22 @@ export class CurriculumService {
       throw new BadRequestException('globalSubjectId is required');
     }
 
+    // 5. Prevent duplicate offering in the same academic session & grade band
+    const duplicate = await this.prisma.schoolSubjectOffering.findFirst({
+      where: {
+        schoolId: validSchoolId,
+        academicYearId: targetYear.id,
+        globalSubjectId,
+        gradeFrom: dto.gradeFrom,
+        gradeTo: dto.gradeTo,
+      },
+    });
+    if (duplicate) {
+      throw new ConflictException(
+        'A subject offering for this subject and grade band already exists in this academic session',
+      );
+    }
+
     // Bridge with legacy Subject table
     const subjectName =
       dto.customName ||
@@ -592,8 +692,8 @@ export class CurriculumService {
     return this.prisma.schoolSubjectOffering.create({
       data: {
         schoolId: validSchoolId,
-        curriculumId: school.activeCurriculumId,
-        academicYearId: activeYear.id,
+        curriculumId: targetCurriculumId,
+        academicYearId: targetYear.id,
         curriculumSubjectId: dto.curriculumSubjectId || null,
         globalSubjectId,
         legacySubjectId: legacySubject.id,
@@ -671,11 +771,37 @@ export class CurriculumService {
       );
     }
 
+    const maxMarks = dto.maxMarks ?? offering.maxMarks;
+    const passMarks = dto.passMarks ?? offering.passMarks;
+    if (maxMarks <= 0 || passMarks < 0 || passMarks > maxMarks) {
+      throw new BadRequestException(
+        'Invalid marks configuration: passMarks must be between 0 and maxMarks, and maxMarks > 0',
+      );
+    }
+
+    // Step 9: Strictly whitelist mutable configuration properties.
+    // Disallow ordinary update of immutable identity fields:
+    // schoolId, academicYearId, curriculumId, globalSubjectId, legacySubjectId, source.
+    const updateData: any = {};
+    if (dto.periodsPerWeek !== undefined)
+      updateData.periodsPerWeek = dto.periodsPerWeek;
+    if (dto.isOffered !== undefined) updateData.isOffered = dto.isOffered;
+    if (dto.subjectType !== undefined) updateData.subjectType = dto.subjectType;
+    if (dto.selectionType !== undefined)
+      updateData.selectionType = dto.selectionType;
+    if (dto.theoryEnabled !== undefined)
+      updateData.theoryEnabled = dto.theoryEnabled;
+    if (dto.practicalEnabled !== undefined)
+      updateData.practicalEnabled = dto.practicalEnabled;
+    if (dto.internalAssessmentEnabled !== undefined)
+      updateData.internalAssessmentEnabled = dto.internalAssessmentEnabled;
+    if (dto.examEnabled !== undefined) updateData.examEnabled = dto.examEnabled;
+    if (dto.maxMarks !== undefined) updateData.maxMarks = dto.maxMarks;
+    if (dto.passMarks !== undefined) updateData.passMarks = dto.passMarks;
+
     return this.prisma.schoolSubjectOffering.update({
       where: { id: offering.id },
-      data: {
-        ...dto,
-      },
+      data: updateData,
       include: {
         globalSubject: true,
         curriculumSubject: true,
@@ -748,18 +874,8 @@ export class CurriculumService {
       throw new NotFoundException(`Class with ID "${classId}" not found`);
     }
 
-    // Calculate actual grade level (1-10)
-    // E.g., "Class 8" or numericLevel (where 3 is Class 1, ..., 12 is Class 10)
-    let gradeLevel = 1;
-    const nameMatch = classRecord.name.match(/\d+/);
-    if (nameMatch) {
-      gradeLevel = parseInt(nameMatch[0], 10);
-    } else if (
-      classRecord.numericLevel >= 3 &&
-      classRecord.numericLevel <= 12
-    ) {
-      gradeLevel = classRecord.numericLevel - 2;
-    }
+    // Calculate actual grade level (1-12)
+    const gradeLevel = resolveGradeLevel(classRecord);
 
     const activeYear = await this.prisma.academicYear.findFirst({
       where: { schoolId: validSchoolId, isActive: true },
@@ -827,7 +943,10 @@ export class CurriculumService {
       include: {
         enrollments: {
           where: { status: 'ACTIVE' },
-          include: { section: { include: { class: true } } },
+          include: {
+            section: { include: { class: true } },
+            academicYear: true,
+          },
           take: 1,
         },
       },
@@ -842,23 +961,57 @@ export class CurriculumService {
       throw new BadRequestException('Student has no active class enrollment');
     }
 
-    const activeYear = await this.prisma.academicYear.findFirst({
-      where: { schoolId: validSchoolId, isActive: true },
-    });
-    if (!activeYear) {
-      throw new BadRequestException('No active Academic Year found');
-    }
-
-    if (activeYear.isLocked) {
+    if (
+      currentEnrollment.section?.class?.schoolId &&
+      currentEnrollment.section.class.schoolId !== validSchoolId
+    ) {
       throw new BadRequestException(
-        `Academic session '${activeYear.name}' is locked. Structural changes are not permitted.`,
+        'Student active enrollment does not belong to this school',
       );
     }
 
-    // Verify all requested offering IDs belong to this school and are active
+    let enrollmentYear: any = currentEnrollment.academicYear;
+    if (!enrollmentYear) {
+      const yearId =
+        currentEnrollment.academicYearId ||
+        (
+          await this.prisma.academicYear.findFirst({
+            where: { schoolId: validSchoolId, isActive: true },
+          })
+        )?.id;
+      if (yearId) {
+        enrollmentYear = await this.prisma.academicYear.findFirst({
+          where: { id: yearId, schoolId: validSchoolId },
+        });
+      }
+    }
+
+    if (!enrollmentYear || (enrollmentYear.schoolId && enrollmentYear.schoolId !== validSchoolId)) {
+      throw new BadRequestException(
+        'Student enrollment academic session is invalid or belongs to another school',
+      );
+    }
+
+    if (enrollmentYear.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${enrollmentYear.name}' is locked. Structural changes are not permitted.`,
+      );
+    }
+
+    // Determine student grade using authoritative grade resolver
+    const studentGrade = resolveGradeLevel(currentEnrollment.section.class);
+
+    // Verify all requested offering IDs belong to this school and are active (reject duplicates in request)
+    const uniqueOfferingIds = Array.from(new Set(dto.offeringIds));
+    if (uniqueOfferingIds.length !== dto.offeringIds.length) {
+      throw new BadRequestException(
+        'Duplicate subject offering IDs provided in registration',
+      );
+    }
+
     const offerings = await this.prisma.schoolSubjectOffering.findMany({
       where: {
-        id: { in: dto.offeringIds },
+        id: { in: uniqueOfferingIds },
         schoolId: validSchoolId,
         isOffered: true,
       },
@@ -868,15 +1021,20 @@ export class CurriculumService {
       },
     });
 
-    if (offerings.length !== dto.offeringIds.length) {
+    if (offerings.length !== uniqueOfferingIds.length) {
       throw new BadRequestException(
         'One or more selected offerings are invalid or not offered by the school',
       );
     }
 
-    const studentGrade = currentEnrollment.section?.class?.numericLevel ?? 1;
+    // Enforce elective selection constraints
+    const groupSelectionCounts = new Map<
+      string,
+      { count: number; max?: number | null; name: string }
+    >();
+
     for (const off of offerings) {
-      if (off.academicYearId !== activeYear.id) {
+      if (off.academicYearId !== enrollmentYear.id) {
         throw new BadRequestException(
           `Subject offering "${off.id}" belongs to a different academic session`,
         );
@@ -886,6 +1044,22 @@ export class CurriculumService {
           `Subject offering "${off.globalSubject?.name || off.customName || off.id}" is only valid for grades ${off.gradeFrom} to ${off.gradeTo}, but student is enrolled in Grade ${studentGrade}`,
         );
       }
+
+      const group = off.curriculumSubject?.subjectGroup;
+      if (group) {
+        const cur = groupSelectionCounts.get(group.id) || {
+          count: 0,
+          max: group.maxSelection,
+          name: group.name,
+        };
+        cur.count++;
+        if (cur.max && cur.count > cur.max) {
+          throw new BadRequestException(
+            `Incompatible elective selection: Subject group "${group.name}" permits a maximum of ${cur.max} subject(s), but ${cur.count} were selected`,
+          );
+        }
+        groupSelectionCounts.set(group.id, cur);
+      }
     }
 
     // Upsert student enrollments inside a transaction
@@ -894,8 +1068,8 @@ export class CurriculumService {
       await tx.studentSubjectEnrollment.updateMany({
         where: {
           studentId,
-          academicYearId: activeYear.id,
-          schoolSubjectOfferingId: { notIn: dto.offeringIds },
+          academicYearId: enrollmentYear.id,
+          schoolSubjectOfferingId: { notIn: uniqueOfferingIds },
         },
         data: { status: 'DROPPED' },
       });
@@ -907,7 +1081,7 @@ export class CurriculumService {
             studentId_schoolSubjectOfferingId_academicYearId: {
               studentId,
               schoolSubjectOfferingId: off.id,
-              academicYearId: activeYear.id,
+              academicYearId: enrollmentYear.id,
             },
           },
           update: {
@@ -917,7 +1091,7 @@ export class CurriculumService {
           create: {
             studentId,
             schoolSubjectOfferingId: off.id,
-            academicYearId: activeYear.id,
+            academicYearId: enrollmentYear.id,
             enrollmentType: off.selectionType,
             status: 'ACTIVE',
           },
@@ -1028,6 +1202,18 @@ export class CurriculumService {
   // -------------------------------------------------------------
   async syncClassSubjects(schoolId: string, classId: string) {
     const validSchoolId = requireSchoolId(schoolId);
+    const classRecord = await this.prisma.class.findFirst({
+      where: { id: classId, schoolId: validSchoolId },
+      include: { academicYear: true },
+    });
+    if (!classRecord) {
+      throw new NotFoundException(`Class with ID "${classId}" not found`);
+    }
+    if (classRecord.academicYear?.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${classRecord.academicYear.name}' is locked. Structural changes are not permitted.`,
+      );
+    }
     const classOfferings = await this.getClassOfferings(validSchoolId, classId);
     let synced = 0;
 

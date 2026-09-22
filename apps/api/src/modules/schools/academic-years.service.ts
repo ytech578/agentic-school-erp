@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
@@ -159,10 +160,26 @@ export class AcademicYearsService {
       );
     }
 
+    const cleanName = data.name ? data.name.trim() : undefined;
+    if (cleanName && cleanName !== year.name) {
+      const duplicate = await this.prisma.academicYear.findFirst({
+        where: {
+          schoolId: validSchoolId,
+          name: cleanName,
+          id: { not: year.id },
+        },
+      });
+      if (duplicate) {
+        throw new ConflictException(
+          `Academic session '${cleanName}' already exists for this school`,
+        );
+      }
+    }
+
     return this.prisma.academicYear.update({
       where: { id: year.id },
       data: {
-        name: data.name ? data.name.trim() : year.name,
+        name: cleanName || year.name,
         startDate,
         endDate,
       },
