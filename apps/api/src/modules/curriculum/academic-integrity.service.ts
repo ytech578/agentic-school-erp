@@ -443,6 +443,220 @@ export class AcademicIntegrityService {
       teacherAssgnKeySet.add(key);
     }
 
+    // 8. Audit Assignments (Change #9A)
+    const assignmentWhere: any = schoolIdFilter
+      ? { schoolId: schoolIdFilter }
+      : {};
+    const assignments = this.prisma.assignment?.findMany
+      ? await this.prisma.assignment.findMany({
+          where: assignmentWhere,
+          include: {
+            class: true,
+            section: { include: { class: true } },
+            schoolSubjectOffering: true,
+            subject: true,
+            staff: true,
+            academicYear: true,
+          },
+        })
+      : [];
+    totalChecked += assignments.length;
+
+    for (const a of assignments) {
+      if (a.academicYear && a.academicYear.schoolId !== a.schoolId) {
+        findings.push({
+          severity: 'P0',
+          entity: 'Assignment',
+          id: a.id,
+          issue:
+            'Cross-school assignment academic year: academicYear.schoolId !== assignment.schoolId',
+          context: {
+            assignmentSchool: a.schoolId,
+            yearSchool: a.academicYear.schoolId,
+          },
+        });
+      }
+
+      if (a.class) {
+        if (a.class.schoolId !== a.schoolId) {
+          findings.push({
+            severity: 'P0',
+            entity: 'Assignment',
+            id: a.id,
+            issue:
+              'Cross-school assignment class: class.schoolId !== assignment.schoolId',
+            context: {
+              assignmentSchool: a.schoolId,
+              classSchool: a.class.schoolId,
+            },
+          });
+        }
+        if (a.class.academicYearId !== a.academicYearId) {
+          findings.push({
+            severity: 'P0',
+            entity: 'Assignment',
+            id: a.id,
+            issue:
+              'Cross-year assignment class: class.academicYearId !== assignment.academicYearId',
+            context: {
+              assignmentYear: a.academicYearId,
+              classYear: a.class.academicYearId,
+            },
+          });
+        }
+      }
+
+      if (a.section) {
+        if (a.section.classId !== a.classId) {
+          findings.push({
+            severity: 'P0',
+            entity: 'Assignment',
+            id: a.id,
+            issue:
+              'Section does not belong to assignment class: section.classId !== assignment.classId',
+            context: {
+              sectionClassId: a.section.classId,
+              assignmentClassId: a.classId,
+            },
+          });
+        }
+        if (a.section.class && a.section.class.schoolId !== a.schoolId) {
+          findings.push({
+            severity: 'P0',
+            entity: 'Assignment',
+            id: a.id,
+            issue:
+              'Cross-school assignment section: section.class.schoolId !== assignment.schoolId',
+            context: {
+              sectionSchool: a.section.class.schoolId,
+              assignmentSchool: a.schoolId,
+            },
+          });
+        }
+        if (
+          a.section.class &&
+          a.section.class.academicYearId !== a.academicYearId
+        ) {
+          findings.push({
+            severity: 'P0',
+            entity: 'Assignment',
+            id: a.id,
+            issue:
+              'Cross-year assignment section: section.class.academicYearId !== assignment.academicYearId',
+            context: {
+              sectionYear: a.section.class.academicYearId,
+              assignmentYear: a.academicYearId,
+            },
+          });
+        }
+      }
+
+      if (a.staff) {
+        if (a.staff.schoolId !== a.schoolId) {
+          findings.push({
+            severity: 'P0',
+            entity: 'Assignment',
+            id: a.id,
+            issue:
+              'Cross-school assignment staff: staff.schoolId !== assignment.schoolId',
+            context: {
+              assignmentSchool: a.schoolId,
+              staffSchool: a.staff.schoolId,
+            },
+          });
+        }
+        if (a.staff.isActive === false) {
+          findings.push({
+            severity: 'P1',
+            entity: 'Assignment',
+            id: a.id,
+            issue: 'Inactive staff assigned to assignment',
+            context: { staffId: a.staff.id, isActive: a.staff.isActive },
+          });
+        }
+      }
+
+      if (a.schoolSubjectOffering) {
+        if (a.schoolSubjectOffering.schoolId !== a.schoolId) {
+          findings.push({
+            severity: 'P0',
+            entity: 'Assignment',
+            id: a.id,
+            issue:
+              'Cross-school assignment offering: offering.schoolId !== assignment.schoolId',
+            context: {
+              assignmentSchool: a.schoolId,
+              offeringSchool: a.schoolSubjectOffering.schoolId,
+            },
+          });
+        }
+        if (a.schoolSubjectOffering.academicYearId !== a.academicYearId) {
+          findings.push({
+            severity: 'P0',
+            entity: 'Assignment',
+            id: a.id,
+            issue:
+              'Cross-year assignment offering: offering.academicYearId !== assignment.academicYearId',
+            context: {
+              assignmentYear: a.academicYearId,
+              offeringYear: a.schoolSubjectOffering.academicYearId,
+            },
+          });
+        }
+        if (a.class) {
+          const gradeLevel = resolveGradeLevel(a.class);
+          if (
+            gradeLevel < a.schoolSubjectOffering.gradeFrom ||
+            gradeLevel > a.schoolSubjectOffering.gradeTo
+          ) {
+            findings.push({
+              severity: 'P1',
+              entity: 'Assignment',
+              id: a.id,
+              issue: `Offering grade band (${a.schoolSubjectOffering.gradeFrom}-${a.schoolSubjectOffering.gradeTo}) does not cover assignment class grade ${gradeLevel}`,
+              context: {
+                classGrade: gradeLevel,
+                gradeFrom: a.schoolSubjectOffering.gradeFrom,
+                gradeTo: a.schoolSubjectOffering.gradeTo,
+              },
+            });
+          }
+        }
+        if (
+          a.subjectId &&
+          a.schoolSubjectOffering.legacySubjectId &&
+          a.subjectId !== a.schoolSubjectOffering.legacySubjectId
+        ) {
+          findings.push({
+            severity: 'P1',
+            entity: 'Assignment',
+            id: a.id,
+            issue:
+              'Contradictory assignment subjectId and offering.legacySubjectId',
+            context: {
+              assignmentSubjectId: a.subjectId,
+              offeringLegacySubjectId:
+                a.schoolSubjectOffering.legacySubjectId,
+            },
+          });
+        }
+      }
+
+      if (a.subject && a.subject.schoolId !== a.schoolId) {
+        findings.push({
+          severity: 'P0',
+          entity: 'Assignment',
+          id: a.id,
+          issue:
+            'Cross-school assignment subject: subject.schoolId !== assignment.schoolId',
+          context: {
+            assignmentSchool: a.schoolId,
+            subjectSchool: a.subject.schoolId,
+          },
+        });
+      }
+    }
+
     const p0 = findings.filter((f) => f.severity === 'P0').length;
     const p1 = findings.filter((f) => f.severity === 'P1').length;
     const p2 = findings.filter((f) => f.severity === 'P2').length;

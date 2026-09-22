@@ -1073,7 +1073,7 @@ export class DashboardService {
         id: a.id,
         title: a.title,
         className: `${a.class.name} ${a.section?.name || ''}`.trim(),
-        subject: a.subject.name,
+        subject: a.subject?.name || 'General',
         dueDate: a.dueDate,
         pendingSubmissions: a.submissions.length,
       }))
@@ -1309,7 +1309,7 @@ export class DashboardService {
         return {
           id: a.id,
           title: a.title,
-          subject: a.subject.name,
+          subject: a.subject?.name || 'General',
           dueDate: a.dueDate,
           maxMarks: a.maxMarks,
           status,
