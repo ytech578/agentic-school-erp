@@ -74,7 +74,6 @@ async function main() {
     }
   }
 
-  const fallbackStaff = staffList[0]?.id;
   console.log(`Classes: ${classes.length} | Staff: ${staffList.length}\n`);
 
   let totalAssignments = 0;
@@ -85,8 +84,11 @@ async function main() {
     if (!studentIds.length || !cls.subjects.length) continue;
 
     for (const classSubject of cls.subjects) {
-      const staffId = staffMap[`${classSubject.subjectId}_${cls.id}`] || fallbackStaff;
-      if (!staffId) continue;
+      const staffId = staffMap[`${classSubject.subjectId}_${cls.id}`];
+      if (!staffId) {
+        console.warn(`[WARN] Skipping assignment for subject ${classSubject.subjectId} in class ${cls.id}: no deterministic teacher assignment mapping found`);
+        continue;
+      }
 
       // Create 2 assignments per subject
       for (let i = 0; i < 2; i++) {

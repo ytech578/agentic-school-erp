@@ -69,6 +69,7 @@ DECLARE
   off_grade_from INT;
   off_grade_to INT;
   off_legacy_subj_id TEXT;
+  off_is_offered BOOLEAN;
   sub_school_id TEXT;
 BEGIN
   -- 1. Validate Academic Year exists, belongs to school, and is not locked
@@ -148,13 +149,20 @@ BEGIN
 
   -- 5. Validate Canonical Offering (if supplied)
   IF NEW."schoolSubjectOfferingId" IS NOT NULL THEN
-    SELECT off."schoolId", off."academicYearId", off."gradeFrom", off."gradeTo", off."legacySubjectId"
-    INTO off_school_id, off_year_id, off_grade_from, off_grade_to, off_legacy_subj_id
+    SELECT off."schoolId", off."academicYearId", off."gradeFrom", off."gradeTo", off."legacySubjectId", off."isOffered"
+    INTO off_school_id, off_year_id, off_grade_from, off_grade_to, off_legacy_subj_id, off_is_offered
     FROM "school_subject_offerings" off
     WHERE off."id" = NEW."schoolSubjectOfferingId";
 
     IF off_school_id IS NULL THEN
       RAISE EXCEPTION 'Assignment references invalid or non-existent offering %', NEW."schoolSubjectOfferingId";
+    END IF;
+
+    -- Inactive offering check: required on INSERT or when offering changes on UPDATE
+    IF (TG_OP = 'INSERT') OR (TG_OP = 'UPDATE' AND (OLD."schoolSubjectOfferingId" IS NULL OR NEW."schoolSubjectOfferingId" <> OLD."schoolSubjectOfferingId")) THEN
+      IF off_is_offered IS FALSE THEN
+        RAISE EXCEPTION 'School subject offering % is inactive and cannot be selected for assignments', NEW."schoolSubjectOfferingId";
+      END IF;
     END IF;
 
     IF off_school_id <> NEW."schoolId" THEN

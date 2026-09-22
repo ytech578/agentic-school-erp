@@ -108,110 +108,168 @@ describe('CreateAssignmentAgentHandler', () => {
     expect(assignmentsService.createAssignment).not.toHaveBeenCalled();
   });
 
-  it('verification succeeds when assignment exists with matching attributes', async () => {
-    await expect(
-      handler.verify(
-        mockContext,
-        {
-          classId: 'class-1',
-          subjectId: 'subject-1',
-          topic: 'Algebra homework',
-        },
-        { assignmentId: 'assignment-1', status: 'CREATED' },
-      ),
-    ).resolves.toBeUndefined();
-  });
+  // ═══════════════════════════════════════════════════════════════════════════
+  // P1-2: ACTOR-SPECIFIC RECONCILIATION & FAIL-CLOSED VERIFICATION
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe('P1-2: Verification Hardening (Fail-Closed)', () => {
+    it('4. verify fails when authenticated staff profile is missing', async () => {
+      assignmentsService.getStaffProfileByUserId!.mockResolvedValue(null);
 
-  it('verification throws ACTION_VERIFICATION_FAILED when assignment not found', async () => {
-    assignmentsService.getAssignmentById!.mockResolvedValue(null);
-
-    await expect(
-      handler.verify(
-        mockContext,
-        {
-          classId: 'class-1',
-          subjectId: 'subject-1',
-          topic: 'Algebra homework',
-        },
-        { assignmentId: 'assignment-1', status: 'CREATED' },
-      ),
-    ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
-  });
-
-  it('verification throws ACTION_VERIFICATION_FAILED on class or subject mismatch', async () => {
-    assignmentsService.getAssignmentById!.mockResolvedValue({
-      id: 'assignment-1',
-      schoolId: 'school-1',
-      classId: 'class-WRONG',
-      subjectId: 'subject-1',
-      title: 'Algebra homework',
-      staffId: 'staff-1',
-    } as any);
-
-    await expect(
-      handler.verify(
-        mockContext,
-        {
-          classId: 'class-1',
-          subjectId: 'subject-1',
-          topic: 'Algebra homework',
-        },
-        { assignmentId: 'assignment-1', status: 'CREATED' },
-      ),
-    ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
-  });
-
-  it('verification throws ACTION_VERIFICATION_FAILED on staff ownership mismatch', async () => {
-    assignmentsService.getAssignmentById!.mockResolvedValue({
-      id: 'assignment-1',
-      schoolId: 'school-1',
-      classId: 'class-1',
-      subjectId: 'subject-1',
-      title: 'Algebra homework',
-      staffId: 'staff-OTHER',
-    } as any);
-
-    await expect(
-      handler.verify(
-        mockContext,
-        {
-          classId: 'class-1',
-          subjectId: 'subject-1',
-          topic: 'Algebra homework',
-        },
-        { assignmentId: 'assignment-1', status: 'CREATED' },
-      ),
-    ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
-  });
-
-  it('reconciles as APPLIED when assignment exists by title, class and subject', async () => {
-    const rec = await handler.reconcile(mockContext, {
-      classId: 'class-1',
-      subjectId: 'subject-1',
-      topic: 'Algebra homework',
+      await expect(
+        handler.verify(
+          mockContext,
+          {
+            classId: 'class-1',
+            subjectId: 'subject-1',
+            topic: 'Algebra homework',
+          },
+          { assignmentId: 'assignment-1', status: 'CREATED' },
+        ),
+      ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
     });
 
-    expect(rec.status).toBe('APPLIED');
-    expect(rec.result).toEqual({
-      resourceId: 'assignment-1',
-      resourceType: 'Assignment',
-      status: 'CREATED',
-      assignmentId: 'assignment-1',
-      classId: 'class-1',
-      subjectId: 'subject-1',
+    it('5. verify fails when assignment belongs to another staff member', async () => {
+      assignmentsService.getAssignmentById!.mockResolvedValue({
+        id: 'assignment-1',
+        schoolId: 'school-1',
+        classId: 'class-1',
+        subjectId: 'subject-1',
+        title: 'Algebra homework',
+        staffId: 'staff-OTHER', // Belongs to different staff
+      } as any);
+
+      await expect(
+        handler.verify(
+          mockContext,
+          {
+            classId: 'class-1',
+            subjectId: 'subject-1',
+            topic: 'Algebra homework',
+          },
+          { assignmentId: 'assignment-1', status: 'CREATED' },
+        ),
+      ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
+    });
+
+    it('6. verify passes for matching school + class + subject + title + staff', async () => {
+      await expect(
+        handler.verify(
+          mockContext,
+          {
+            classId: 'class-1',
+            subjectId: 'subject-1',
+            topic: 'Algebra homework',
+          },
+          { assignmentId: 'assignment-1', status: 'CREATED' },
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it('verification throws ACTION_VERIFICATION_FAILED when assignment not found', async () => {
+      assignmentsService.getAssignmentById!.mockResolvedValue(null);
+
+      await expect(
+        handler.verify(
+          mockContext,
+          {
+            classId: 'class-1',
+            subjectId: 'subject-1',
+            topic: 'Algebra homework',
+          },
+          { assignmentId: 'assignment-1', status: 'CREATED' },
+        ),
+      ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
+    });
+
+    it('verification throws ACTION_VERIFICATION_FAILED on class or subject mismatch', async () => {
+      assignmentsService.getAssignmentById!.mockResolvedValue({
+        id: 'assignment-1',
+        schoolId: 'school-1',
+        classId: 'class-WRONG',
+        subjectId: 'subject-1',
+        title: 'Algebra homework',
+        staffId: 'staff-1',
+      } as any);
+
+      await expect(
+        handler.verify(
+          mockContext,
+          {
+            classId: 'class-1',
+            subjectId: 'subject-1',
+            topic: 'Algebra homework',
+          },
+          { assignmentId: 'assignment-1', status: 'CREATED' },
+        ),
+      ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
     });
   });
 
-  it('reconciles as NOT_APPLIED when no assignment matches', async () => {
-    assignmentsService.findAssignmentByDetails!.mockResolvedValue(null);
+  describe('P1-2: Actor-Specific Reconciliation', () => {
+    it('1. reconcile finds same staff assignment -> APPLIED', async () => {
+      const rec = await handler.reconcile(mockContext, {
+        classId: 'class-1',
+        subjectId: 'subject-1',
+        topic: 'Algebra homework',
+      });
 
-    const rec = await handler.reconcile(mockContext, {
-      classId: 'class-1',
-      subjectId: 'subject-1',
-      topic: 'Non-existent homework',
+      expect(assignmentsService.getStaffProfileByUserId).toHaveBeenCalledWith(
+        'school-1',
+        'user-teacher',
+      );
+      expect(assignmentsService.findAssignmentByDetails).toHaveBeenCalledWith(
+        'school-1',
+        {
+          classId: 'class-1',
+          subjectId: 'subject-1',
+          title: 'Algebra homework',
+          staffId: 'staff-1',
+        },
+      );
+
+      expect(rec.status).toBe('APPLIED');
+      expect(rec.result).toEqual({
+        resourceId: 'assignment-1',
+        resourceType: 'Assignment',
+        status: 'CREATED',
+        assignmentId: 'assignment-1',
+        classId: 'class-1',
+        subjectId: 'subject-1',
+      });
     });
 
-    expect(rec.status).toBe('NOT_APPLIED');
-    expect(rec.reason).toBeDefined();
+    it('2. identical assignment exists for another staff member -> NOT_APPLIED', async () => {
+      // findAssignmentByDetails with staffId: 'staff-1' returns null because it belongs to staff-2
+      assignmentsService.findAssignmentByDetails!.mockResolvedValue(null);
+
+      const rec = await handler.reconcile(mockContext, {
+        classId: 'class-1',
+        subjectId: 'subject-1',
+        topic: 'Algebra homework',
+      });
+
+      expect(assignmentsService.findAssignmentByDetails).toHaveBeenCalledWith(
+        'school-1',
+        expect.objectContaining({
+          staffId: 'staff-1',
+        }),
+      );
+      expect(rec.status).toBe('NOT_APPLIED');
+      expect(rec.reason).toContain('No assignment titled "Algebra homework" found');
+    });
+
+    it('3. missing authenticated staff profile -> NOT_APPLIED / failure', async () => {
+      assignmentsService.getStaffProfileByUserId!.mockResolvedValue(null);
+
+      const rec = await handler.reconcile(mockContext, {
+        classId: 'class-1',
+        subjectId: 'subject-1',
+        topic: 'Algebra homework',
+      });
+
+      expect(rec.status).toBe('NOT_APPLIED');
+      expect(rec.reason).toContain('Authenticated teacher staff profile not found');
+      expect(assignmentsService.findAssignmentByDetails).not.toHaveBeenCalled();
+    });
   });
 });

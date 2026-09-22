@@ -380,6 +380,7 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
         gradeFrom: 9,
         gradeTo: 10,
         legacySubjectId: 'sub-math',
+        isOffered: true,
       });
       prisma.assignment.create.mockImplementation((args) =>
         Promise.resolve({ id: 'assign-off', ...args.data }),
@@ -450,6 +451,7 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
         academicYearId: 'ay-2026',
         gradeFrom: 1,
         gradeTo: 5, // Grade 10 is outside band!
+        isOffered: true,
       });
 
       await expect(
@@ -475,6 +477,7 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
         gradeFrom: 9,
         gradeTo: 10,
         legacySubjectId: 'sub-math',
+        isOffered: true,
       });
 
       await expect(
@@ -720,6 +723,7 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
         gradeFrom: 9,
         gradeTo: 10,
         legacySubjectId: 'sub-math',
+        isOffered: true,
       });
     });
 
@@ -858,6 +862,217 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
 
       expect(res.schoolSubjectOfferingId).toBe('off-matched');
       expect(res.subjectId).toBe('sub-legacy');
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // P1-1: INACTIVE OFFERING PROTECTION & HISTORICAL SAFETY
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe('P1-1: Inactive Offering Protection & Historical Safety', () => {
+    const schoolId = 'school-1';
+    const assignmentId = 'assign-hist-1';
+
+    beforeEach(() => {
+      prisma.academicYear.findFirst.mockResolvedValue({
+        id: 'ay-2026',
+        schoolId,
+        name: '2026-27',
+        isLocked: false,
+      });
+      prisma.staff.findFirst.mockResolvedValue({
+        id: 'staff-1',
+        schoolId,
+        isActive: true,
+      });
+      prisma.class.findFirst.mockResolvedValue({
+        id: 'class-10',
+        schoolId,
+        academicYearId: 'ay-2026',
+        name: 'Class 10',
+        numericLevel: 10,
+      });
+    });
+
+    it('1. create with active offering -> passes', async () => {
+      prisma.schoolSubjectOffering.findFirst.mockResolvedValue({
+        id: 'off-active-10',
+        schoolId,
+        academicYearId: 'ay-2026',
+        gradeFrom: 9,
+        gradeTo: 10,
+        legacySubjectId: 'sub-math',
+        isOffered: true,
+      });
+      prisma.assignment.create.mockImplementation((args) =>
+        Promise.resolve({ id: 'assign-active', ...args.data }),
+      );
+
+      const res = await service.createAssignment(
+        schoolId,
+        {
+          title: 'Active Offering Assignment',
+          classId: 'class-10',
+          academicYearId: 'ay-2026',
+          schoolSubjectOfferingId: 'off-active-10',
+          dueDate: new Date(Date.now() + 86400000).toISOString(),
+        },
+        'user-teacher-1',
+      );
+
+      expect(res.schoolSubjectOfferingId).toBe('off-active-10');
+    });
+
+    it('2. create with inactive offering -> rejects', async () => {
+      prisma.schoolSubjectOffering.findFirst.mockResolvedValue({
+        id: 'off-inactive-10',
+        schoolId,
+        academicYearId: 'ay-2026',
+        gradeFrom: 9,
+        gradeTo: 10,
+        legacySubjectId: 'sub-math',
+        isOffered: false, // INACTIVE!
+      });
+
+      await expect(
+        service.createAssignment(
+          schoolId,
+          {
+            title: 'Inactive Offering Assignment',
+            classId: 'class-10',
+            academicYearId: 'ay-2026',
+            schoolSubjectOfferingId: 'off-inactive-10',
+            dueDate: new Date(Date.now() + 86400000).toISOString(),
+          },
+          'user-teacher-1',
+        ),
+      ).rejects.toThrow('is inactive and cannot be selected for assignments');
+    });
+
+    it('3. update from active offering A to inactive offering B -> rejects', async () => {
+      prisma.assignment.findFirst.mockResolvedValue({
+        id: assignmentId,
+        schoolId,
+        academicYearId: 'ay-2026',
+        classId: 'class-10',
+        sectionId: null,
+        schoolSubjectOfferingId: 'off-A',
+        staffId: 'staff-1',
+        title: 'Original Title',
+        academicYear: { id: 'ay-2026', name: '2026-27', isLocked: false },
+        class: { id: 'class-10', numericLevel: 10, academicYearId: 'ay-2026' },
+      });
+
+      // Target offering B is inactive
+      prisma.schoolSubjectOffering.findFirst.mockResolvedValue({
+        id: 'off-B',
+        schoolId,
+        academicYearId: 'ay-2026',
+        gradeFrom: 9,
+        gradeTo: 10,
+        legacySubjectId: 'sub-math',
+        isOffered: false, // INACTIVE!
+      });
+
+      await expect(
+        service.updateAssignment(schoolId, assignmentId, {
+          schoolSubjectOfferingId: 'off-B',
+        }),
+      ).rejects.toThrow('is inactive and cannot be selected for assignments');
+    });
+
+    it('4. existing assignment whose offering later becomes inactive can still be read', async () => {
+      prisma.assignment.findFirst.mockResolvedValue({
+        id: assignmentId,
+        schoolId,
+        title: 'Historical Assignment',
+        schoolSubjectOfferingId: 'off-deactivated',
+        schoolSubjectOffering: {
+          id: 'off-deactivated',
+          isOffered: false, // offering later deactivated
+        },
+      });
+
+      const res = await service.getAssignmentById(schoolId, assignmentId);
+
+      expect(res).toBeDefined();
+      expect(res?.id).toBe(assignmentId);
+      expect(res?.schoolSubjectOfferingId).toBe('off-deactivated');
+      expect(res?.schoolSubjectOffering?.isOffered).toBe(false);
+    });
+
+    it('5. unrelated update retaining the same historical offering does not fail solely because it became inactive', async () => {
+      prisma.assignment.findFirst.mockResolvedValue({
+        id: assignmentId,
+        schoolId,
+        academicYearId: 'ay-2026',
+        classId: 'class-10',
+        sectionId: null,
+        schoolSubjectOfferingId: 'off-deactivated',
+        staffId: 'staff-1',
+        title: 'Old Title',
+        description: 'Old Description',
+        academicYear: { id: 'ay-2026', name: '2026-27', isLocked: false },
+        class: { id: 'class-10', numericLevel: 10, academicYearId: 'ay-2026' },
+      });
+
+      // The historical offering is now inactive in DB
+      prisma.schoolSubjectOffering.findFirst.mockResolvedValue({
+        id: 'off-deactivated',
+        schoolId,
+        academicYearId: 'ay-2026',
+        gradeFrom: 9,
+        gradeTo: 10,
+        legacySubjectId: 'sub-math',
+        isOffered: false,
+      });
+
+      prisma.assignment.update.mockImplementation((args) =>
+        Promise.resolve({ id: assignmentId, ...args.data }),
+      );
+
+      const res = await service.updateAssignment(schoolId, assignmentId, {
+        title: 'Updated Title While Offering Is Inactive',
+        description: 'New instructions',
+      });
+
+      expect(res.title).toBe('Updated Title While Offering Is Inactive');
+      expect(res.schoolSubjectOfferingId).toBe('off-deactivated');
+    });
+
+    it('6. changing from an inactive historical offering to an active offering -> passes', async () => {
+      prisma.assignment.findFirst.mockResolvedValue({
+        id: assignmentId,
+        schoolId,
+        academicYearId: 'ay-2026',
+        classId: 'class-10',
+        sectionId: null,
+        schoolSubjectOfferingId: 'off-inactive-old',
+        staffId: 'staff-1',
+        title: 'Title',
+        academicYear: { id: 'ay-2026', name: '2026-27', isLocked: false },
+        class: { id: 'class-10', numericLevel: 10, academicYearId: 'ay-2026' },
+      });
+
+      // Target offering is active
+      prisma.schoolSubjectOffering.findFirst.mockResolvedValue({
+        id: 'off-active-new',
+        schoolId,
+        academicYearId: 'ay-2026',
+        gradeFrom: 9,
+        gradeTo: 10,
+        legacySubjectId: 'sub-math',
+        isOffered: true,
+      });
+
+      prisma.assignment.update.mockImplementation((args) =>
+        Promise.resolve({ id: assignmentId, ...args.data }),
+      );
+
+      const res = await service.updateAssignment(schoolId, assignmentId, {
+        schoolSubjectOfferingId: 'off-active-new',
+      });
+
+      expect(res.schoolSubjectOfferingId).toBe('off-active-new');
     });
   });
 

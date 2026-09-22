@@ -95,12 +95,12 @@ export class CreateAssignmentAgentHandler implements AgentToolHandler<
       throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
     }
 
-    // Verify staff ownership matches authenticated user's staff profile
+    // Verify staff ownership matches authenticated user's staff profile (fail-closed)
     const staff = await this.assignmentsService.getStaffProfileByUserId(
       context.schoolId,
       context.userId,
     );
-    if (staff && assignment.staffId !== staff.id) {
+    if (!staff || assignment.staffId !== staff.id) {
       throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
     }
   }
@@ -109,12 +109,24 @@ export class CreateAssignmentAgentHandler implements AgentToolHandler<
     context: AgentToolExecutionContext,
     args: CreateAssignmentArgs,
   ): Promise<ReconciliationResult> {
+    const staff = await this.assignmentsService.getStaffProfileByUserId(
+      context.schoolId,
+      context.userId,
+    );
+    if (!staff) {
+      return {
+        status: 'NOT_APPLIED',
+        reason: `Authenticated teacher staff profile not found for user ${context.userId} in school ${context.schoolId}`,
+      };
+    }
+
     const existing = await this.assignmentsService.findAssignmentByDetails(
       context.schoolId,
       {
         classId: args.classId,
         subjectId: args.subjectId,
         title: args.topic,
+        staffId: staff.id,
       },
     );
 
@@ -134,7 +146,7 @@ export class CreateAssignmentAgentHandler implements AgentToolHandler<
 
     return {
       status: 'NOT_APPLIED',
-      reason: `No assignment titled "${args.topic}" found for class ${args.classId} and subject ${args.subjectId}`,
+      reason: `No assignment titled "${args.topic}" found for class ${args.classId}, subject ${args.subjectId}, and staff ${staff.id}`,
     };
   }
 }

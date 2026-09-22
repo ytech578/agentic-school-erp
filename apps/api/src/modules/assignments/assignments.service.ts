@@ -120,6 +120,9 @@ export class AssignmentsService {
     sectionId?: string,
     offeringId?: string,
     subjectId?: string,
+    options?: {
+      requireActiveOffering?: boolean;
+    },
   ) {
     const validSchoolId = requireSchoolId(schoolId);
 
@@ -177,6 +180,11 @@ export class AssignmentsService {
       if (offering.academicYearId !== academicYear.id) {
         throw new BadRequestException(
           'School subject offering belongs to a different academic session',
+        );
+      }
+      if ((options?.requireActiveOffering ?? true) && !offering.isOffered) {
+        throw new BadRequestException(
+          `School subject offering "${offering.id}" is inactive and cannot be selected for assignments`,
         );
       }
       if (classGrade < offering.gradeFrom || classGrade > offering.gradeTo) {
@@ -250,6 +258,7 @@ export class AssignmentsService {
         data.sectionId,
         data.schoolSubjectOfferingId,
         data.subjectId,
+        { requireActiveOffering: true },
       );
 
     // 3. Deterministically resolve staff (no arbitrary fallback)
@@ -327,6 +336,11 @@ export class AssignmentsService {
       data.subjectId !== undefined ? data.subjectId : existing.subjectId;
 
     // Revalidate complete target context
+    // Inactive offering check: require active offering only when newly assigned or changed
+    const isOfferingChanged =
+      data.schoolSubjectOfferingId !== undefined &&
+      data.schoolSubjectOfferingId !== existing.schoolSubjectOfferingId;
+
     const { resolvedOfferingId, resolvedSubjectId } =
       await this.validateAcademicContext(
         validSchoolId,
@@ -335,6 +349,9 @@ export class AssignmentsService {
         targetSectionId || undefined,
         targetOfferingId || undefined,
         targetSubjectId || undefined,
+        {
+          requireActiveOffering: isOfferingChanged,
+        },
       );
 
     let targetStaffId = existing.staffId;
