@@ -223,4 +223,192 @@ export class MessagesService {
 
     return { success: true, sent: messages.length };
   }
+
+  /**
+   * Sends batch messages to specified recipients within a school.
+   * Authoritative domain operation ensuring tenant boundary, recipient validation, batching, and creation.
+   */
+  async sendBatchMessages(data: {
+    schoolId: string;
+    senderId: string;
+    subject?: string;
+    messages: Array<{
+      recipientId: string;
+      draftMessage: string;
+      subject?: string;
+    }>;
+  }): Promise<{ sentCount: number; recipientIds: string[] }> {
+    const validSchoolId = requireSchoolId(data.schoolId);
+    const rawItems = data.messages || [];
+    const candidateRecipientIds = Array.from(
+      new Set(rawItems.map((m) => m.recipientId).filter(Boolean)),
+    );
+
+    if (candidateRecipientIds.length === 0) {
+      return { sentCount: 0, recipientIds: [] };
+    }
+
+    const validUsers = await this.prisma.user.findMany({
+      where: {
+        id: { in: candidateRecipientIds },
+        schoolId: validSchoolId,
+        status: 'ACTIVE',
+      },
+      select: { id: true },
+    });
+    const validUserIdSet = new Set(validUsers.map((u) => u.id));
+
+    const validMessages = rawItems
+      .filter((m) => m.recipientId && validUserIdSet.has(m.recipientId))
+      .map((m) => ({
+        schoolId: validSchoolId,
+        senderId: data.senderId,
+        recipientId: m.recipientId,
+        subject: (m.subject ?? data.subject ?? 'Notification').substring(
+          0,
+          255,
+        ),
+        body: m.draftMessage || '',
+      }));
+
+    const BATCH_SIZE = 50;
+    let sentCount = 0;
+    const sentRecipientIds: string[] = [];
+
+    for (let i = 0; i < validMessages.length; i += BATCH_SIZE) {
+      const batch = validMessages.slice(i, i + BATCH_SIZE);
+      if (batch.length > 0) {
+        await this.prisma.message.createMany({ data: batch });
+        sentCount += batch.length;
+        sentRecipientIds.push(...batch.map((b) => b.recipientId));
+      }
+    }
+
+    return { sentCount, recipientIds: sentRecipientIds };
+  }
+
+  /**
+   * Sends the daily operations digest to school administrators/principals.
+   */
+  async sendDailyDigest(data: {
+    schoolId: string;
+    senderId: string;
+    body: string;
+    subject?: string;
+  }): Promise<{ sent: boolean; messageId?: string; recipientId?: string }> {
+    const validSchoolId = requireSchoolId(data.schoolId);
+    const principal = await this.prisma.user.findFirst({
+      where: {
+        schoolId: validSchoolId,
+        role: { in: ['PRINCIPAL', 'SCHOOL_ADMIN'] },
+        status: 'ACTIVE',
+      },
+    });
+
+    if (!principal || !data.body?.trim()) {
+      return { sent: false };
+    }
+
+    const message = await this.prisma.message.create({
+      data: {
+        schoolId: validSchoolId,
+        senderId: data.senderId,
+        recipientId: principal.id,
+        subject:
+          data.subject || `Daily School Digest — ${new Date().toDateString()}`,
+        body: data.body,
+      },
+    });
+
+    return { sent: true, messageId: message.id, recipientId: principal.id };
+  }
+
+  /**
+   * Domain query: verifies whether a broadcast announcement was recorded in the database.
+   */
+  async verifyAnnouncement(
+    schoolId: string,
+    senderId: string,
+    subject: string,
+    expectedCount?: number,
+  ): Promise<{ verified: boolean; messageCount: number }> {
+    const validSchoolId = requireSchoolId(schoolId);
+    const count = await this.prisma.message.count({
+      where: {
+        schoolId: validSchoolId,
+        senderId,
+        subject,
+      },
+    });
+
+    if (count === 0) {
+      return { verified: false, messageCount: 0 };
+    }
+
+    if (expectedCount !== undefined && count < expectedCount) {
+      return { verified: false, messageCount: count };
+    }
+
+    return { verified: true, messageCount: count };
+  }
+
+  /**
+   * Domain query: finds an announcement matching criteria for reconciliation.
+   */
+  async findAnnouncement(
+    schoolId: string,
+    senderId: string,
+    subject: string,
+  ): Promise<{
+    id: string;
+    schoolId: string;
+    senderId: string;
+    subject: string | null;
+  } | null> {
+    const validSchoolId = requireSchoolId(schoolId);
+    return this.prisma.message.findFirst({
+      where: {
+        schoolId: validSchoolId,
+        senderId,
+        subject,
+      },
+      select: {
+        id: true,
+        schoolId: true,
+        senderId: true,
+        subject: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * Domain query: verifies whether batch messages were created.
+   */
+  async verifyBatchMessages(
+    schoolId: string,
+    senderId: string,
+    recipientIds: string[],
+    subject?: string,
+  ): Promise<{ verified: boolean; sentCount: number }> {
+    const validSchoolId = requireSchoolId(schoolId);
+    if (!recipientIds || recipientIds.length === 0) {
+      return { verified: true, sentCount: 0 };
+    }
+
+    const whereClause: any = {
+      schoolId: validSchoolId,
+      senderId,
+      recipientId: { in: recipientIds },
+    };
+    if (subject) {
+      whereClause.subject = subject;
+    }
+
+    const count = await this.prisma.message.count({
+      where: whereClause,
+    });
+
+    return { verified: count > 0, sentCount: count };
+  }
 }

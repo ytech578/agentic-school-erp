@@ -164,7 +164,10 @@ export class AgentControlPlaneService {
         }
 
         if (existingByRequestKey.status === AgentActionStatus.EXECUTING) {
-          const rec = await this.reconcileAction(existingByRequestKey, ctx.role);
+          const rec = await this.reconcileAction(
+            existingByRequestKey,
+            ctx.role,
+          );
           if (rec.status === 'SUCCEEDED') {
             return this.buildProposalResponse(
               {
@@ -235,7 +238,10 @@ export class AgentControlPlaneService {
 
         if (existingByFingerprint.status === AgentActionStatus.EXECUTING) {
           // Ambiguous execution state: attempt handler-level reconciliation
-          const rec = await this.reconcileAction(existingByFingerprint, ctx.role);
+          const rec = await this.reconcileAction(
+            existingByFingerprint,
+            ctx.role,
+          );
           if (rec.status === 'SUCCEEDED') {
             return this.buildProposalResponse(
               {
@@ -772,7 +778,7 @@ export class AgentControlPlaneService {
     const toolCtx: AgentToolExecutionContext = {
       userId: action.userId,
       schoolId: action.schoolId,
-      role: role as UserRole,
+      role: role,
       actionId: action.id,
     };
     const reconciled = await this.dispatcher.reconcile(
@@ -867,8 +873,7 @@ export class AgentControlPlaneService {
           const subjectId = (resolvedArgs['subjectId'] as string) ?? '';
           const normalizedDetails = {
             topic: (resolvedArgs['topic'] ?? resolvedArgs['title']) as
-              | string
-              | undefined,
+              string | undefined,
             description: resolvedArgs['description'] ?? null,
             dueDate: resolvedArgs['dueDate'] ?? null,
             totalMarks: resolvedArgs['totalMarks'] ?? 100,

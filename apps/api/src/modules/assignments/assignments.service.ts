@@ -274,4 +274,68 @@ export class AssignmentsService {
       },
     };
   }
+
+  /**
+   * Domain query: resolves staff profile by user ID within school.
+   */
+  async getStaffProfileByUserId(schoolId: string, userId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
+    return this.prisma.staff.findFirst({
+      where: {
+        userId,
+        schoolId: validSchoolId,
+        isActive: true,
+      },
+    });
+  }
+
+  /**
+   * Domain query: retrieves assignment by ID ensuring school ownership.
+   */
+  async getAssignmentById(schoolId: string, id: string) {
+    const validSchoolId = requireSchoolId(schoolId);
+    return this.prisma.assignment.findFirst({
+      where: { id, schoolId: validSchoolId },
+      include: {
+        subject: { select: { id: true, name: true, code: true } },
+        class: { select: { id: true, name: true } },
+        section: { select: { id: true, name: true } },
+        staff: { select: { id: true, userId: true } },
+      },
+    });
+  }
+
+  /**
+   * Domain query: finds assignment matching canonical business criteria for reconciliation.
+   */
+  async findAssignmentByDetails(
+    schoolId: string,
+    criteria: {
+      classId: string;
+      subjectId: string;
+      title: string;
+      staffId?: string;
+    },
+  ) {
+    const validSchoolId = requireSchoolId(schoolId);
+    const where: any = {
+      schoolId: validSchoolId,
+      classId: criteria.classId,
+      subjectId: criteria.subjectId,
+      title: criteria.title,
+    };
+    if (criteria.staffId) {
+      where.staffId = criteria.staffId;
+    }
+
+    return this.prisma.assignment.findFirst({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        subject: { select: { id: true, name: true } },
+        class: { select: { id: true, name: true } },
+        staff: { select: { id: true, userId: true } },
+      },
+    });
+  }
 }

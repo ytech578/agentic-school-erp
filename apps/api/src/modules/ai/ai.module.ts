@@ -26,6 +26,7 @@ import { HRModule } from '../hr/hr.module';
 import { AssignmentsModule } from '../assignments/assignments.module';
 import { MessagesModule } from '../messages/messages.module';
 import { TimetableModule } from '../timetable/timetable.module';
+import { ExamsModule } from '../exams/exams.module';
 
 const TOOL_HANDLERS = [
   ApproveLeaveAgentHandler,
@@ -48,6 +49,7 @@ const TOOL_HANDLERS = [
     AssignmentsModule,
     MessagesModule,
     TimetableModule,
+    ExamsModule,
   ],
   controllers: [AIController, PublicAIController],
   providers: [

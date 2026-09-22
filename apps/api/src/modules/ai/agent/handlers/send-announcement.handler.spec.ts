@@ -1,12 +1,14 @@
 import { SendAnnouncementAgentHandler } from './send-announcement.handler';
 import { MessagesService } from '../../../messages/messages.service';
-import { PrismaService } from '../../../../core/database/prisma.service';
-import { ToolHandlerKey, AgentToolExecutionContext } from '../agent-types';
+import {
+  ToolHandlerKey,
+  AgentToolExecutionContext,
+  AGENT_ERRORS,
+} from '../agent-types';
 
 describe('SendAnnouncementAgentHandler', () => {
   let handler: SendAnnouncementAgentHandler;
   let messagesService: jest.Mocked<Partial<MessagesService>>;
-  let prisma: any;
 
   const mockContext: AgentToolExecutionContext = {
     userId: 'user-admin',
@@ -21,17 +23,20 @@ describe('SendAnnouncementAgentHandler', () => {
         success: true,
         sent: 25,
       }),
-    };
-
-    prisma = {
-      message: {
-        findFirst: jest.fn(),
-      },
+      verifyAnnouncement: jest.fn().mockResolvedValue({
+        verified: true,
+        messageCount: 25,
+      }),
+      findAnnouncement: jest.fn().mockResolvedValue({
+        id: 'msg-1',
+        subject: 'School Sports Day',
+        schoolId: 'school-1',
+        senderId: 'user-admin',
+      }),
     };
 
     handler = new SendAnnouncementAgentHandler(
       messagesService as unknown as MessagesService,
-      prisma as unknown as PrismaService,
     );
   });
 
@@ -62,23 +67,51 @@ describe('SendAnnouncementAgentHandler', () => {
     });
   });
 
-  it('verification completes without error', async () => {
+  it('verification succeeds when messages exist in database', async () => {
     await expect(
       handler.verify(
         mockContext,
-        { title: 'Test' },
-        { status: 'SENT', sentCount: 10 },
+        { title: 'School Sports Day' },
+        { status: 'SENT', sentCount: 25 },
       ),
     ).resolves.toBeUndefined();
+
+    expect(messagesService.verifyAnnouncement).toHaveBeenCalledWith(
+      'school-1',
+      'user-admin',
+      'School Sports Day',
+      25,
+    );
+  });
+
+  it('verification throws ACTION_VERIFICATION_FAILED when sentCount is 0 (Step 8)', async () => {
+    await expect(
+      handler.verify(
+        mockContext,
+        { title: 'Empty Audience' },
+        { status: 'SENT', sentCount: 0 },
+      ),
+    ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
+
+    expect(messagesService.verifyAnnouncement).not.toHaveBeenCalled();
+  });
+
+  it('verification throws ACTION_VERIFICATION_FAILED when domain message count does not match', async () => {
+    messagesService.verifyAnnouncement!.mockResolvedValue({
+      verified: false,
+      messageCount: 0,
+    });
+
+    await expect(
+      handler.verify(
+        mockContext,
+        { title: 'School Sports Day' },
+        { status: 'SENT', sentCount: 25 },
+      ),
+    ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
   });
 
   it('reconciles as APPLIED when broadcast message exists', async () => {
-    prisma.message.findFirst.mockResolvedValue({
-      id: 'msg-1',
-      subject: 'School Sports Day',
-      schoolId: 'school-1',
-    });
-
     const rec = await handler.reconcile(mockContext, {
       title: 'School Sports Day',
     });
@@ -93,7 +126,7 @@ describe('SendAnnouncementAgentHandler', () => {
   });
 
   it('reconciles as NOT_APPLIED when broadcast message does not exist', async () => {
-    prisma.message.findFirst.mockResolvedValue(null);
+    messagesService.findAnnouncement!.mockResolvedValue(null);
 
     const rec = await handler.reconcile(mockContext, {
       title: 'School Sports Day',
@@ -103,4 +136,3 @@ describe('SendAnnouncementAgentHandler', () => {
     expect(rec.reason).toBeDefined();
   });
 });
-

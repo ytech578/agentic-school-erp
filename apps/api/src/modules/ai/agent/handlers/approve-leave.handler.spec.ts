@@ -1,6 +1,5 @@
 import { ApproveLeaveAgentHandler } from './approve-leave.handler';
 import { HRService } from '../../../hr/hr.service';
-import { PrismaService } from '../../../../core/database/prisma.service';
 import {
   ToolHandlerKey,
   AgentToolExecutionContext,
@@ -10,7 +9,6 @@ import {
 describe('ApproveLeaveAgentHandler', () => {
   let handler: ApproveLeaveAgentHandler;
   let hrService: jest.Mocked<Partial<HRService>>;
-  let prisma: any;
 
   const mockContext: AgentToolExecutionContext = {
     userId: 'user-admin',
@@ -25,18 +23,23 @@ describe('ApproveLeaveAgentHandler', () => {
         leaveId: 'leave-123',
         approved: true,
       }),
+      verifyLeaveApproval: jest.fn().mockResolvedValue({
+        verified: true,
+        leave: {
+          id: 'leave-123',
+          status: 'APPROVED',
+          reviewedBy: 'user-admin',
+        },
+      }),
+      getLeaveRequestById: jest.fn().mockResolvedValue({
+        id: 'leave-123',
+        schoolId: 'school-1',
+        status: 'APPROVED',
+        reviewedBy: 'user-admin',
+      }),
     };
 
-    prisma = {
-      leaveRequest: {
-        findUnique: jest.fn(),
-      },
-    };
-
-    handler = new ApproveLeaveAgentHandler(
-      hrService as unknown as HRService,
-      prisma,
-    );
+    handler = new ApproveLeaveAgentHandler(hrService as unknown as HRService);
   });
 
   it('declares correct key: approve_leave', () => {
@@ -81,14 +84,7 @@ describe('ApproveLeaveAgentHandler', () => {
     );
   });
 
-  it('verification succeeds when DB state confirms APPROVED by the correct reviewer in the correct school', async () => {
-    prisma.leaveRequest.findUnique.mockResolvedValue({
-      id: 'leave-123',
-      schoolId: 'school-1',
-      status: 'APPROVED',
-      reviewedBy: 'user-admin',
-    });
-
+  it('verification succeeds when domain service confirms APPROVED by the correct reviewer', async () => {
     await expect(
       handler.verify(
         mockContext,
@@ -96,56 +92,70 @@ describe('ApproveLeaveAgentHandler', () => {
         { status: 'APPROVED' },
       ),
     ).resolves.toBeUndefined();
+
+    expect(hrService.verifyLeaveApproval).toHaveBeenCalledWith(
+      'school-1',
+      'leave-123',
+      'user-admin',
+    );
   });
 
-  it('verification throws ACTION_VERIFICATION_FAILED when leave status is not APPROVED', async () => {
-    prisma.leaveRequest.findUnique.mockResolvedValue({
+  it('verification throws ACTION_VERIFICATION_FAILED when domain service verification fails', async () => {
+    hrService.verifyLeaveApproval!.mockResolvedValue({
+      verified: false,
+      leave: null,
+    });
+
+    await expect(
+      handler.verify(
+        mockContext,
+        { leaveId: 'leave-123' },
+        { status: 'APPROVED' },
+      ),
+    ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
+  });
+
+  it('reconciles as APPLIED when leave request is in APPROVED status', async () => {
+    hrService.getLeaveRequestById!.mockResolvedValue({
+      id: 'leave-123',
+      schoolId: 'school-1',
+      status: 'APPROVED',
+      reviewedBy: 'user-admin',
+    } as any);
+
+    const rec = await handler.reconcile(mockContext, { leaveId: 'leave-123' });
+
+    expect(rec.status).toBe('APPLIED');
+    expect(rec.result).toEqual({
+      resourceId: 'leave-123',
+      resourceType: 'LeaveRequest',
+      status: 'APPROVED',
+      leaveId: 'leave-123',
+      approved: true,
+    });
+  });
+
+  it('reconciles as NOT_APPLIED when leave request is still PENDING', async () => {
+    hrService.getLeaveRequestById!.mockResolvedValue({
       id: 'leave-123',
       schoolId: 'school-1',
       status: 'PENDING',
-      reviewedBy: 'user-admin',
-    });
+    } as any);
 
-    await expect(
-      handler.verify(
-        mockContext,
-        { leaveId: 'leave-123' },
-        { status: 'APPROVED' },
-      ),
-    ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
+    const rec = await handler.reconcile(mockContext, { leaveId: 'leave-123' });
+
+    expect(rec.status).toBe('NOT_APPLIED');
+    expect(rec.reason).toBeDefined();
   });
 
-  it('verification throws ACTION_VERIFICATION_FAILED when school mismatches', async () => {
-    prisma.leaveRequest.findUnique.mockResolvedValue({
-      id: 'leave-123',
-      schoolId: 'school-OTHER',
-      status: 'APPROVED',
-      reviewedBy: 'user-admin',
+  it('reconciles as UNKNOWN when leave request is not found', async () => {
+    hrService.getLeaveRequestById!.mockResolvedValue(null);
+
+    const rec = await handler.reconcile(mockContext, {
+      leaveId: 'leave-missing',
     });
 
-    await expect(
-      handler.verify(
-        mockContext,
-        { leaveId: 'leave-123' },
-        { status: 'APPROVED' },
-      ),
-    ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
-  });
-
-  it('verification throws ACTION_VERIFICATION_FAILED when reviewedBy does not match authenticated user', async () => {
-    prisma.leaveRequest.findUnique.mockResolvedValue({
-      id: 'leave-123',
-      schoolId: 'school-1',
-      status: 'APPROVED',
-      reviewedBy: 'user-OTHER',
-    });
-
-    await expect(
-      handler.verify(
-        mockContext,
-        { leaveId: 'leave-123' },
-        { status: 'APPROVED' },
-      ),
-    ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
+    expect(rec.status).toBe('UNKNOWN');
+    expect(rec.reason).toBeDefined();
   });
 });

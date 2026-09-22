@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { AssignmentsService } from '../../../assignments/assignments.service';
-import { PrismaService } from '../../../../core/database/prisma.service';
 import {
   ToolHandlerKey,
   AgentToolExecutionContext,
@@ -26,23 +25,17 @@ export class CreateAssignmentAgentHandler implements AgentToolHandler<
 > {
   readonly key = ToolHandlerKey.CREATE_ASSIGNMENT;
 
-  constructor(
-    private readonly assignmentsService: AssignmentsService,
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly assignmentsService: AssignmentsService) {}
 
   async execute(
     context: AgentToolExecutionContext,
     args: CreateAssignmentArgs,
   ): Promise<AgentHandlerResult> {
-    // Resolve staff profile for authenticated user
-    const staff = await this.prisma.staff.findFirst({
-      where: {
-        userId: context.userId,
-        schoolId: context.schoolId,
-        isActive: true,
-      },
-    });
+    // Resolve staff profile via domain service AssignmentsService
+    const staff = await this.assignmentsService.getStaffProfileByUserId(
+      context.schoolId,
+      context.userId,
+    );
     if (!staff) {
       throw new Error('Teacher staff profile not found in this school');
     }
@@ -51,7 +44,7 @@ export class CreateAssignmentAgentHandler implements AgentToolHandler<
       ? new Date(args.dueDate)
       : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-    // Delegate to existing domain service AssignmentsService
+    // Delegate to domain service AssignmentsService
     const assignment = await this.assignmentsService.createAssignment(
       context.schoolId,
       {
@@ -87,16 +80,27 @@ export class CreateAssignmentAgentHandler implements AgentToolHandler<
       throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
     }
 
-    const assignment = await this.prisma.assignment.findUnique({
-      where: { id: assignmentId },
-    });
+    const assignment = await this.assignmentsService.getAssignmentById(
+      context.schoolId,
+      assignmentId,
+    );
 
     if (
       !assignment ||
       assignment.schoolId !== context.schoolId ||
       assignment.classId !== args.classId ||
-      assignment.subjectId !== args.subjectId
+      assignment.subjectId !== args.subjectId ||
+      assignment.title !== args.topic
     ) {
+      throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
+    }
+
+    // Verify staff ownership matches authenticated user's staff profile
+    const staff = await this.assignmentsService.getStaffProfileByUserId(
+      context.schoolId,
+      context.userId,
+    );
+    if (staff && assignment.staffId !== staff.id) {
       throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
     }
   }
@@ -105,15 +109,14 @@ export class CreateAssignmentAgentHandler implements AgentToolHandler<
     context: AgentToolExecutionContext,
     args: CreateAssignmentArgs,
   ): Promise<ReconciliationResult> {
-    const existing = await this.prisma.assignment.findFirst({
-      where: {
-        schoolId: context.schoolId,
+    const existing = await this.assignmentsService.findAssignmentByDetails(
+      context.schoolId,
+      {
         classId: args.classId,
         subjectId: args.subjectId,
         title: args.topic,
       },
-      orderBy: { createdAt: 'desc' },
-    });
+    );
 
     if (existing) {
       return {
@@ -135,4 +138,3 @@ export class CreateAssignmentAgentHandler implements AgentToolHandler<
     };
   }
 }
-

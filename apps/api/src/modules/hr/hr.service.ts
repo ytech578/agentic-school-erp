@@ -555,4 +555,77 @@ export class HRService {
       };
     });
   }
+
+  /**
+   * Domain query: resolves a leave request with strict tenant validation.
+   */
+  async getLeaveRequestById(schoolId: string, leaveId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
+    return this.prisma.leaveRequest.findFirst({
+      where: { id: leaveId, schoolId: validSchoolId },
+      include: {
+        staff: {
+          include: {
+            user: { select: { firstName: true, lastName: true, email: true } },
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Domain query: verifies leave approval status and reviewer.
+   */
+  async verifyLeaveApproval(
+    schoolId: string,
+    leaveId: string,
+    reviewerId?: string,
+  ): Promise<{ verified: boolean; leave: any }> {
+    const validSchoolId = requireSchoolId(schoolId);
+    const leave = await this.prisma.leaveRequest.findFirst({
+      where: { id: leaveId, schoolId: validSchoolId },
+    });
+
+    if (!leave) {
+      return { verified: false, leave: null };
+    }
+
+    const statusMatches = leave.status === 'APPROVED';
+    const reviewerMatches = !reviewerId || leave.reviewedBy === reviewerId;
+
+    return {
+      verified: statusMatches && reviewerMatches,
+      leave,
+    };
+  }
+
+  /**
+   * Domain query: verifies whether an AI recommendation note was recorded.
+   */
+  async verifyLeaveRecommendation(
+    schoolId: string,
+    leaveId: string,
+    expectedRecommendation?: string,
+  ): Promise<{ verified: boolean; leave: any }> {
+    const validSchoolId = requireSchoolId(schoolId);
+    const leave = await this.prisma.leaveRequest.findFirst({
+      where: { id: leaveId, schoolId: validSchoolId },
+    });
+
+    if (!leave) {
+      return { verified: false, leave: null };
+    }
+
+    let noteMatches = Boolean(
+      leave.reviewNote && leave.reviewNote.includes('[AI Recommendation'),
+    );
+    if (expectedRecommendation && leave.reviewNote) {
+      noteMatches = leave.reviewNote.includes(expectedRecommendation);
+    }
+
+    return {
+      verified: noteMatches,
+      leave,
+    };
+  }
 }

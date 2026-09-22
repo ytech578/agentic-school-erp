@@ -27,6 +27,7 @@ import { HRService } from '../../hr/hr.service';
 import { AssignmentsService } from '../../assignments/assignments.service';
 import { MessagesService } from '../../messages/messages.service';
 import { TimetableService } from '../../timetable/timetable.service';
+import { ExamsService } from '../../exams/exams.service';
 import { AGENT_ERRORS } from './agent-types';
 import {
   PERMISSIONS,
@@ -49,62 +50,71 @@ import {
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
-const buildPrismaMock = () => ({
-  user: {
-    findUnique: jest.fn(),
-    findMany: jest.fn().mockResolvedValue([]),
-  },
-  leaveRequest: {
+const buildPrismaMock = () => {
+  const mockLeaveRequest: any = {
     findMany: jest.fn(),
     findUnique: jest.fn(),
     updateMany: jest.fn(),
-  },
-  class: {
-    findFirst: jest.fn(),
-  },
-  subject: {
-    findFirst: jest.fn(),
-  },
-  staff: {
-    findFirst: jest.fn(),
-  },
-  assignment: {
-    findUnique: jest.fn(),
-  },
-  message: {
-    createMany: jest.fn(),
-    create: jest.fn(),
-  },
-  timetableSlot: {
-    updateMany: jest.fn(),
-  },
-  exam: {
-    findFirst: jest.fn(),
-  },
-  student: {
-    findMany: jest.fn().mockResolvedValue([]),
-  },
-  agentAction: {
-    create: jest.fn().mockImplementation((args) =>
-      Promise.resolve({
-        id: 'action-1',
-        status: AgentActionStatus.AWAITING_CONFIRMATION,
-        expiresAt: new Date(Date.now() + 15 * 60_000),
-        ...args.data,
-      }),
-    ),
-    findUnique: jest.fn(),
-    findFirst: jest.fn().mockResolvedValue(null),
-    updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-    update: jest.fn().mockResolvedValue({}),
-  },
-  activityLog: {
-    create: jest.fn().mockResolvedValue({}),
-  },
-  $transaction: jest
+  };
+  mockLeaveRequest.findFirst = jest
     .fn()
-    .mockImplementation(async (cb) => cb(buildPrismaMock())),
-});
+    .mockImplementation((args?: any) => mockLeaveRequest.findUnique(args));
+
+  return {
+    user: {
+      findUnique: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    leaveRequest: mockLeaveRequest,
+    class: {
+      findFirst: jest.fn(),
+    },
+    subject: {
+      findFirst: jest.fn(),
+    },
+    staff: {
+      findFirst: jest.fn(),
+    },
+    assignment: {
+      findUnique: jest.fn(),
+    },
+    message: {
+      createMany: jest.fn(),
+      create: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
+    timetableSlot: {
+      updateMany: jest.fn(),
+    },
+    exam: {
+      findFirst: jest.fn(),
+    },
+    student: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    agentAction: {
+      create: jest.fn().mockImplementation((args) =>
+        Promise.resolve({
+          id: 'action-1',
+          status: AgentActionStatus.AWAITING_CONFIRMATION,
+          expiresAt: new Date(Date.now() + 15 * 60_000),
+          ...args.data,
+        }),
+      ),
+      findUnique: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      update: jest.fn().mockResolvedValue({}),
+    },
+    activityLog: {
+      create: jest.fn().mockResolvedValue({}),
+    },
+    $transaction: jest
+      .fn()
+      .mockImplementation(async (cb) => cb(buildPrismaMock())),
+  };
+};
 
 // Standard admin context
 const adminCtx = {
@@ -124,7 +134,36 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
 
   beforeEach(async () => {
     prisma = buildPrismaMock();
-    assignmentsService = { createAssignment: jest.fn() };
+    assignmentsService = {
+      createAssignment: jest.fn().mockResolvedValue({
+        id: 'assign-1',
+        title: 'Assignment',
+        schoolId: 'school-1',
+        classId: 'class-1',
+        subjectId: 'sub-1',
+        teacherId: 'staff-1',
+        status: 'PUBLISHED',
+      }),
+      getStaffProfileByUserId: jest.fn().mockResolvedValue({ id: 'staff-1' }),
+      getAssignmentById: jest.fn().mockResolvedValue({
+        id: 'assign-1',
+        title: 'Assignment',
+        schoolId: 'school-1',
+        classId: 'class-1',
+        subjectId: 'sub-1',
+        teacherId: 'staff-1',
+        status: 'PUBLISHED',
+      }),
+      findAssignmentByDetails: jest.fn().mockResolvedValue({
+        id: 'assign-1',
+        title: 'Assignment',
+        schoolId: 'school-1',
+        classId: 'class-1',
+        subjectId: 'sub-1',
+        teacherId: 'staff-1',
+        status: 'PUBLISHED',
+      }),
+    };
 
     // Re-wire $transaction so the nested CAS block works
     prisma.$transaction.mockImplementation(
@@ -186,11 +225,58 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
                 return { success: true, sent: recipients.length };
               }),
             sendMessage: jest.fn(),
+            sendBatchMessages: jest.fn().mockImplementation(async (data) => {
+              return {
+                sentCount: data.items.length,
+                failedCount: 0,
+                recipients: data.items.map((i: any) => i.recipientId),
+              };
+            }),
+            sendDailyDigest: jest.fn().mockResolvedValue({
+              sentCount: 1,
+              failedCount: 0,
+              recipients: ['user-1'],
+            }),
+            verifyAnnouncement: jest.fn().mockResolvedValue({
+              verified: true,
+              recipientCount: 1,
+            }),
+            findAnnouncement: jest
+              .fn()
+              .mockImplementation(async (schoolId, ...rest) => {
+                const title = rest.length === 1 ? rest[0] : rest[1];
+                const msg = await prisma.message.findFirst({
+                  where: { schoolId, subject: title },
+                });
+                if (!msg) return null;
+                return { id: msg.id, title: msg.subject, recipientCount: 1 };
+              }),
+            verifyBatchMessages: jest.fn().mockResolvedValue({
+              verified: true,
+              recipientCount: 1,
+            }),
           },
         },
         {
           provide: TimetableService,
           useValue: new TimetableService(prisma as any),
+        },
+        {
+          provide: ExamsService,
+          useValue: {
+            publishAndNotifyExamResults: jest.fn().mockResolvedValue({
+              examId: 'exam-1',
+              examName: 'Final Exam',
+              published: true,
+              notifiedCount: 10,
+            }),
+            getExamPublishStatus: jest.fn().mockResolvedValue({
+              examId: 'exam-1',
+              examName: 'Final Exam',
+              isPublished: true,
+              notifiedCount: 10,
+            }),
+          },
         },
       ],
     }).compile();

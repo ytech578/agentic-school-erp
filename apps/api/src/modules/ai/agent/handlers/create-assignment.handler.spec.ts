@@ -1,6 +1,5 @@
 import { CreateAssignmentAgentHandler } from './create-assignment.handler';
 import { AssignmentsService } from '../../../assignments/assignments.service';
-import { PrismaService } from '../../../../core/database/prisma.service';
 import {
   ToolHandlerKey,
   AgentToolExecutionContext,
@@ -10,7 +9,6 @@ import {
 describe('CreateAssignmentAgentHandler', () => {
   let handler: CreateAssignmentAgentHandler;
   let assignmentsService: jest.Mocked<Partial<AssignmentsService>>;
-  let prisma: any;
 
   const mockContext: AgentToolExecutionContext = {
     userId: 'user-teacher',
@@ -21,28 +19,34 @@ describe('CreateAssignmentAgentHandler', () => {
 
   beforeEach(() => {
     assignmentsService = {
+      getStaffProfileByUserId: jest.fn().mockResolvedValue({
+        id: 'staff-1',
+        userId: 'user-teacher',
+        schoolId: 'school-1',
+      }),
       createAssignment: jest.fn().mockResolvedValue({
         id: 'assignment-1',
         title: 'Algebra homework',
       }),
-    };
-
-    prisma = {
-      staff: {
-        findFirst: jest.fn().mockResolvedValue({
-          id: 'staff-1',
-          userId: 'user-teacher',
-          schoolId: 'school-1',
-        }),
-      },
-      assignment: {
-        findUnique: jest.fn(),
-      },
+      getAssignmentById: jest.fn().mockResolvedValue({
+        id: 'assignment-1',
+        schoolId: 'school-1',
+        classId: 'class-1',
+        subjectId: 'subject-1',
+        title: 'Algebra homework',
+        staffId: 'staff-1',
+      }),
+      findAssignmentByDetails: jest.fn().mockResolvedValue({
+        id: 'assignment-1',
+        schoolId: 'school-1',
+        classId: 'class-1',
+        subjectId: 'subject-1',
+        title: 'Algebra homework',
+      }),
     };
 
     handler = new CreateAssignmentAgentHandler(
       assignmentsService as unknown as AssignmentsService,
-      prisma,
     );
   });
 
@@ -62,13 +66,10 @@ describe('CreateAssignmentAgentHandler', () => {
 
     const result = await handler.execute(mockContext, args);
 
-    expect(prisma.staff.findFirst).toHaveBeenCalledWith({
-      where: {
-        userId: 'user-teacher',
-        schoolId: 'school-1',
-        isActive: true,
-      },
-    });
+    expect(assignmentsService.getStaffProfileByUserId).toHaveBeenCalledWith(
+      'school-1',
+      'user-teacher',
+    );
 
     expect(assignmentsService.createAssignment).toHaveBeenCalledWith(
       'school-1',
@@ -94,7 +95,7 @@ describe('CreateAssignmentAgentHandler', () => {
   });
 
   it('throws error when teacher staff profile does not exist in school', async () => {
-    prisma.staff.findFirst.mockResolvedValue(null);
+    assignmentsService.getStaffProfileByUserId!.mockResolvedValue(null);
 
     await expect(
       handler.execute(mockContext, {
@@ -108,48 +109,109 @@ describe('CreateAssignmentAgentHandler', () => {
   });
 
   it('verification succeeds when assignment exists with matching attributes', async () => {
-    prisma.assignment.findUnique.mockResolvedValue({
-      id: 'assignment-1',
-      schoolId: 'school-1',
-      classId: 'class-1',
-      subjectId: 'subject-1',
-    });
-
     await expect(
       handler.verify(
         mockContext,
-        { classId: 'class-1', subjectId: 'subject-1', topic: 'Math' },
+        {
+          classId: 'class-1',
+          subjectId: 'subject-1',
+          topic: 'Algebra homework',
+        },
         { assignmentId: 'assignment-1', status: 'CREATED' },
       ),
     ).resolves.toBeUndefined();
   });
 
   it('verification throws ACTION_VERIFICATION_FAILED when assignment not found', async () => {
-    prisma.assignment.findUnique.mockResolvedValue(null);
+    assignmentsService.getAssignmentById!.mockResolvedValue(null);
 
     await expect(
       handler.verify(
         mockContext,
-        { classId: 'class-1', subjectId: 'subject-1', topic: 'Math' },
+        {
+          classId: 'class-1',
+          subjectId: 'subject-1',
+          topic: 'Algebra homework',
+        },
         { assignmentId: 'assignment-1', status: 'CREATED' },
       ),
     ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
   });
 
   it('verification throws ACTION_VERIFICATION_FAILED on class or subject mismatch', async () => {
-    prisma.assignment.findUnique.mockResolvedValue({
+    assignmentsService.getAssignmentById!.mockResolvedValue({
       id: 'assignment-1',
       schoolId: 'school-1',
       classId: 'class-WRONG',
       subjectId: 'subject-1',
-    });
+      title: 'Algebra homework',
+      staffId: 'staff-1',
+    } as any);
 
     await expect(
       handler.verify(
         mockContext,
-        { classId: 'class-1', subjectId: 'subject-1', topic: 'Math' },
+        {
+          classId: 'class-1',
+          subjectId: 'subject-1',
+          topic: 'Algebra homework',
+        },
         { assignmentId: 'assignment-1', status: 'CREATED' },
       ),
     ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
+  });
+
+  it('verification throws ACTION_VERIFICATION_FAILED on staff ownership mismatch', async () => {
+    assignmentsService.getAssignmentById!.mockResolvedValue({
+      id: 'assignment-1',
+      schoolId: 'school-1',
+      classId: 'class-1',
+      subjectId: 'subject-1',
+      title: 'Algebra homework',
+      staffId: 'staff-OTHER',
+    } as any);
+
+    await expect(
+      handler.verify(
+        mockContext,
+        {
+          classId: 'class-1',
+          subjectId: 'subject-1',
+          topic: 'Algebra homework',
+        },
+        { assignmentId: 'assignment-1', status: 'CREATED' },
+      ),
+    ).rejects.toThrow(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
+  });
+
+  it('reconciles as APPLIED when assignment exists by title, class and subject', async () => {
+    const rec = await handler.reconcile(mockContext, {
+      classId: 'class-1',
+      subjectId: 'subject-1',
+      topic: 'Algebra homework',
+    });
+
+    expect(rec.status).toBe('APPLIED');
+    expect(rec.result).toEqual({
+      resourceId: 'assignment-1',
+      resourceType: 'Assignment',
+      status: 'CREATED',
+      assignmentId: 'assignment-1',
+      classId: 'class-1',
+      subjectId: 'subject-1',
+    });
+  });
+
+  it('reconciles as NOT_APPLIED when no assignment matches', async () => {
+    assignmentsService.findAssignmentByDetails!.mockResolvedValue(null);
+
+    const rec = await handler.reconcile(mockContext, {
+      classId: 'class-1',
+      subjectId: 'subject-1',
+      topic: 'Non-existent homework',
+    });
+
+    expect(rec.status).toBe('NOT_APPLIED');
+    expect(rec.reason).toBeDefined();
   });
 });

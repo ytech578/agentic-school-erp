@@ -26,7 +26,7 @@ export type IdempotencyStrategy =
 
 // ─── Validated field descriptor (replaces free-form description) ──────────────
 export interface ToolFieldSchema {
-  type: 'string' | 'number' | 'boolean' | 'string[]';
+  type: 'string' | 'number' | 'boolean' | 'string[]' | 'object[]' | 'object';
   required: boolean;
   description: string;
   minLength?: number;
@@ -109,6 +109,24 @@ export function validateToolInput(
       errors.push(`Field "${field}" must be a number`);
     } else if (schema.type === 'boolean' && typeof value !== 'boolean') {
       errors.push(`Field "${field}" must be a boolean`);
+    } else if (
+      schema.type === 'string[]' &&
+      (!Array.isArray(value) || value.some((v) => typeof v !== 'string'))
+    ) {
+      errors.push(`Field "${field}" must be an array of strings`);
+    } else if (
+      schema.type === 'object[]' &&
+      (!Array.isArray(value) ||
+        value.some(
+          (v) => typeof v !== 'object' || v === null || Array.isArray(v),
+        ))
+    ) {
+      errors.push(`Field "${field}" must be an array of objects`);
+    } else if (
+      schema.type === 'object' &&
+      (typeof value !== 'object' || value === null || Array.isArray(value))
+    ) {
+      errors.push(`Field "${field}" must be an object`);
     }
 
     // String constraints
@@ -288,7 +306,7 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
       category: 'AUTOMATION',
       inputSchema: {
         items: {
-          type: 'string[]',
+          type: 'object[]',
           required: false,
           description: 'Preview items from generateFeeDefaulterPreview',
         },
@@ -324,7 +342,7 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
       category: 'AUTOMATION',
       inputSchema: {
         items: {
-          type: 'string[]',
+          type: 'object[]',
           required: false,
           description: 'Preview items',
         },
@@ -360,7 +378,7 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
       category: 'AUTOMATION',
       inputSchema: {
         items: {
-          type: 'string[]',
+          type: 'object[]',
           required: false,
           description: 'Cover suggestions from preview',
         },
@@ -387,7 +405,7 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
       category: 'AUTOMATION',
       inputSchema: {
         items: {
-          type: 'string[]',
+          type: 'object[]',
           required: false,
           description: 'Warning items from preview',
         },
@@ -423,7 +441,7 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
       category: 'AUTOMATION',
       inputSchema: {
         items: {
-          type: 'string[]',
+          type: 'object[]',
           required: false,
           description: 'Recommendation items from preview',
         },
@@ -450,7 +468,7 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
       category: 'AUTOMATION',
       inputSchema: {
         items: {
-          type: 'string[]',
+          type: 'object[]',
           required: false,
           description: 'Ready exam items from preview',
         },
@@ -480,7 +498,7 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
       category: 'AUTOMATION',
       inputSchema: {
         items: {
-          type: 'string[]',
+          type: 'object[]',
           required: false,
           description: 'Digest items from preview',
         },
@@ -510,17 +528,43 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
  *  - Unknown roles
  *  - Duplicate permission metadata
  *  - Contradictory role/permission configuration (allowed roles that lack declared required permissions)
+ *  - Duplicate handler keys
+ *  - Missing handlers when realHandlerAvailable is true
  *
  * Returns a list of validation error strings (empty = valid).
  */
 export function validateToolRegistry(
   tools: Map<string, ToolDefinition>,
+  registeredHandlerKeys?: Set<string> | string[],
 ): string[] {
   const errors: string[] = [];
   const knownRoles = new Set<string>(Object.values(USER_ROLES));
   const knownPermissions = new Set<string>(Object.values(PERMISSIONS));
+  const seenHandlerKeys = new Set<string>();
+  const handlerKeySet = registeredHandlerKeys
+    ? new Set(registeredHandlerKeys)
+    : undefined;
 
   for (const [name, tool] of tools.entries()) {
+    // Check for duplicate handler keys
+    if (seenHandlerKeys.has(tool.handlerKey)) {
+      errors.push(
+        `Tool "${name}" specifies duplicate handlerKey: "${tool.handlerKey}"`,
+      );
+    }
+    seenHandlerKeys.add(tool.handlerKey);
+
+    // Check handler availability if registered handlers are provided
+    if (
+      handlerKeySet &&
+      tool.realHandlerAvailable &&
+      !handlerKeySet.has(tool.handlerKey)
+    ) {
+      errors.push(
+        `Tool "${name}" specifies realHandlerAvailable=true but handler "${tool.handlerKey}" is missing from registered handlers`,
+      );
+    }
+
     // 1. Allowed roles must not be empty
     if (!tool.allowedRoles || tool.allowedRoles.length === 0) {
       errors.push(`Tool "${name}" must declare at least one allowed role`);

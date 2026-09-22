@@ -729,4 +729,75 @@ export class ExamsService {
       subjects: marksByExam.get(rc.examId) || [],
     }));
   }
+
+  /**
+   * Authoritative domain operation: publishes exam results and dispatches result notifications to students.
+   */
+  async publishAndNotifyExamResults(data: {
+    schoolId: string;
+    examId: string;
+    senderId: string;
+    customMessage?: string;
+  }): Promise<{
+    examId: string;
+    examName: string;
+    published: boolean;
+    notifiedCount: number;
+  }> {
+    const validSchoolId = requireSchoolId(data.schoolId);
+    const exam = await this.prisma.exam.findFirst({
+      where: { id: data.examId, schoolId: validSchoolId },
+    });
+    if (!exam) {
+      throw new NotFoundException('Exam not found in this school');
+    }
+
+    // Publish exam and report cards
+    await this.publishResults(exam.id, validSchoolId);
+
+    // Notify active students
+    const students = await this.prisma.student.findMany({
+      where: { schoolId: validSchoolId, isActive: true },
+      include: { user: { select: { id: true } } },
+      take: 500,
+    });
+
+    const messages = students.map((s) => ({
+      schoolId: validSchoolId,
+      senderId: data.senderId,
+      recipientId: s.user.id,
+      subject: `Results Ready: ${exam.name}`,
+      body: data.customMessage ?? `Results for ${exam.name} are now available.`,
+    }));
+
+    let notifiedCount = 0;
+    if (messages.length > 0) {
+      await this.prisma.message.createMany({ data: messages });
+      notifiedCount = messages.length;
+    }
+
+    return {
+      examId: exam.id,
+      examName: exam.name,
+      published: true,
+      notifiedCount,
+    };
+  }
+
+  /**
+   * Domain query: inspects publication status of an exam.
+   */
+  async getExamPublishStatus(schoolId: string, examId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
+    return this.prisma.exam.findFirst({
+      where: { id: examId, schoolId: validSchoolId },
+      select: {
+        id: true,
+        name: true,
+        isPublished: true,
+        publishedAt: true,
+        schoolId: true,
+      },
+    });
+  }
 }

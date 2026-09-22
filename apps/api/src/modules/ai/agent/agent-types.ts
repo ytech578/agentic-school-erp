@@ -48,11 +48,67 @@ export interface SendAnnouncementInput {
   message?: string;
 }
 
-export interface AutomationInput {
-  /** Payload forwarded from the preview step — already validated upstream */
-  items?: unknown[];
+// ─── Strongly-typed Automation Data Contracts (Step 11) ──────────────────────
+export interface AutomationMessageItem {
+  recipientId: string;
+  draftMessage: string;
+  studentName?: string;
+  parentName?: string;
+  amountDue?: number;
+  attendancePercentage?: number;
+  daysAbsent?: number;
+}
+
+export interface TimetableCoverItem {
+  suggestedSubstituteId: string;
+  slots: Array<{ id: string; periodNumber?: number; dayOfWeek?: number }>;
+  teacherName?: string;
+  date?: string;
+}
+
+export interface LeaveRecommendationItem {
+  id: string; // leaveId
+  recommendation?: 'APPROVE' | 'REJECT' | 'REVIEW';
+  reasoning?: string;
+  staffName?: string;
+}
+
+export interface ReportPublishItem {
+  id: string; // examId
+  isComplete?: boolean;
+  examName?: string;
+  draftMessage?: string;
+}
+
+export interface DailyDigestItem {
+  draftMessage?: string;
+  date?: string;
+}
+
+export type AutomationItem =
+  | AutomationMessageItem
+  | TimetableCoverItem
+  | LeaveRecommendationItem
+  | ReportPublishItem
+  | DailyDigestItem;
+
+export interface AutomationInput<TItem = AutomationItem> {
+  /** Payload forwarded from the preview step — strongly typed items (no any / unknown) */
+  items?: TItem[];
   subject?: string;
 }
+
+export type AutomationFeeDefaulterInput =
+  AutomationInput<AutomationMessageItem>;
+export type AutomationAbsenceAlertInput =
+  AutomationInput<AutomationMessageItem>;
+export type AutomationAttendanceWarningInput =
+  AutomationInput<AutomationMessageItem>;
+export type AutomationTimetableCoverInput = AutomationInput<TimetableCoverItem>;
+export type AutomationLeaveRecommendationInput =
+  AutomationInput<LeaveRecommendationItem>;
+export type AutomationReportPublishInput = AutomationInput<ReportPublishItem>;
+export type AutomationDailyDigestInput = AutomationInput<DailyDigestItem>;
 
 // Union of all known tool input shapes
 export type ToolInput =
@@ -164,4 +220,3 @@ export interface ReconciliationResult {
   result?: AgentHandlerResult;
   reason?: string;
 }
-

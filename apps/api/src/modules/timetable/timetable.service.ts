@@ -450,4 +450,55 @@ export class TimetableService {
     });
     return { actionsCount: result.count };
   }
+
+  /**
+   * Domain query: retrieves timetable slots by IDs ensuring school ownership.
+   */
+  async getSlotsByIds(schoolId: string, slotIds: string[]) {
+    const validSchoolId = requireSchoolId(
+      schoolId,
+      'Get timetable slots by IDs',
+    );
+    return this.prisma.timetableSlot.findMany({
+      where: {
+        id: { in: slotIds },
+        schoolId: validSchoolId,
+      },
+      include: {
+        staff: { select: { id: true, userId: true } },
+        class: { select: { id: true, name: true } },
+        subject: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  /**
+   * Domain query: verifies whether timetable slots have been assigned to substitute teacher.
+   */
+  async verifySubstituteAssignment(
+    schoolId: string,
+    slotIds: string[],
+    substituteStaffId: string,
+  ): Promise<{ verified: boolean; matchedCount: number }> {
+    const validSchoolId = requireSchoolId(
+      schoolId,
+      'Verify timetable substitute assignment',
+    );
+    if (!slotIds || slotIds.length === 0) {
+      return { verified: true, matchedCount: 0 };
+    }
+
+    const matchedSlots = await this.prisma.timetableSlot.count({
+      where: {
+        id: { in: slotIds },
+        schoolId: validSchoolId,
+        staffId: substituteStaffId,
+      },
+    });
+
+    return {
+      verified: matchedSlots === slotIds.length,
+      matchedCount: matchedSlots,
+    };
+  }
 }

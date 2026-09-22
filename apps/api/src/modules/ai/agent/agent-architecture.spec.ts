@@ -1,10 +1,25 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import * as fs from 'fs';
+import * as path from 'path';
 import { AgentControlPlaneService } from './agent-control-plane.service';
 import { AgentPolicyService } from './agent-policy.service';
 import { AgentToolDispatcher } from './agent-tool-dispatcher';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { AgentActionStatus } from '@prisma/client';
 import { AGENT_ERRORS, ToolHandlerKey } from './agent-types';
+import { TOOL_REGISTRY, validateToolRegistry } from './tool-registry';
+import {
+  ApproveLeaveAgentHandler,
+  CreateAssignmentAgentHandler,
+  SendAnnouncementAgentHandler,
+  AutomationFeeDefaulterHandler,
+  AutomationAbsenceAlertHandler,
+  AutomationAttendanceWarningHandler,
+  AutomationTimetableCoverHandler,
+  AutomationLeaveRecommendationHandler,
+  AutomationReportCardPublishHandler,
+  AutomationDailyDigestHandler,
+} from './handlers';
 
 describe('Change #8C — Agent Architecture & Decoupling Enforcement', () => {
   let controlPlane: AgentControlPlaneService;
@@ -48,7 +63,7 @@ describe('Change #8C — Agent Architecture & Decoupling Enforcement', () => {
     );
   });
 
-  describe('Control Plane Decoupling & Purity', () => {
+  describe('Control Plane Decoupling & Purity (Step 14 & 15)', () => {
     it('does NOT contain private or public domain mutation methods (domain*)', () => {
       const prototype = Object.getOwnPropertyNames(
         AgentControlPlaneService.prototype,
@@ -65,7 +80,15 @@ describe('Change #8C — Agent Architecture & Decoupling Enforcement', () => {
       expect(prototype).not.toContain('domainAutomationTimetableCover');
     });
 
-    it('does NOT contain dispatchToHandler switch method', () => {
+    it('does NOT contain dispatch switch statements in source code', () => {
+      const filePath = path.join(__dirname, 'agent-control-plane.service.ts');
+      const source = fs.readFileSync(filePath, 'utf-8');
+
+      // Ensure no dispatch switch statement on tools or handlers exists in control plane
+      expect(source).not.toMatch(
+        /\bswitch\s*\([^)]*(tool\.handlerKey|tool\.name|action\.toolName|toolKey|handlerKey)/i,
+      );
+      // Ensure no dispatchToHandler method exists
       const prototype = Object.getOwnPropertyNames(
         AgentControlPlaneService.prototype,
       );
@@ -130,7 +153,6 @@ describe('Change #8C — Agent Architecture & Decoupling Enforcement', () => {
         verify: jest.fn().mockResolvedValue(undefined),
       };
 
-      // Register without touching AgentControlPlaneService
       dispatcher.register(customHandler);
 
       expect(dispatcher.hasHandler(customKey)).toBe(true);
@@ -145,5 +167,81 @@ describe('Change #8C — Agent Architecture & Decoupling Enforcement', () => {
         { param: 'val' },
       );
     });
+  });
+
+  describe('Dispatcher & Handler Parity (Step 13 & 15)', () => {
+    it('every tool marked realHandlerAvailable=true in TOOL_REGISTRY has an active registered handler', () => {
+      const mockHR = {} as any;
+      const mockAssignments = {} as any;
+      const mockMessages = {} as any;
+      const mockTimetable = {} as any;
+      const mockExams = {} as any;
+
+      const handlers = [
+        new ApproveLeaveAgentHandler(mockHR),
+        new CreateAssignmentAgentHandler(mockAssignments),
+        new SendAnnouncementAgentHandler(mockMessages),
+        new AutomationFeeDefaulterHandler(mockMessages),
+        new AutomationAbsenceAlertHandler(mockMessages),
+        new AutomationAttendanceWarningHandler(mockMessages),
+        new AutomationTimetableCoverHandler(mockTimetable),
+        new AutomationLeaveRecommendationHandler(mockHR),
+        new AutomationReportCardPublishHandler(mockExams),
+        new AutomationDailyDigestHandler(mockMessages),
+      ];
+
+      const fullDispatcher = new AgentToolDispatcher(handlers);
+      const errors = fullDispatcher.validateAgainstRegistry(TOOL_REGISTRY);
+
+      expect(errors).toHaveLength(0);
+
+      // Validate registry consistency with dispatcher keys
+      const registryErrors = validateToolRegistry(
+        TOOL_REGISTRY,
+        fullDispatcher.getRegisteredKeys(),
+      );
+      expect(registryErrors).toHaveLength(0);
+    });
+
+    it('detects missing handlers when registry claims realHandlerAvailable=true', () => {
+      const emptyDispatcher = new AgentToolDispatcher([]);
+      const errors = emptyDispatcher.validateAgainstRegistry(TOOL_REGISTRY);
+
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors.some((e) => e.includes('approve_leave'))).toBe(true);
+    });
+  });
+
+  describe('Zero Direct Prisma Business Mutations in Handlers (Step 2, 3, 10, 15)', () => {
+    const handlerFiles = [
+      'approve-leave.handler.ts',
+      'create-assignment.handler.ts',
+      'send-announcement.handler.ts',
+      'automation-message.handler.ts',
+      'automation-timetable-cover.handler.ts',
+      'automation-leave-recommendation.handler.ts',
+      'automation-report-card-publish.handler.ts',
+      'automation-daily-digest.handler.ts',
+    ];
+
+    it.each(handlerFiles)(
+      'handler %s does not inject PrismaService or perform direct Prisma mutations',
+      (filename) => {
+        const handlerPath = path.join(__dirname, 'handlers', filename);
+        const source = fs.readFileSync(handlerPath, 'utf-8');
+
+        // Handlers must not import PrismaService
+        expect(source).not.toContain('PrismaService');
+
+        // Handlers must not call direct Prisma mutations
+        expect(source).not.toMatch(/this\.prisma\./);
+        expect(source).not.toMatch(/\.createMany\s*\(/);
+        expect(source).not.toMatch(/\.create\s*\(/);
+        expect(source).not.toMatch(/\.updateMany\s*\(/);
+        expect(source).not.toMatch(/\.update\s*\(/);
+        expect(source).not.toMatch(/\.deleteMany\s*\(/);
+        expect(source).not.toMatch(/\.delete\s*\(/);
+      },
+    );
   });
 });

@@ -57,6 +57,34 @@ export class AgentToolDispatcher {
   }
 
   /**
+   * Returns an array of all registered handler keys.
+   */
+  getRegisteredKeys(): string[] {
+    return Array.from(this.handlers.keys());
+  }
+
+  /**
+   * Validates consistency between registered handlers and tool definitions.
+   * Ensures every tool marked realHandlerAvailable=true has a registered handler.
+   */
+  validateAgainstRegistry(
+    tools: Map<
+      string,
+      { handlerKey: ToolHandlerKey; realHandlerAvailable: boolean }
+    >,
+  ): string[] {
+    const errors: string[] = [];
+    for (const [name, tool] of tools.entries()) {
+      if (tool.realHandlerAvailable && !this.handlers.has(tool.handlerKey)) {
+        errors.push(
+          `Tool "${name}" specifies realHandlerAvailable=true but handler "${tool.handlerKey}" is not registered in dispatcher`,
+        );
+      }
+    }
+    return errors;
+  }
+
+  /**
    * Resolves a registered handler by key.
    */
   getHandler(handlerKey: string): AgentToolHandler | undefined {
@@ -123,4 +151,3 @@ export class AgentToolDispatcher {
     return null;
   }
 }
-

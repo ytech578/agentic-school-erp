@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { MessagesService } from '../../../messages/messages.service';
-import { PrismaService } from '../../../../core/database/prisma.service';
 import {
   ToolHandlerKey,
   AgentToolExecutionContext,
+  AGENT_ERRORS,
   AgentHandlerResult,
   SendAnnouncementInput,
   ReconciliationResult,
@@ -18,10 +18,7 @@ export class SendAnnouncementAgentHandler implements AgentToolHandler<
   readonly key = ToolHandlerKey.SEND_ANNOUNCEMENT;
   private readonly logger = new Logger(SendAnnouncementAgentHandler.name);
 
-  constructor(
-    private readonly messagesService: MessagesService,
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly messagesService: MessagesService) {}
 
   async execute(
     context: AgentToolExecutionContext,
@@ -45,15 +42,30 @@ export class SendAnnouncementAgentHandler implements AgentToolHandler<
   }
 
   async verify(
-    _context: AgentToolExecutionContext,
-    _args: SendAnnouncementInput,
+    context: AgentToolExecutionContext,
+    args: SendAnnouncementInput,
     result: AgentHandlerResult,
   ): Promise<void> {
     const sentCount = (result.sentCount ?? result.affectedCount ?? 0) as number;
+
+    // Step 8: A zero-recipient result must NOT be silently accepted as success
     if (sentCount === 0) {
-      this.logger.warn(
-        'Announcement sent to 0 recipients — no active users found',
+      this.logger.error(
+        'Announcement broadcast failed verification: 0 recipients reached',
       );
+      throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
+    }
+
+    // Verify expected message count, correct sender, and correct school in database
+    const check = await this.messagesService.verifyAnnouncement(
+      context.schoolId,
+      context.userId,
+      args.title,
+      sentCount,
+    );
+
+    if (!check.verified) {
+      throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
     }
   }
 
@@ -61,13 +73,11 @@ export class SendAnnouncementAgentHandler implements AgentToolHandler<
     context: AgentToolExecutionContext,
     args: SendAnnouncementInput,
   ): Promise<ReconciliationResult> {
-    const existing = await this.prisma.message.findFirst({
-      where: {
-        schoolId: context.schoolId,
-        senderId: context.userId,
-        subject: args.title,
-      },
-    });
+    const existing = await this.messagesService.findAnnouncement(
+      context.schoolId,
+      context.userId,
+      args.title,
+    );
 
     if (existing) {
       return {
@@ -87,4 +97,3 @@ export class SendAnnouncementAgentHandler implements AgentToolHandler<
     };
   }
 }
-

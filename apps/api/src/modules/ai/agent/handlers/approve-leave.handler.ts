@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { HRService } from '../../../hr/hr.service';
-import { PrismaService } from '../../../../core/database/prisma.service';
 import {
   ToolHandlerKey,
   AgentToolExecutionContext,
@@ -22,10 +21,7 @@ export class ApproveLeaveAgentHandler implements AgentToolHandler<
 > {
   readonly key = ToolHandlerKey.APPROVE_LEAVE;
 
-  constructor(
-    private readonly hrService: HRService,
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly hrService: HRService) {}
 
   async execute(
     context: AgentToolExecutionContext,
@@ -56,18 +52,14 @@ export class ApproveLeaveAgentHandler implements AgentToolHandler<
   async verify(
     context: AgentToolExecutionContext,
     args: ApproveLeaveArgs,
-    _result: AgentHandlerResult,
   ): Promise<void> {
-    const leave = await this.prisma.leaveRequest.findUnique({
-      where: { id: args.leaveId },
-    });
+    const check = await this.hrService.verifyLeaveApproval(
+      context.schoolId,
+      args.leaveId,
+      context.userId,
+    );
 
-    if (
-      !leave ||
-      leave.schoolId !== context.schoolId ||
-      leave.status !== 'APPROVED' ||
-      leave.reviewedBy !== context.userId
-    ) {
+    if (!check.verified) {
       throw new Error(AGENT_ERRORS.ACTION_VERIFICATION_FAILED);
     }
   }
@@ -76,11 +68,12 @@ export class ApproveLeaveAgentHandler implements AgentToolHandler<
     context: AgentToolExecutionContext,
     args: ApproveLeaveArgs,
   ): Promise<ReconciliationResult> {
-    const leave = await this.prisma.leaveRequest.findUnique({
-      where: { id: args.leaveId },
-    });
+    const leave = await this.hrService.getLeaveRequestById(
+      context.schoolId,
+      args.leaveId,
+    );
 
-    if (!leave || leave.schoolId !== context.schoolId) {
+    if (!leave) {
       return {
         status: 'UNKNOWN',
         reason: `Leave request ${args.leaveId} not found or tenant mismatch`,
@@ -113,4 +106,3 @@ export class ApproveLeaveAgentHandler implements AgentToolHandler<
     };
   }
 }
-
