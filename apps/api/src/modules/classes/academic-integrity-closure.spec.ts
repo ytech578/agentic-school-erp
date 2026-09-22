@@ -319,8 +319,6 @@ describe('Change #8E Correction — Academic Database & Integrity Closure', () =
       });
 
       await curriculumService.createSchoolOffering(schoolIdA, {
-        curriculumId: 'curr-1',
-        academicYearId: year2026,
         source: OfferingSource.SCHOOL_CUSTOM,
         customName: 'Vedic Math',
         customCode: 'MATH',
