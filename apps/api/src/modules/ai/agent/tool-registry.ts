@@ -246,6 +246,16 @@ export const TOOL_REGISTRY = new Map<string, ToolDefinition>([
           min: 1,
           max: 1000,
         },
+        academicYearId: {
+          type: 'string',
+          required: false,
+          description: 'Optional academic year ID to target',
+        },
+        academicYearName: {
+          type: 'string',
+          required: false,
+          description: 'Optional academic year name to target (e.g. 2026-27)',
+        },
       },
       allowedRoles: ['TEACHER', 'PRINCIPAL', 'SCHOOL_ADMIN', 'SUPER_ADMIN'],
       requiredPermissions: [PERMISSIONS.ASSIGNMENTS_CREATE],

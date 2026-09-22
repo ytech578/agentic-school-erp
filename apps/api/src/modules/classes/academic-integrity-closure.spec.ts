@@ -300,8 +300,8 @@ describe('Change #8E Correction — Academic Database & Integrity Closure', () =
     });
   });
 
-  describe('3. Subject Offering Master Data Safety', () => {
-    it('does not mutate existing GlobalSubject master name when school custom code collides', async () => {
+  describe('3. Subject Offering Master Data Safety (Area D)', () => {
+    it('rejects conflicting custom subject name on existing global code (Area D)', async () => {
       prisma.curriculum.findFirst.mockResolvedValue({
         id: 'curr-1',
         schoolId: schoolIdA,
@@ -309,25 +309,49 @@ describe('Change #8E Correction — Academic Database & Integrity Closure', () =
       prisma.globalSubject.upsert.mockResolvedValue({
         id: 'gs-math',
         code: 'MATH',
-        name: 'Mathematics', // Master name should NOT be updated to "Vedic Math"
+        name: 'Mathematics',
+      });
+      prisma.schoolSubjectOffering.findFirst.mockResolvedValue(null);
+
+      await expect(
+        curriculumService.createSchoolOffering(schoolIdA, {
+          source: OfferingSource.SCHOOL_CUSTOM,
+          customName: 'Vedic Math',
+          customCode: 'MATH',
+          gradeFrom: 9,
+          gradeTo: 10,
+          periodsPerWeek: 4,
+        }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('allows compatible reuse of existing GlobalSubject without mutating master name', async () => {
+      prisma.curriculum.findFirst.mockResolvedValue({
+        id: 'curr-1',
+        schoolId: schoolIdA,
+      });
+      prisma.globalSubject.upsert.mockResolvedValue({
+        id: 'gs-math',
+        code: 'MATH',
+        name: 'Mathematics',
       });
       prisma.schoolSubjectOffering.findFirst.mockResolvedValue(null);
       prisma.schoolSubjectOffering.create = jest.fn().mockResolvedValue({
         id: 'off-custom-1',
         schoolId: schoolIdA,
-        customName: 'Vedic Math',
+        customName: 'Mathematics',
       });
 
-      await curriculumService.createSchoolOffering(schoolIdA, {
+      const res = await curriculumService.createSchoolOffering(schoolIdA, {
         source: OfferingSource.SCHOOL_CUSTOM,
-        customName: 'Vedic Math',
+        customName: 'Mathematics',
         customCode: 'MATH',
         gradeFrom: 9,
         gradeTo: 10,
         periodsPerWeek: 4,
       });
 
-      // Assert globalSubject.upsert was called with update: {} preserving master name
+      expect(res).toBeDefined();
       expect(prisma.globalSubject.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { code: 'MATH' },

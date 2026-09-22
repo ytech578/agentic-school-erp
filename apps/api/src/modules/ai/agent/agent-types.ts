@@ -41,6 +41,8 @@ export interface CreateAssignmentInput {
   description?: string;
   dueDate?: string; // ISO date string YYYY-MM-DD
   totalMarks?: number;
+  academicYearId?: string;
+  academicYearName?: string;
 }
 
 export interface SendAnnouncementInput {

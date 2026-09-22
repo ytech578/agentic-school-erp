@@ -391,24 +391,26 @@ export class AgentControlPlaneService {
       throw new ForbiddenException(AGENT_ERRORS.ACTION_TENANT_MISMATCH);
     }
 
-    // 3. Expiry check (must precede execution and state checks).
-    //    Never null out idempotency keys — preserves historical audit trail.
-    if (
-      action.status === AgentActionStatus.EXPIRED ||
-      (action.expiresAt && action.expiresAt < new Date())
-    ) {
-      if (action.status !== AgentActionStatus.EXPIRED) {
-        await this.prisma.agentAction.update({
-          where: { id: actionId },
-          data: {
-            status: AgentActionStatus.EXPIRED,
-          },
-        });
+    // 3. Expiry check (Area A3)
+    // EXECUTING actions represent in-flight mutations and must NEVER be blindly converted to EXPIRED.
+    if (action.status !== AgentActionStatus.EXECUTING) {
+      if (
+        action.status === AgentActionStatus.EXPIRED ||
+        (action.expiresAt && action.expiresAt < new Date())
+      ) {
+        if (action.status !== AgentActionStatus.EXPIRED) {
+          await this.prisma.agentAction.update({
+            where: { id: actionId },
+            data: {
+              status: AgentActionStatus.EXPIRED,
+            },
+          });
+        }
+        throw new BadRequestException(AGENT_ERRORS.ACTION_EXPIRED);
       }
-      throw new BadRequestException(AGENT_ERRORS.ACTION_EXPIRED);
     }
 
-    // 4. State machine check (validate transition to EXECUTING before doing external lookups)
+    // 4. State machine check (validate transition before external execution)
     // If already in EXECUTING state, allow through for handler reconciliation below.
     if (action.status !== AgentActionStatus.EXECUTING) {
       AgentStateMachine.assertTransition(
@@ -423,7 +425,8 @@ export class AgentControlPlaneService {
       throw new NotFoundException(AGENT_ERRORS.ACTION_UNKNOWN_TOOL);
     }
 
-    // 6. Re-fetch current user role — NEVER trust cached/old context
+    // 6. Live user & tenant context verification (Area A4)
+    // NEVER trust stale JWT school context blindly; re-fetch user from database
     const currentUser = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, role: true, schoolId: true, status: true },
@@ -432,7 +435,31 @@ export class AgentControlPlaneService {
       throw new ForbiddenException(AGENT_ERRORS.ACTION_NOT_AUTHORIZED);
     }
 
-    // 7. Reconcile if already in EXECUTING state
+    if (currentUser.role !== 'SUPER_ADMIN') {
+      if (
+        currentUser.schoolId !== schoolId ||
+        currentUser.schoolId !== action.schoolId ||
+        action.schoolId !== schoolId ||
+        action.userId !== userId
+      ) {
+        throw new ForbiddenException(AGENT_ERRORS.ACTION_TENANT_MISMATCH);
+      }
+    } else {
+      // SUPER_ADMIN: verify target school matches action and is valid
+      if (action.schoolId !== schoolId) {
+        throw new ForbiddenException(AGENT_ERRORS.ACTION_TENANT_MISMATCH);
+      }
+      if (this.prisma.school?.findUnique) {
+        const targetSchool = await this.prisma.school.findUnique({
+          where: { id: schoolId },
+        });
+        if (targetSchool && !targetSchool.isActive) {
+          throw new ForbiddenException(AGENT_ERRORS.ACTION_TENANT_MISMATCH);
+        }
+      }
+    }
+
+    // 7. Reconcile if already in EXECUTING state (Area A3)
     if (action.status === AgentActionStatus.EXECUTING) {
       const rec = await this.reconcileAction(action, currentUser.role);
       if (rec.status === 'SUCCEEDED') {
@@ -709,16 +736,114 @@ export class AgentControlPlaneService {
     if (toolName === ToolHandlerKey.CREATE_ASSIGNMENT) {
       const args = rawArgs as unknown as CreateAssignmentInput;
 
-      // Resolve class by name (exact, school-scoped)
-      const foundClass = await this.prisma.class.findFirst({
-        where: {
-          name: { equals: args.className, mode: 'insensitive' },
-          schoolId: ctx.schoolId,
-        },
-      });
+      // Deterministic class resolution: school -> target academic year -> exact class identity (Area A2)
+      type ClassWithYear = {
+        id: string;
+        name: string;
+        schoolId: string;
+        academicYearId: string;
+        academicYear?: {
+          id: string;
+          name: string;
+          isLocked?: boolean;
+        } | null;
+      };
+
+      const candidateClasses: ClassWithYear[] = this.prisma.class.findMany
+        ? ((await this.prisma.class.findMany({
+            where: {
+              name: { equals: args.className, mode: 'insensitive' },
+              schoolId: ctx.schoolId,
+            },
+            include: { academicYear: true },
+          })) as ClassWithYear[])
+        : ((
+            [
+              await this.prisma.class.findFirst({
+                where: {
+                  name: { equals: args.className, mode: 'insensitive' },
+                  schoolId: ctx.schoolId,
+                },
+                include: { academicYear: true },
+              }),
+            ].filter((c): c is NonNullable<typeof c> => c !== null && c !== undefined)
+          ) as ClassWithYear[]);
+
+      if (candidateClasses.length === 0) {
+        throw new NotFoundException(
+          `${AGENT_ERRORS.ACTION_RESOURCE_FORBIDDEN}: Class "${args.className}" not found`,
+        );
+      }
+
+      let foundClass: ClassWithYear | undefined;
+
+      if (args.academicYearId || args.academicYearName) {
+        // Explicit academic year provided in args
+        foundClass = candidateClasses.find((c) => {
+          if (args.academicYearId && c.academicYearId === args.academicYearId) {
+            return true;
+          }
+          if (
+            args.academicYearName &&
+            c.academicYear?.name.toLowerCase() ===
+              args.academicYearName.toLowerCase()
+          ) {
+            return true;
+          }
+          return false;
+        });
+
+        if (!foundClass) {
+          throw new NotFoundException(
+            `${AGENT_ERRORS.ACTION_RESOURCE_FORBIDDEN}: Class "${args.className}" not found in specified academic session`,
+          );
+        }
+      } else if (candidateClasses.length === 1) {
+        // Exactly one matching class across all sessions
+        foundClass = candidateClasses[0];
+      } else {
+        // Multiple candidate classes across sessions: resolve active academic session
+        const activeYears = await this.prisma.academicYear.findMany({
+          where: { schoolId: ctx.schoolId, isActive: true },
+        });
+
+        if (activeYears.length === 1) {
+          const activeYearId = activeYears[0].id;
+          const activeYearCandidates = candidateClasses.filter(
+            (c) => c.academicYearId === activeYearId,
+          );
+
+          if (activeYearCandidates.length === 1) {
+            foundClass = activeYearCandidates[0];
+          } else if (activeYearCandidates.length === 0) {
+            throw new BadRequestException(
+              `${AGENT_ERRORS.ACTION_AMBIGUOUS_RESOURCE}: Multiple classes named "${args.className}" exist across sessions, but none found in active session "${activeYears[0].name}". Please specify an explicit academic year.`,
+            );
+          } else {
+            throw new BadRequestException(
+              `${AGENT_ERRORS.ACTION_AMBIGUOUS_RESOURCE}: Multiple classes named "${args.className}" found in active session "${activeYears[0].name}".`,
+            );
+          }
+        } else {
+          // Multiple candidate classes and 0 or >1 active sessions: ambiguous
+          const sessionNames = candidateClasses
+            .map((c) => c.academicYear?.name || c.academicYearId)
+            .join(', ');
+          throw new BadRequestException(
+            `${AGENT_ERRORS.ACTION_AMBIGUOUS_RESOURCE}: Ambiguous class "${args.className}" across multiple academic sessions (${sessionNames}). Please specify an explicit academic year.`,
+          );
+        }
+      }
+
       if (!foundClass) {
         throw new NotFoundException(
           `${AGENT_ERRORS.ACTION_RESOURCE_FORBIDDEN}: Class "${args.className}" not found`,
+        );
+      }
+
+      if (foundClass.academicYear?.isLocked) {
+        throw new BadRequestException(
+          `Academic session '${foundClass.academicYear.name}' is locked. Structural changes are not permitted.`,
         );
       }
 

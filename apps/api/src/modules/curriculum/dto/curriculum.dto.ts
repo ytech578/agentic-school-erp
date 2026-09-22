@@ -213,6 +213,13 @@ export class UpdateOfferingStatusDto {
 }
 
 export class EnrollStudentSubjectsDto {
+  @ApiPropertyOptional({
+    description: 'Target Academic Year ID (defaults to active session if not provided)',
+  })
+  @IsString()
+  @IsOptional()
+  academicYearId?: string;
+
   @ApiProperty({
     description: 'Array of SchoolSubjectOffering IDs to enroll student in',
     type: [String],

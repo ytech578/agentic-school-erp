@@ -71,6 +71,7 @@ describe('Change #8E — Academic Invariants & Constraints Enforcement', () => {
         findMany: jest.fn().mockResolvedValue([]),
       },
       studentEnrollment: {
+        findFirst: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn(),
         updateMany: jest.fn(),
@@ -420,6 +421,94 @@ describe('Change #8E — Academic Invariants & Constraints Enforcement', () => {
           offeringIds: ['off-past-year'],
         }),
       ).rejects.toThrow('belongs to a different academic session');
+    });
+
+    it('selects exact academic-year active enrollment when student has active enrollments in multiple years (Area C)', async () => {
+      mockPrisma.academicYear.findFirst.mockResolvedValue({
+        id: 'ay-2026',
+        name: '2026-27',
+      });
+      mockPrisma.student.findFirst.mockResolvedValue({
+        id: 'std-multi',
+        schoolId: 'school-1',
+        enrollments: [
+          {
+            academicYearId: 'ay-2025',
+            status: 'ACTIVE',
+            section: { class: { name: 'Class 9', numericLevel: 9, schoolId: 'school-1' } },
+          },
+          {
+            academicYearId: 'ay-2026',
+            status: 'ACTIVE',
+            section: { class: { name: 'Class 10', numericLevel: 10, schoolId: 'school-1' } },
+          },
+        ],
+      });
+      mockPrisma.schoolSubjectOffering.findMany.mockResolvedValue([
+        {
+          id: 'off-grade10-math',
+          schoolId: 'school-1',
+          academicYearId: 'ay-2026',
+          gradeFrom: 10,
+          gradeTo: 10,
+          globalSubject: { name: 'Mathematics' },
+        },
+      ]);
+      mockPrisma.$transaction.mockImplementation(async (cb) => cb({
+        studentSubjectEnrollment: {
+          updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+          upsert: jest.fn().mockResolvedValue({}),
+        },
+      }));
+
+      // Explicit academicYearId targeting 2026-27
+      const res = await curriculumService.enrollStudentSubjects('school-1', 'std-multi', {
+        academicYearId: 'ay-2026',
+        offeringIds: ['off-grade10-math'],
+      });
+
+      expect(res).toBeDefined();
+    });
+
+    it('rejects student subject enrollment if student has no active enrollment in the target academic session (Area C)', async () => {
+      mockPrisma.academicYear.findFirst.mockResolvedValue({
+        id: 'ay-2027',
+        name: '2027-28',
+      });
+      mockPrisma.student.findFirst.mockResolvedValue({
+        id: 'std-multi',
+        schoolId: 'school-1',
+        enrollments: [
+          {
+            academicYearId: 'ay-2025',
+            status: 'ACTIVE',
+            section: { class: { name: 'Class 9', numericLevel: 9 } },
+          },
+        ],
+      });
+      mockPrisma.studentEnrollment.findFirst.mockResolvedValue(null);
+
+      await expect(
+        curriculumService.enrollStudentSubjects('school-1', 'std-multi', {
+          academicYearId: 'ay-2027',
+          offeringIds: ['off-any'],
+        }),
+      ).rejects.toThrow('Student has no active class enrollment in academic session "2027-28"');
+    });
+
+    it('rejects subject enrollment mutation on locked academic year (Area C)', async () => {
+      mockPrisma.academicYear.findFirst.mockResolvedValue({
+        id: 'ay-locked',
+        name: '2024-25',
+        isLocked: true,
+      });
+
+      await expect(
+        curriculumService.enrollStudentSubjects('school-1', 'std-1', {
+          academicYearId: 'ay-locked',
+          offeringIds: ['off-1'],
+        }),
+      ).rejects.toThrow('is locked. Structural changes are not permitted.');
     });
   });
 

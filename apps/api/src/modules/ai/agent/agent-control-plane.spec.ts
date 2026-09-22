@@ -75,6 +75,13 @@ const buildPrismaMock = () => {
     staff: {
       findFirst: jest.fn(),
     },
+    academicYear: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
+    school: {
+      findUnique: jest.fn().mockResolvedValue({ id: 'school-1', isActive: true }),
+    },
     assignment: {
       findUnique: jest.fn(),
     },
@@ -2175,6 +2182,337 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
             e.includes('lacks required permissions: leave:approve'),
           ),
         ).toBe(true);
+      });
+    });
+  });
+
+  // ─── Change #8G: Final Hardening & Closure Tests ─────────────────────────────
+  describe('Change #8G: Final Hardening & Closure Tests', () => {
+    describe('Area A2: Academic-Year Deterministic Class Resolution', () => {
+      it('rejects ambiguous class resolution when multiple classes match across sessions and no explicit year is provided', async () => {
+        prisma.class.findMany = jest.fn().mockResolvedValue([
+          {
+            id: 'class-2025',
+            name: 'Class 10',
+            schoolId: 'school-1',
+            academicYearId: 'ay-2025',
+            academicYear: { id: 'ay-2025', name: '2025-26' },
+          },
+          {
+            id: 'class-2026',
+            name: 'Class 10',
+            schoolId: 'school-1',
+            academicYearId: 'ay-2026',
+            academicYear: { id: 'ay-2026', name: '2026-27' },
+          },
+        ]);
+        prisma.academicYear.findMany = jest.fn().mockResolvedValue([]); // No single active year
+        prisma.subject.findFirst.mockResolvedValue({
+          id: 'sub-math',
+          schoolId: 'school-1',
+        });
+
+        await expect(
+          service.proposeAction(
+            adminCtx,
+            'create_assignment',
+            {
+              className: 'Class 10',
+              subjectId: 'sub-math',
+              topic: 'Trigonometry',
+            },
+            'test-req-1',
+          ),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('resolves exact class when explicit academicYearName is provided', async () => {
+        prisma.class.findMany = jest.fn().mockResolvedValue([
+          {
+            id: 'class-2025',
+            name: 'Class 10',
+            schoolId: 'school-1',
+            academicYearId: 'ay-2025',
+            academicYear: { id: 'ay-2025', name: '2025-26' },
+          },
+          {
+            id: 'class-2026',
+            name: 'Class 10',
+            schoolId: 'school-1',
+            academicYearId: 'ay-2026',
+            academicYear: { id: 'ay-2026', name: '2026-27' },
+          },
+        ]);
+        prisma.subject.findFirst.mockResolvedValue({
+          id: 'sub-math',
+          schoolId: 'school-1',
+        });
+
+        const res = await service.proposeAction(
+          adminCtx,
+          'create_assignment',
+          {
+            className: 'Class 10',
+            academicYearName: '2026-27',
+            subjectId: 'sub-math',
+            topic: 'Trigonometry',
+          },
+          'test-req-2',
+        );
+
+        expect(res.pendingAction).toBeDefined();
+        expect(prisma.agentAction.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              arguments: expect.objectContaining({
+                classId: 'class-2026',
+                subjectId: 'sub-math',
+              }),
+            }),
+          }),
+        );
+      });
+
+      it('resolves exact class in active session when no year is specified and single active year exists', async () => {
+        prisma.class.findMany = jest.fn().mockResolvedValue([
+          {
+            id: 'class-2025',
+            name: 'Class 10',
+            schoolId: 'school-1',
+            academicYearId: 'ay-2025',
+            academicYear: { id: 'ay-2025', name: '2025-26' },
+          },
+          {
+            id: 'class-2026',
+            name: 'Class 10',
+            schoolId: 'school-1',
+            academicYearId: 'ay-2026',
+            academicYear: { id: 'ay-2026', name: '2026-27' },
+          },
+        ]);
+        prisma.academicYear.findMany = jest.fn().mockResolvedValue([
+          { id: 'ay-2026', name: '2026-27', isActive: true },
+        ]);
+        prisma.subject.findFirst.mockResolvedValue({
+          id: 'sub-math',
+          schoolId: 'school-1',
+        });
+
+        const res = await service.proposeAction(
+          adminCtx,
+          'create_assignment',
+          {
+            className: 'Class 10',
+            subjectId: 'sub-math',
+            topic: 'Algebra',
+          },
+          'test-req-3',
+        );
+
+        expect(res.pendingAction).toBeDefined();
+        expect(prisma.agentAction.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              arguments: expect.objectContaining({
+                classId: 'class-2026',
+              }),
+            }),
+          }),
+        );
+      });
+    });
+
+    describe('Area A3: EXECUTING vs Expiration Semantics', () => {
+      it('reconciles expired EXECUTING action as APPLIED and returns SUCCEEDED (never blindly expired)', async () => {
+        prisma.agentAction.findUnique.mockResolvedValue({
+          id: 'action-exec-1',
+          userId: 'user-admin',
+          schoolId: 'school-1',
+          status: AgentActionStatus.EXECUTING,
+          expiresAt: new Date(Date.now() - 10_000), // Stale / expired timestamp
+          toolName: 'approve_leave',
+          arguments: { leaveId: 'leave-1' },
+          label: 'Approve leave',
+          riskLevel: 'HIGH',
+        });
+        prisma.user.findUnique.mockResolvedValue({
+          id: 'user-admin',
+          role: 'SCHOOL_ADMIN',
+          schoolId: 'school-1',
+          status: 'ACTIVE',
+        });
+        (service as any).dispatcher = {
+          reconcile: jest.fn().mockResolvedValue({
+            status: 'APPLIED',
+            result: { approved: true },
+          }),
+        };
+
+        const result = await service.confirmAndExecute(
+          'action-exec-1',
+          'user-admin',
+          'school-1',
+        );
+
+        expect(result.status).toBe(AgentActionStatus.SUCCEEDED);
+        expect(result.result).toEqual({ approved: true });
+        // Action was NOT marked EXPIRED
+        expect(prisma.agentAction.update).not.toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ status: AgentActionStatus.EXPIRED }),
+          }),
+        );
+      });
+
+      it('reconciles expired EXECUTING action as NOT_APPLIED and returns FAILED', async () => {
+        prisma.agentAction.findUnique.mockResolvedValue({
+          id: 'action-exec-2',
+          userId: 'user-admin',
+          schoolId: 'school-1',
+          status: AgentActionStatus.EXECUTING,
+          expiresAt: new Date(Date.now() - 10_000),
+          toolName: 'approve_leave',
+          arguments: { leaveId: 'leave-1' },
+          label: 'Approve leave',
+          riskLevel: 'HIGH',
+        });
+        prisma.user.findUnique.mockResolvedValue({
+          id: 'user-admin',
+          role: 'SCHOOL_ADMIN',
+          schoolId: 'school-1',
+          status: 'ACTIVE',
+        });
+        (service as any).dispatcher = {
+          reconcile: jest.fn().mockResolvedValue({
+            status: 'NOT_APPLIED',
+            reason: 'Transaction cancelled downstream',
+          }),
+        };
+
+        const result = await service.confirmAndExecute(
+          'action-exec-2',
+          'user-admin',
+          'school-1',
+        );
+
+        expect(result.status).toBe(AgentActionStatus.FAILED);
+        expect(result.failureReason).toBe('Transaction cancelled downstream');
+      });
+
+      it('throws ACTION_RECOVERY_REQUIRED when reconciliation outcome is UNKNOWN', async () => {
+        prisma.agentAction.findUnique.mockResolvedValue({
+          id: 'action-exec-3',
+          userId: 'user-admin',
+          schoolId: 'school-1',
+          status: AgentActionStatus.EXECUTING,
+          expiresAt: new Date(Date.now() - 10_000),
+          toolName: 'approve_leave',
+          arguments: { leaveId: 'leave-1' },
+          label: 'Approve leave',
+          riskLevel: 'HIGH',
+        });
+        prisma.user.findUnique.mockResolvedValue({
+          id: 'user-admin',
+          role: 'SCHOOL_ADMIN',
+          schoolId: 'school-1',
+          status: 'ACTIVE',
+        });
+        (service as any).dispatcher = {
+          reconcile: jest.fn().mockResolvedValue({
+            status: 'UNKNOWN',
+          }),
+        };
+
+        await expect(
+          service.confirmAndExecute('action-exec-3', 'user-admin', 'school-1'),
+        ).rejects.toThrow(ConflictException);
+      });
+    });
+
+    describe('Area A4: Live Tenant & Ownership Validation at Confirmation', () => {
+      it('rejects confirmation if user moved to another school after proposal', async () => {
+        prisma.agentAction.findUnique.mockResolvedValue({
+          id: 'action-user-moved',
+          userId: 'user-admin',
+          schoolId: 'school-1',
+          status: AgentActionStatus.AWAITING_CONFIRMATION,
+          expiresAt: new Date(Date.now() + 60_000),
+          toolName: 'approve_leave',
+          arguments: { leaveId: 'leave-1' },
+          label: 'Approve leave',
+          riskLevel: 'HIGH',
+        });
+        // User's DB record currently belongs to school-2 (transferred/moved)
+        prisma.user.findUnique.mockResolvedValue({
+          id: 'user-admin',
+          role: 'SCHOOL_ADMIN',
+          schoolId: 'school-2',
+          status: 'ACTIVE',
+        });
+
+        await expect(
+          service.confirmAndExecute(
+            'action-user-moved',
+            'user-admin',
+            'school-1',
+          ),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('rejects confirmation if user became INACTIVE after proposal', async () => {
+        prisma.agentAction.findUnique.mockResolvedValue({
+          id: 'action-user-inactive',
+          userId: 'user-admin',
+          schoolId: 'school-1',
+          status: AgentActionStatus.AWAITING_CONFIRMATION,
+          expiresAt: new Date(Date.now() + 60_000),
+          toolName: 'approve_leave',
+          arguments: { leaveId: 'leave-1' },
+          label: 'Approve leave',
+          riskLevel: 'HIGH',
+        });
+        prisma.user.findUnique.mockResolvedValue({
+          id: 'user-admin',
+          role: 'SCHOOL_ADMIN',
+          schoolId: 'school-1',
+          status: 'INACTIVE',
+        });
+
+        await expect(
+          service.confirmAndExecute(
+            'action-user-inactive',
+            'user-admin',
+            'school-1',
+          ),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('rejects SUPER_ADMIN when requested target school mismatches action school', async () => {
+        prisma.agentAction.findUnique.mockResolvedValue({
+          id: 'action-super-target',
+          userId: 'user-super',
+          schoolId: 'school-1',
+          status: AgentActionStatus.AWAITING_CONFIRMATION,
+          expiresAt: new Date(Date.now() + 60_000),
+          toolName: 'approve_leave',
+          arguments: { leaveId: 'leave-1' },
+          label: 'Approve leave',
+          riskLevel: 'HIGH',
+        });
+        prisma.user.findUnique.mockResolvedValue({
+          id: 'user-super',
+          role: 'SUPER_ADMIN',
+          schoolId: 'school-global',
+          status: 'ACTIVE',
+        });
+
+        await expect(
+          service.confirmAndExecute(
+            'action-super-target',
+            'user-super',
+            'school-2', // Mismatched target
+          ),
+        ).rejects.toThrow(ForbiddenException);
       });
     });
   });

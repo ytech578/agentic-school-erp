@@ -631,17 +631,58 @@ export class CurriculumService {
         const customCode = (
           dto.customCode || dto.customName.replace(/\s+/g, '_').toUpperCase()
         ).slice(0, 20);
-        const globalSub = await this.prisma.globalSubject.upsert({
-          where: { code: customCode },
-          update: {}, // Preserve global master data immutability
-          create: {
-            code: customCode,
-            name: dto.customName,
-            category: dto.subjectType || SubjectClassification.ADDITIONAL,
-            isCommon: false,
-          },
-        });
-        globalSubjectId = globalSub.id;
+
+        let existingGlobal: any = null;
+        if (this.prisma.globalSubject.findUnique) {
+          existingGlobal = await this.prisma.globalSubject.findUnique({
+            where: { code: customCode },
+          });
+        }
+
+        if (existingGlobal) {
+          const cleanCustomName = dto.customName.trim().toLowerCase();
+          const cleanExistingName = existingGlobal.name.trim().toLowerCase();
+          if (cleanCustomName !== cleanExistingName) {
+            throw new ConflictException(
+              `Subject code "${customCode}" conflicts with existing global subject "${existingGlobal.name}". Choose a distinct code or matching name.`,
+            );
+          }
+          globalSubjectId = existingGlobal.id;
+        } else {
+          let globalSub: any = null;
+          if (this.prisma.globalSubject.upsert) {
+            globalSub = await this.prisma.globalSubject.upsert({
+              where: { code: customCode },
+              update: {}, // Preserve global master data immutability
+              create: {
+                code: customCode,
+                name: dto.customName.trim(),
+                category: dto.subjectType || SubjectClassification.ADDITIONAL,
+                isCommon: false,
+              },
+            });
+          } else if (this.prisma.globalSubject.create) {
+            globalSub = await this.prisma.globalSubject.create({
+              data: {
+                code: customCode,
+                name: dto.customName.trim(),
+                category: dto.subjectType || SubjectClassification.ADDITIONAL,
+                isCommon: false,
+              },
+            });
+          }
+
+          if (globalSub) {
+            const cleanCustomName = dto.customName.trim().toLowerCase();
+            const cleanExistingName = globalSub.name.trim().toLowerCase();
+            if (cleanCustomName !== cleanExistingName) {
+              throw new ConflictException(
+                `Subject code "${customCode}" conflicts with existing global subject "${globalSub.name}". Choose a distinct code or matching name.`,
+              );
+            }
+            globalSubjectId = globalSub.id;
+          }
+        }
       }
     }
 
@@ -903,7 +944,11 @@ export class CurriculumService {
   // -------------------------------------------------------------
   // STUDENT SUBJECT ENROLLMENTS (Electives & Languages)
   // -------------------------------------------------------------
-  async getStudentEnrollments(schoolId: string, studentId: string) {
+  async getStudentEnrollments(
+    schoolId: string,
+    studentId: string,
+    academicYearId?: string,
+  ) {
     const validSchoolId = requireSchoolId(schoolId);
     const student = await this.prisma.student.findFirst({
       where: { id: studentId, schoolId: validSchoolId },
@@ -912,11 +957,16 @@ export class CurriculumService {
       throw new NotFoundException(`Student with ID "${studentId}" not found`);
     }
 
+    const whereClause: any = {
+      studentId,
+      schoolSubjectOffering: { schoolId: validSchoolId },
+    };
+    if (academicYearId) {
+      whereClause.academicYearId = academicYearId;
+    }
+
     return this.prisma.studentSubjectEnrollment.findMany({
-      where: {
-        studentId,
-        schoolSubjectOffering: { schoolId: validSchoolId },
-      },
+      where: whereClause,
       include: {
         schoolSubjectOffering: {
           include: {
@@ -938,16 +988,43 @@ export class CurriculumService {
     dto: EnrollStudentSubjectsDto,
   ) {
     const validSchoolId = requireSchoolId(schoolId);
+
+    // 1. Deterministic academic year resolution: explicit academicYearId or active session
+    let targetYear: any;
+    if (dto.academicYearId) {
+      targetYear = await this.prisma.academicYear.findFirst({
+        where: { id: dto.academicYearId, schoolId: validSchoolId },
+      });
+      if (!targetYear) {
+        throw new NotFoundException('Academic year not found for this school');
+      }
+    } else {
+      targetYear = await this.prisma.academicYear.findFirst({
+        where: { schoolId: validSchoolId, isActive: true },
+      });
+      if (!targetYear) {
+        throw new BadRequestException(
+          'No active Academic Year found for this school',
+        );
+      }
+    }
+
+    if (targetYear.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${targetYear.name}' is locked. Structural changes are not permitted.`,
+      );
+    }
+
+    // 2. Validate student exists in this school
     const student = await this.prisma.student.findFirst({
       where: { id: studentId, schoolId: validSchoolId },
       include: {
         enrollments: {
-          where: { status: 'ACTIVE' },
+          where: { status: 'ACTIVE', academicYearId: targetYear.id },
           include: {
             section: { include: { class: true } },
             academicYear: true,
           },
-          take: 1,
         },
       },
     });
@@ -956,9 +1033,35 @@ export class CurriculumService {
       throw new NotFoundException(`Student with ID "${studentId}" not found`);
     }
 
-    const currentEnrollment = student.enrollments[0];
+    // 3. Resolve student's active enrollment for the exact target academic session
+    let currentEnrollment: any;
+    if (student.enrollments && student.enrollments.length > 0) {
+      currentEnrollment = student.enrollments.find(
+        (e: any) =>
+          e.status === 'ACTIVE' &&
+          (!e.academicYearId || e.academicYearId === targetYear.id),
+      );
+    }
+
     if (!currentEnrollment) {
-      throw new BadRequestException('Student has no active class enrollment');
+      currentEnrollment = await this.prisma.studentEnrollment.findFirst({
+        where: {
+          studentId,
+          academicYearId: targetYear.id,
+          status: 'ACTIVE',
+          section: { class: { schoolId: validSchoolId } },
+        },
+        include: {
+          section: { include: { class: true } },
+          academicYear: true,
+        },
+      });
+    }
+
+    if (!currentEnrollment) {
+      throw new BadRequestException(
+        `Student has no active class enrollment in academic session "${targetYear.name || targetYear.id}"`,
+      );
     }
 
     if (
@@ -970,38 +1073,12 @@ export class CurriculumService {
       );
     }
 
-    let enrollmentYear: any = currentEnrollment.academicYear;
-    if (!enrollmentYear) {
-      const yearId =
-        currentEnrollment.academicYearId ||
-        (
-          await this.prisma.academicYear.findFirst({
-            where: { schoolId: validSchoolId, isActive: true },
-          })
-        )?.id;
-      if (yearId) {
-        enrollmentYear = await this.prisma.academicYear.findFirst({
-          where: { id: yearId, schoolId: validSchoolId },
-        });
-      }
-    }
+    const enrollmentYear = currentEnrollment.academicYear || targetYear;
 
-    if (!enrollmentYear || (enrollmentYear.schoolId && enrollmentYear.schoolId !== validSchoolId)) {
-      throw new BadRequestException(
-        'Student enrollment academic session is invalid or belongs to another school',
-      );
-    }
+    // 4. Authoritative student grade resolution
+    const studentGrade = resolveGradeLevel(currentEnrollment.section?.class);
 
-    if (enrollmentYear.isLocked) {
-      throw new BadRequestException(
-        `Academic session '${enrollmentYear.name}' is locked. Structural changes are not permitted.`,
-      );
-    }
-
-    // Determine student grade using authoritative grade resolver
-    const studentGrade = resolveGradeLevel(currentEnrollment.section.class);
-
-    // Verify all requested offering IDs belong to this school and are active (reject duplicates in request)
+    // 5. Verify all requested offering IDs belong to this school and are active (reject duplicates in request)
     const uniqueOfferingIds = Array.from(new Set(dto.offeringIds));
     if (uniqueOfferingIds.length !== dto.offeringIds.length) {
       throw new BadRequestException(
@@ -1099,7 +1176,11 @@ export class CurriculumService {
       }
     });
 
-    return this.getStudentEnrollments(validSchoolId, studentId);
+    return this.getStudentEnrollments(
+      validSchoolId,
+      studentId,
+      enrollmentYear.id,
+    );
   }
 
   async unenrollStudentSubject(
