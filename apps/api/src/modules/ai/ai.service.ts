@@ -1921,7 +1921,13 @@ Format in clean Markdown without raw HTML or unescaped LaTeX.`;
         marks: {
           include: {
             examSubject: {
-              include: { subject: true, exam: true },
+              include: {
+                subject: true,
+                exam: true,
+                schoolSubjectOffering: {
+                  include: { curriculumSubject: true, globalSubject: true },
+                },
+              },
             },
           },
           take: 20,
@@ -1944,7 +1950,12 @@ Format in clean Markdown without raw HTML or unescaped LaTeX.`;
     > = {};
 
     for (const m of student.marks) {
-      const subj = m.examSubject.subject.name || 'General';
+      const subj =
+        m.examSubject.schoolSubjectOffering?.curriculumSubject?.displayName ||
+        m.examSubject.schoolSubjectOffering?.customName ||
+        m.examSubject.schoolSubjectOffering?.globalSubject?.name ||
+        m.examSubject.subject?.name ||
+        'General';
       const max = Number(m.examSubject.maxMarks) || 100;
       const obtained =
         m.marksObtained !== null && !m.isAbsent ? Number(m.marksObtained) : 0;

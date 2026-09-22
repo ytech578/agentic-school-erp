@@ -6,6 +6,13 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
+import { resolveGradeLevel } from '../../core/academic/grade-resolver.util';
+import {
+  CreateExamDto,
+  UpdateExamDto,
+  AddExamSubjectDto,
+  StudentMarkEntryDto,
+} from './dto/exam.dto';
 
 const GRADE_SCALE = [
   { min: 90, grade: 'A+' },
@@ -25,11 +32,21 @@ function calculateGrade(obtained: number, max: number): string {
 export class ExamsService {
   constructor(private prisma: PrismaService) {}
 
-  private async resolveAcademicYearId(
+  /**
+   * Deterministically resolves academic year for exam operations.
+   * - If providedId is provided, validates that it exists in the school.
+   * - If providedId is omitted and isMutation=true, resolves the single active academic year (never falls back to latest).
+   * - If isMutation=true and resolved year is locked, throws BadRequestException.
+   * - If isMutation=false (queries) and no active year exists, falls back to latest year.
+   */
+  async resolveAcademicYear(
     schoolId: string,
     providedId?: string,
-  ): Promise<string> {
+    isMutation = false,
+  ) {
     const validSchoolId = requireSchoolId(schoolId);
+    let year = null;
+
     if (
       providedId &&
       providedId !== 'undefined' &&
@@ -38,50 +55,68 @@ export class ExamsService {
     ) {
       const trimmed = providedId.trim();
       const normalizedName = trimmed.replace(/^AY[-_]?/i, '');
-      const year = await this.prisma.academicYear.findFirst({
+      year = await this.prisma.academicYear.findFirst({
         where: {
           schoolId: validSchoolId,
           OR: [{ id: trimmed }, { name: trimmed }, { name: normalizedName }],
         },
       });
-      if (year) return year.id;
+      if (!year) {
+        throw new NotFoundException('Academic year not found for this school');
+      }
+    } else {
+      year = await this.prisma.academicYear.findFirst({
+        where: { schoolId: validSchoolId, isActive: true },
+      });
+      if (!year) {
+        if (isMutation) {
+          throw new BadRequestException(
+            'No active academic year found for this school. Please specify an explicit academicYearId.',
+          );
+        }
+        const latestYear = await this.prisma.academicYear.findFirst({
+          where: { schoolId: validSchoolId },
+          orderBy: { startDate: 'desc' },
+        });
+        if (latestYear) return latestYear;
+
+        throw new BadRequestException(
+          'No active academic year found for this school',
+        );
+      }
     }
-    const activeYear = await this.prisma.academicYear.findFirst({
-      where: { schoolId: validSchoolId, isActive: true },
-    });
-    if (activeYear) return activeYear.id;
 
-    const latestYear = await this.prisma.academicYear.findFirst({
-      where: { schoolId: validSchoolId },
-      orderBy: { startDate: 'desc' },
-    });
-    if (latestYear) return latestYear.id;
+    if (isMutation && year.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${year.name}' is locked. Structural changes are not permitted.`,
+      );
+    }
 
-    throw new BadRequestException(
-      'No active academic year found for this school',
-    );
+    return year;
+  }
+
+  async resolveAcademicYearId(
+    schoolId: string,
+    providedId?: string,
+    isMutation = false,
+  ): Promise<string> {
+    const year = await this.resolveAcademicYear(schoolId, providedId, isMutation);
+    return year.id;
   }
 
   // ─── Create Exam ──────────────────────────────────────────────────────────
-  async createExam(
-    schoolId: string,
-    data: {
-      academicYearId: string;
-      name: string;
-      examType: string;
-      startDate: string;
-      endDate: string;
-    },
-  ) {
+  async createExam(schoolId: string, data: CreateExamDto) {
     const validSchoolId = requireSchoolId(schoolId);
-    const resolvedAcademicYearId = await this.resolveAcademicYearId(
+    const resolvedAcademicYear = await this.resolveAcademicYear(
       validSchoolId,
       data.academicYearId,
+      true, // mutation
     );
+
     return this.prisma.exam.create({
       data: {
         schoolId: validSchoolId,
-        academicYearId: resolvedAcademicYearId,
+        academicYearId: resolvedAcademicYear.id,
         name: data.name,
         examType: data.examType,
         startDate: new Date(data.startDate),
@@ -92,21 +127,20 @@ export class ExamsService {
   }
 
   // ─── Update Exam ──────────────────────────────────────────────────────────
-  async updateExam(
-    schoolId: string,
-    examId: string,
-    data: {
-      name?: string;
-      examType?: string;
-      startDate?: string;
-      endDate?: string;
-    },
-  ) {
+  async updateExam(schoolId: string, examId: string, data: UpdateExamDto) {
     const validSchoolId = requireSchoolId(schoolId);
     const exam = await this.prisma.exam.findFirst({
       where: { id: examId, schoolId: validSchoolId },
+      include: { academicYear: true },
     });
     if (!exam) throw new NotFoundException('Exam not found');
+
+    if (exam.academicYear?.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${exam.academicYear.name}' is locked. Structural changes are not permitted.`,
+      );
+    }
+
     return this.prisma.exam.update({
       where: { id: exam.id },
       data: {
@@ -124,9 +158,19 @@ export class ExamsService {
     const validSchoolId = requireSchoolId(schoolId);
     const exam = await this.prisma.exam.findFirst({
       where: { id: examId, schoolId: validSchoolId },
-      include: { _count: { select: { reportCards: true } } },
+      include: {
+        academicYear: true,
+        _count: { select: { reportCards: true } },
+      },
     });
     if (!exam) throw new NotFoundException('Exam not found');
+
+    if (exam.academicYear?.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${exam.academicYear.name}' is locked. Structural changes are not permitted.`,
+      );
+    }
+
     if ((exam._count as any).reportCards > 0) {
       throw new BadRequestException(
         'Cannot delete an exam that has report cards. Unpublish first.',
@@ -141,14 +185,15 @@ export class ExamsService {
   // ─── List Exams ───────────────────────────────────────────────────────────
   async listExams(schoolId: string, academicYearId?: string) {
     const validSchoolId = requireSchoolId(schoolId);
-    const resolvedAcademicYearId = await this.resolveAcademicYearId(
+    const resolvedAcademicYear = await this.resolveAcademicYear(
       validSchoolId,
       academicYearId,
+      false, // query
     );
     return this.prisma.exam.findMany({
       where: {
         schoolId: validSchoolId,
-        academicYearId: resolvedAcademicYearId,
+        academicYearId: resolvedAcademicYear.id,
       },
       include: {
         _count: { select: { subjects: true, reportCards: true } },
@@ -164,10 +209,14 @@ export class ExamsService {
     const exam = await this.prisma.exam.findFirst({
       where: { id: examId, schoolId: validSchoolId },
       include: {
-        academicYear: { select: { name: true } },
+        academicYear: { select: { id: true, name: true, isLocked: true } },
         subjects: {
           include: {
             subject: { select: { id: true, name: true, code: true } },
+            schoolSubjectOffering: {
+              include: { globalSubject: true, curriculumSubject: true },
+            },
+            class: { select: { id: true, name: true } },
             _count: { select: { marks: true } },
           },
           orderBy: { createdAt: 'asc' },
@@ -183,69 +232,191 @@ export class ExamsService {
   async addExamSubject(
     examId: string,
     schoolId: string,
-    data: {
-      subjectId: string;
-      classId: string;
-      maxMarks: number;
-      passMarks: number;
-      examDate?: string;
-      duration?: number;
-    },
+    data: AddExamSubjectDto,
   ) {
     const validSchoolId = requireSchoolId(schoolId);
     const exam = await this.prisma.exam.findFirst({
       where: { id: examId, schoolId: validSchoolId },
+      include: { academicYear: true },
     });
     if (!exam) throw new NotFoundException('Exam not found');
 
-    // Validate subject belongs to school
-    const subject = await this.prisma.subject.findFirst({
-      where: { id: data.subjectId, schoolId: validSchoolId },
-    });
-    if (!subject) throw new NotFoundException('Subject not found');
+    if (exam.academicYear?.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${exam.academicYear.name}' is locked. Structural changes are not permitted.`,
+      );
+    }
 
-    // Validate class belongs to school
+    // 1. Validate class belongs to school and matches exam academic year
     const cls = await this.prisma.class.findFirst({
       where: { id: data.classId, schoolId: validSchoolId },
     });
-    if (!cls) throw new NotFoundException('Class not found');
+    if (!cls) throw new NotFoundException('Class not found in this school');
+
+    if (cls.academicYearId !== exam.academicYearId) {
+      throw new BadRequestException(
+        `Class belongs to academic session '${cls.academicYearId}', which does not match exam academic session '${exam.academicYear?.name || exam.academicYearId}'`,
+      );
+    }
+
+    const classGrade = resolveGradeLevel(cls);
+
+    // 2. Validate Canonical Offering and/or Legacy Subject
+    let resolvedOfferingId: string | null = null;
+    let resolvedSubjectId: string | null = null;
+
+    if (data.schoolSubjectOfferingId) {
+      const offering = await this.prisma.schoolSubjectOffering.findFirst({
+        where: { id: data.schoolSubjectOfferingId, schoolId: validSchoolId },
+      });
+      if (!offering) {
+        throw new NotFoundException(
+          'School subject offering not found in this school',
+        );
+      }
+      if (offering.academicYearId !== exam.academicYearId) {
+        throw new BadRequestException(
+          'School subject offering belongs to a different academic session than exam',
+        );
+      }
+      if (!offering.isOffered) {
+        throw new BadRequestException(
+          `School subject offering "${offering.id}" is inactive and cannot be selected for exams`,
+        );
+      }
+      if (classGrade < offering.gradeFrom || classGrade > offering.gradeTo) {
+        throw new BadRequestException(
+          `Offering "${offering.id}" (grades ${offering.gradeFrom}-${offering.gradeTo}) is not compatible with class grade ${classGrade}`,
+        );
+      }
+      if (
+        data.subjectId &&
+        offering.legacySubjectId &&
+        data.subjectId !== offering.legacySubjectId
+      ) {
+        throw new BadRequestException(
+          `Subject "${data.subjectId}" contradicts canonical offering legacySubjectId "${offering.legacySubjectId}"`,
+        );
+      }
+      resolvedOfferingId = offering.id;
+      resolvedSubjectId = data.subjectId || offering.legacySubjectId || null;
+    } else if (data.subjectId) {
+      const subj = await this.prisma.subject.findFirst({
+        where: { id: data.subjectId, schoolId: validSchoolId },
+      });
+      if (!subj) {
+        throw new NotFoundException('Subject not found in this school');
+      }
+      resolvedSubjectId = subj.id;
+
+      // Deterministically check if a unique matching active offering exists in session covering this class grade
+      const matchingOfferings = await this.prisma.schoolSubjectOffering.findMany({
+        where: {
+          schoolId: validSchoolId,
+          academicYearId: exam.academicYearId,
+          legacySubjectId: subj.id,
+          gradeFrom: { lte: classGrade },
+          gradeTo: { gte: classGrade },
+          isOffered: true,
+        },
+      });
+      if (matchingOfferings.length === 1) {
+        resolvedOfferingId = matchingOfferings[0].id;
+      }
+    } else {
+      throw new BadRequestException(
+        'Either schoolSubjectOfferingId or subjectId must be provided',
+      );
+    }
+
+    // 3. Duplicate check
+    const existing = await this.prisma.examSubject.findFirst({
+      where: {
+        examId: exam.id,
+        classId: data.classId,
+        OR: [
+          ...(resolvedOfferingId ? [{ schoolSubjectOfferingId: resolvedOfferingId }] : []),
+          ...(resolvedSubjectId ? [{ subjectId: resolvedSubjectId }] : []),
+        ],
+      },
+    });
+    if (existing) {
+      throw new BadRequestException(
+        'Subject or offering already added to this exam for this class',
+      );
+    }
 
     return this.prisma.examSubject.create({
       data: {
         examId: exam.id,
-        subjectId: data.subjectId,
         classId: data.classId,
+        schoolSubjectOfferingId: resolvedOfferingId,
+        subjectId: resolvedSubjectId,
         maxMarks: data.maxMarks,
         passMarks: data.passMarks,
         examDate: data.examDate ? new Date(data.examDate) : undefined,
         duration: data.duration,
       },
-      include: { subject: { select: { name: true, code: true } } },
+      include: {
+        subject: { select: { name: true, code: true } },
+        schoolSubjectOffering: {
+          include: { globalSubject: true, curriculumSubject: true },
+        },
+        class: { select: { name: true } },
+      },
     });
   }
 
   // ─── Enter / Update Marks ─────────────────────────────────────────────────
+  // ─── Enter / Update Marks ─────────────────────────────────────────────────
   async enterMarks(
-    examSubjectId: string,
-    schoolId: string,
-    marks: {
-      studentId: string;
-      marksObtained?: number;
-      isAbsent?: boolean;
-      remarks?: string;
-    }[],
-    enteredById: string,
+    examIdOrExamSubjectId: string,
+    examSubjectIdOrSchoolId: string,
+    schoolIdOrMarks: string | StudentMarkEntryDto[],
+    marksOrEnteredById?: StudentMarkEntryDto[] | string,
+    enteredById?: string,
   ) {
+    let examId: string | undefined;
+    let examSubjectId: string;
+    let schoolId: string;
+    let marks: StudentMarkEntryDto[];
+    let authorId: string;
+
+    if (Array.isArray(schoolIdOrMarks)) {
+      examSubjectId = examIdOrExamSubjectId;
+      schoolId = examSubjectIdOrSchoolId;
+      marks = schoolIdOrMarks;
+      authorId = (marksOrEnteredById as string) || '';
+    } else {
+      examId = examIdOrExamSubjectId;
+      examSubjectId = examSubjectIdOrSchoolId;
+      schoolId = schoolIdOrMarks;
+      marks = (marksOrEnteredById as StudentMarkEntryDto[]) || [];
+      authorId = enteredById || '';
+    }
+
     const validSchoolId = requireSchoolId(schoolId);
     const examSubject = await this.prisma.examSubject.findFirst({
       where: { id: examSubjectId, exam: { schoolId: validSchoolId } },
-      include: { exam: true },
+      include: { exam: { include: { academicYear: true } } },
     });
     if (!examSubject) {
       throw new NotFoundException('Exam subject not found');
     }
 
-    // Validate that all students belong to the school
+    if (examId && examSubject.examId !== examId) {
+      throw new BadRequestException(
+        'Exam subject does not belong to the specified exam',
+      );
+    }
+
+    if (examSubject.exam.academicYear?.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${examSubject.exam.academicYear.name}' is locked. Structural changes are not permitted.`,
+      );
+    }
+
+    // Validate that all students belong to the school and are enrolled in the exam's year and examSubject's class
     if (marks.length > 0) {
       const studentIds = marks.map((m) => m.studentId);
       const students = await this.prisma.student.findMany({
@@ -256,6 +427,27 @@ export class ExamsService {
         throw new BadRequestException(
           'One or more students do not belong to this school',
         );
+      }
+
+      if (examSubject.exam?.academicYearId && examSubject.classId) {
+        const enrollments = await this.prisma.studentEnrollment.findMany({
+          where: {
+            studentId: { in: studentIds },
+            academicYearId: examSubject.exam.academicYearId,
+            section: { classId: examSubject.classId },
+            status: 'ACTIVE',
+          },
+          select: { studentId: true },
+        });
+        const enrolledStudentIds = new Set(enrollments.map((e) => e.studentId));
+
+        for (const sId of studentIds) {
+          if (!enrolledStudentIds.has(sId)) {
+            throw new BadRequestException(
+              `Student '${sId}' does not have an active enrollment in class '${examSubject.classId}' for academic session '${examSubject.exam.academicYearId}'`,
+            );
+          }
+        }
       }
     }
 
@@ -276,14 +468,14 @@ export class ExamsService {
           isAbsent: m.isAbsent ?? false,
           grade,
           remarks: m.remarks,
-          enteredById,
+          enteredById: authorId,
         },
         update: {
           marksObtained: m.isAbsent ? null : m.marksObtained,
           isAbsent: m.isAbsent ?? false,
           grade,
           remarks: m.remarks,
-          enteredById,
+          enteredById: authorId,
         },
       });
     });
@@ -292,13 +484,42 @@ export class ExamsService {
   }
 
   // ─── Get Marks for an Exam Subject ───────────────────────────────────────
-  async getMarksForSubject(examSubjectId: string, schoolId: string) {
+  async getMarksForSubject(
+    examIdOrExamSubjectId: string,
+    examSubjectIdOrSchoolId: string,
+    possibleSchoolId?: string,
+  ) {
+    let examId: string | undefined;
+    let examSubjectId: string;
+    let schoolId: string;
+
+    if (possibleSchoolId) {
+      examId = examIdOrExamSubjectId;
+      examSubjectId = examSubjectIdOrSchoolId;
+      schoolId = possibleSchoolId;
+    } else {
+      examSubjectId = examIdOrExamSubjectId;
+      schoolId = examSubjectIdOrSchoolId;
+    }
+
     const validSchoolId = requireSchoolId(schoolId);
     const es = await this.prisma.examSubject.findFirst({
       where: { id: examSubjectId, exam: { schoolId: validSchoolId } },
-      include: { exam: true, subject: { select: { name: true } } },
+      include: {
+        exam: true,
+        subject: { select: { name: true } },
+        schoolSubjectOffering: {
+          include: { globalSubject: true, curriculumSubject: true },
+        },
+      },
     });
     if (!es) throw new NotFoundException('Exam subject not found');
+
+    if (examId && es.examId !== examId) {
+      throw new BadRequestException(
+        'Exam subject does not belong to the specified exam',
+      );
+    }
 
     const marks = await this.prisma.studentMark.findMany({
       where: { examSubjectId },
@@ -307,7 +528,10 @@ export class ExamsService {
           include: {
             user: { select: { firstName: true, lastName: true } },
             enrollments: {
-              where: { status: 'ACTIVE' },
+              where: {
+                academicYearId: es.exam?.academicYearId,
+                status: 'ACTIVE',
+              },
               include: {
                 section: {
                   select: { name: true, class: { select: { name: true } } },
@@ -325,29 +549,70 @@ export class ExamsService {
 
   // ─── Get Students for Marks Entry (by section) ────────────────────────────
   async getStudentsForMarksEntry(
-    examSubjectId: string,
-    sectionId: string,
-    schoolId: string,
+    examIdOrExamSubjectId: string,
+    examSubjectIdOrSectionId: string,
+    sectionIdOrSchoolId: string,
+    possibleSchoolId?: string,
   ) {
+    let examId: string | undefined;
+    let examSubjectId: string;
+    let sectionId: string;
+    let schoolId: string;
+
+    if (possibleSchoolId) {
+      examId = examIdOrExamSubjectId;
+      examSubjectId = examSubjectIdOrSectionId;
+      sectionId = sectionIdOrSchoolId;
+      schoolId = possibleSchoolId;
+    } else {
+      examSubjectId = examIdOrExamSubjectId;
+      sectionId = examSubjectIdOrSectionId;
+      schoolId = sectionIdOrSchoolId;
+    }
+
     const validSchoolId = requireSchoolId(schoolId);
     const examSubject = await this.prisma.examSubject.findFirst({
       where: { id: examSubjectId, exam: { schoolId: validSchoolId } },
-      include: { exam: true, subject: { select: { name: true } }, marks: true },
+      include: {
+        exam: true,
+        subject: { select: { name: true } },
+        schoolSubjectOffering: {
+          include: { globalSubject: true, curriculumSubject: true },
+        },
+        marks: true,
+      },
     });
     if (!examSubject) {
       throw new NotFoundException('Exam subject not found');
     }
 
-    // Validate section belongs to school
+    if (examId && examSubject.examId !== examId) {
+      throw new BadRequestException(
+        'Exam subject does not belong to the specified exam',
+      );
+    }
+
+    // Validate section belongs to school and section belongs to exam subject's class
     const section = await this.prisma.section.findFirst({
       where: { id: sectionId, class: { schoolId: validSchoolId } },
+      include: { class: true },
     });
     if (!section) {
       throw new NotFoundException('Section not found');
     }
 
+    if (section.classId !== examSubject.classId) {
+      throw new BadRequestException(
+        'Section does not belong to the exam subject class',
+      );
+    }
+
     const enrollments = await this.prisma.studentEnrollment.findMany({
-      where: { sectionId, status: 'ACTIVE' },
+      where: {
+        sectionId,
+        academicYearId: examSubject.exam.academicYearId,
+        status: 'ACTIVE',
+      },
       include: {
         student: {
           include: {
@@ -378,6 +643,7 @@ export class ExamsService {
     const exam = await this.prisma.exam.findFirst({
       where: { id: examId, schoolId: validSchoolId },
       include: {
+        academicYear: true,
         subjects: {
           include: {
             marks: { include: { student: true } },
@@ -386,6 +652,12 @@ export class ExamsService {
       },
     });
     if (!exam) throw new NotFoundException('Exam not found');
+
+    if (exam.academicYear?.isLocked) {
+      throw new BadRequestException(
+        `Academic session '${exam.academicYear.name}' is locked. Structural changes are not permitted.`,
+      );
+    }
 
     // Gather all students who have marks in this exam
     const studentMap = new Map<string, { total: number; obtained: number }>();
@@ -452,7 +724,10 @@ export class ExamsService {
               select: { firstName: true, lastName: true, avatarUrl: true },
             },
             enrollments: {
-              where: { status: 'ACTIVE' },
+              where: {
+                academicYearId: exam.academicYearId,
+                status: 'ACTIVE',
+              },
               include: {
                 section: {
                   select: { name: true, class: { select: { name: true } } },
@@ -543,7 +818,10 @@ export class ExamsService {
                 select: { firstName: true, lastName: true, avatarUrl: true },
               },
               enrollments: {
-                where: { status: 'ACTIVE' },
+                where: {
+                  academicYearId: exam.academicYearId,
+                  status: 'ACTIVE',
+                },
                 include: {
                   section: {
                     select: { name: true, class: { select: { name: true } } },
@@ -570,12 +848,24 @@ export class ExamsService {
         },
         include: {
           examSubject: {
-            include: { subject: { select: { name: true, code: true } } },
+            include: {
+              subject: { select: { name: true, code: true } },
+              schoolSubjectOffering: {
+                include: {
+                  globalSubject: true,
+                  curriculumSubject: true,
+                },
+              },
+            },
           },
         },
       }),
       this.prisma.studentSubjectEnrollment.findMany({
-        where: { studentId, status: 'ACTIVE' },
+        where: {
+          studentId,
+          academicYearId: exam.academicYearId,
+          status: 'ACTIVE',
+        },
         include: {
           schoolSubjectOffering: {
             include: {
@@ -687,6 +977,12 @@ export class ExamsService {
         examSubject: {
           include: {
             subject: { select: { name: true } },
+            schoolSubjectOffering: {
+              include: {
+                globalSubject: true,
+                curriculumSubject: true,
+              },
+            },
             exam: {
               select: { id: true, name: true, examType: true, startDate: true },
             },
@@ -700,9 +996,17 @@ export class ExamsService {
     for (const m of marks) {
       const eId = m.examSubject.exam.id;
       if (!marksByExam.has(eId)) marksByExam.set(eId, []);
+      const offering = m.examSubject.schoolSubjectOffering;
+      const resolvedName =
+        offering?.curriculumSubject?.displayName ||
+        offering?.customName ||
+        offering?.globalSubject?.name ||
+        m.examSubject.subject?.name ||
+        'Subject';
+
       marksByExam.get(eId)!.push({
-        subjectId: m.examSubject.subjectId,
-        subjectName: m.examSubject.subject.name,
+        subjectId: m.examSubject.schoolSubjectOfferingId || m.examSubject.subjectId,
+        subjectName: resolvedName,
         marksObtained: m.marksObtained ? Number(m.marksObtained) : 0,
         maxMarks: Number(m.examSubject.maxMarks || 100),
         passMarks: Number(m.examSubject.passMarks || 35),

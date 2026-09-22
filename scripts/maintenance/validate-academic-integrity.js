@@ -614,6 +614,247 @@ async function validateAcademicIntegrity() {
     }
   }
 
+  // 8. Audit Exams, ExamSubjects, and StudentMarks
+  const exams = await prisma.exam.findMany({
+    include: {
+      academicYear: true,
+      subjects: {
+        include: {
+          class: true,
+          schoolSubjectOffering: true,
+          subject: true,
+          marks: {
+            include: {
+              student: {
+                include: {
+                  enrollments: {
+                    select: {
+                      academicYearId: true,
+                      section: { select: { classId: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      reportCards: {
+        include: {
+          student: true,
+        },
+      },
+    },
+  });
+  totalChecked += exams.length;
+
+  for (const exam of exams) {
+    if (exam.academicYear) {
+      if (exam.academicYear.schoolId !== exam.schoolId) {
+        findings.push({
+          severity: 'P0',
+          entity: 'Exam',
+          id: exam.id,
+          issue: 'Cross-school exam academic year: academicYear.schoolId !== exam.schoolId',
+          context: {
+            examSchool: exam.schoolId,
+            yearSchool: exam.academicYear.schoolId,
+          },
+        });
+      }
+    } else {
+      findings.push({
+        severity: 'P0',
+        entity: 'Exam',
+        id: exam.id,
+        issue: 'Orphan exam: missing academicYear',
+        context: { academicYearId: exam.academicYearId },
+      });
+    }
+
+    if (
+      exam.startDate &&
+      exam.endDate &&
+      new Date(exam.startDate) > new Date(exam.endDate)
+    ) {
+      findings.push({
+        severity: 'P1',
+        entity: 'Exam',
+        id: exam.id,
+        issue: 'Exam startDate is after endDate',
+        context: { startDate: exam.startDate, endDate: exam.endDate },
+      });
+    }
+
+    totalChecked += exam.subjects.length;
+    for (const es of exam.subjects) {
+      if (es.class) {
+        if (es.class.schoolId !== exam.schoolId) {
+          findings.push({
+            severity: 'P0',
+            entity: 'ExamSubject',
+            id: es.id,
+            issue: 'Cross-school exam subject class: class.schoolId !== exam.schoolId',
+            context: {
+              examSchool: exam.schoolId,
+              classSchool: es.class.schoolId,
+            },
+          });
+        }
+        if (es.class.academicYearId !== exam.academicYearId) {
+          findings.push({
+            severity: 'P0',
+            entity: 'ExamSubject',
+            id: es.id,
+            issue: 'Cross-year exam subject class: class.academicYearId !== exam.academicYearId',
+            context: {
+              examYear: exam.academicYearId,
+              classYear: es.class.academicYearId,
+            },
+          });
+        }
+      }
+
+      if (es.schoolSubjectOffering) {
+        if (es.schoolSubjectOffering.schoolId !== exam.schoolId) {
+          findings.push({
+            severity: 'P0',
+            entity: 'ExamSubject',
+            id: es.id,
+            issue: 'Cross-school exam subject offering: offering.schoolId !== exam.schoolId',
+            context: {
+              examSchool: exam.schoolId,
+              offeringSchool: es.schoolSubjectOffering.schoolId,
+            },
+          });
+        }
+        if (es.schoolSubjectOffering.academicYearId !== exam.academicYearId) {
+          findings.push({
+            severity: 'P0',
+            entity: 'ExamSubject',
+            id: es.id,
+            issue: 'Cross-year exam subject offering: offering.academicYearId !== exam.academicYearId',
+            context: {
+              examYear: exam.academicYearId,
+              offeringYear: es.schoolSubjectOffering.academicYearId,
+            },
+          });
+        }
+        if (es.class) {
+          const gradeLevel =
+            typeof es.class.numericLevel === 'number' &&
+            es.class.numericLevel >= 1 &&
+            es.class.numericLevel <= 12
+              ? es.class.numericLevel
+              : es.class.name && es.class.name.match(/\d+/)
+              ? parseInt(es.class.name.match(/\d+/)[0], 10)
+              : es.class.numericLevel;
+
+          if (
+            gradeLevel < es.schoolSubjectOffering.gradeFrom ||
+            gradeLevel > es.schoolSubjectOffering.gradeTo
+          ) {
+            findings.push({
+              severity: 'P1',
+              entity: 'ExamSubject',
+              id: es.id,
+              issue: `Offering grade band (${es.schoolSubjectOffering.gradeFrom}-${es.schoolSubjectOffering.gradeTo}) does not cover exam subject class grade ${gradeLevel}`,
+              context: {
+                classGrade: gradeLevel,
+                gradeFrom: es.schoolSubjectOffering.gradeFrom,
+                gradeTo: es.schoolSubjectOffering.gradeTo,
+              },
+            });
+          }
+        }
+        if (
+          es.subjectId &&
+          es.schoolSubjectOffering.legacySubjectId &&
+          es.subjectId !== es.schoolSubjectOffering.legacySubjectId
+        ) {
+          findings.push({
+            severity: 'P1',
+            entity: 'ExamSubject',
+            id: es.id,
+            issue: 'Contradictory exam subjectId and offering.legacySubjectId',
+            context: {
+              examSubjectId: es.subjectId,
+              offeringLegacySubjectId: es.schoolSubjectOffering.legacySubjectId,
+            },
+          });
+        }
+      }
+
+      if (es.subject && es.subject.schoolId !== exam.schoolId) {
+        findings.push({
+          severity: 'P0',
+          entity: 'ExamSubject',
+          id: es.id,
+          issue: 'Cross-school exam subject: subject.schoolId !== exam.schoolId',
+          context: {
+            examSchool: exam.schoolId,
+            subjectSchool: es.subject.schoolId,
+          },
+        });
+      }
+
+      totalChecked += es.marks.length;
+      for (const m of es.marks) {
+        if (m.student) {
+          if (m.student.schoolId !== exam.schoolId) {
+            findings.push({
+              severity: 'P0',
+              entity: 'StudentMark',
+              id: m.id,
+              issue: 'Cross-school student mark: student.schoolId !== exam.schoolId',
+              context: {
+                examSchool: exam.schoolId,
+                studentSchool: m.student.schoolId,
+              },
+            });
+          }
+
+          const hasMatchingEnrollment = m.student.enrollments.some(
+            (enr) =>
+              enr.academicYearId === exam.academicYearId &&
+              enr.section?.classId === es.classId,
+          );
+          if (!hasMatchingEnrollment) {
+            findings.push({
+              severity: 'P0',
+              entity: 'StudentMark',
+              id: m.id,
+              issue:
+                'Student mark missing valid enrollment in exam academic year and class',
+              context: {
+                studentId: m.studentId,
+                examYear: exam.academicYearId,
+                classId: es.classId,
+              },
+            });
+          }
+        }
+      }
+    }
+
+    totalChecked += exam.reportCards.length;
+    for (const rc of exam.reportCards) {
+      if (rc.student && rc.student.schoolId !== exam.schoolId) {
+        findings.push({
+          severity: 'P0',
+          entity: 'ReportCard',
+          id: rc.id,
+          issue:
+            'Cross-school report card student: student.schoolId !== exam.schoolId',
+          context: {
+            examSchool: exam.schoolId,
+            studentSchool: rc.student.schoolId,
+          },
+        });
+      }
+    }
+  }
+
   const p0 = findings.filter((f) => f.severity === 'P0').length;
   const p1 = findings.filter((f) => f.severity === 'P1').length;
   const p2 = findings.filter((f) => f.severity === 'P2').length;

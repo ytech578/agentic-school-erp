@@ -418,6 +418,7 @@ model Class {
   subjects       ClassSubject[]
   timetableSlots TimetableSlot[]
   Assignment     Assignment[]
+  examSubjects   ExamSubject[]
 
   @@unique([schoolId, academicYearId, name])
   @@index([schoolId, academicYearId])
@@ -656,6 +657,7 @@ model SchoolSubjectOffering {
   studentEnrollments StudentSubjectEnrollment[]
   teacherAssignments TeacherAssignment[]
   assignments        Assignment[]
+  examSubjects       ExamSubject[]
 
   @@unique([schoolId, academicYearId, globalSubjectId, gradeFrom, gradeTo])
   @@index([schoolId, academicYearId, isOffered])
@@ -1230,21 +1232,27 @@ model Exam {
 }
 
 model ExamSubject {
-  id        String    @id @default(cuid())
-  examId    String
-  subjectId String
-  classId   String
-  maxMarks  Decimal   @db.Decimal(6, 2)
-  passMarks Decimal   @db.Decimal(6, 2)
-  examDate  DateTime?
-  duration  Int?
-  createdAt DateTime  @default(now())
+  id                      String    @id @default(cuid())
+  examId                  String
+  subjectId               String?
+  classId                 String
+  schoolSubjectOfferingId String?
+  maxMarks                Decimal   @db.Decimal(6, 2)
+  passMarks               Decimal   @db.Decimal(6, 2)
+  examDate                DateTime?
+  duration                Int?
+  createdAt               DateTime  @default(now())
 
-  exam    Exam          @relation(fields: [examId], references: [id], onDelete: Cascade)
-  subject Subject       @relation(fields: [subjectId], references: [id])
-  marks   StudentMark[]
+  exam                  Exam                   @relation(fields: [examId], references: [id], onDelete: Cascade)
+  subject               Subject?               @relation(fields: [subjectId], references: [id])
+  schoolSubjectOffering SchoolSubjectOffering? @relation(fields: [schoolSubjectOfferingId], references: [id])
+  class                 Class                  @relation(fields: [classId], references: [id])
+  marks                 StudentMark[]
 
-  @@unique([examId, subjectId, classId])
+  @@index([examId])
+  @@index([classId])
+  @@index([schoolSubjectOfferingId])
+  @@index([subjectId])
   @@map("exam_subjects")
 }
 

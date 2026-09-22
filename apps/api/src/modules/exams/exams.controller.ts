@@ -17,6 +17,12 @@ import { ExamsService } from './exams.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
+import {
+  CreateExamDto,
+  UpdateExamDto,
+  AddExamSubjectDto,
+  EnterMarksDto,
+} from './dto/exam.dto';
 
 @ApiTags('Exams')
 @ApiBearerAuth('JWT-auth')
@@ -37,7 +43,7 @@ export class ExamsController {
   @Post()
   @ApiOperation({ summary: 'Create exam' })
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  async createExam(@Request() req: any, @Body() body: any) {
+  async createExam(@Request() req: any, @Body() body: CreateExamDto) {
     return this.service.createExam(req.user.schoolId, body);
   }
 
@@ -67,13 +73,7 @@ export class ExamsController {
   async updateExam(
     @Request() req: any,
     @Param('id') id: string,
-    @Body()
-    body: {
-      name?: string;
-      examType?: string;
-      startDate?: string;
-      endDate?: string;
-    },
+    @Body() body: UpdateExamDto,
   ) {
     return this.service.updateExam(req.user.schoolId, id, body);
   }
@@ -94,7 +94,7 @@ export class ExamsController {
   async addExamSubject(
     @Request() req: any,
     @Param('id') examId: string,
-    @Body() body: any,
+    @Body() body: AddExamSubjectDto,
   ) {
     return this.service.addExamSubject(examId, req.user.schoolId, body);
   }
@@ -105,11 +105,12 @@ export class ExamsController {
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   async enterMarks(
     @Request() req: any,
-    @Param('id') _examId: string,
+    @Param('id') examId: string,
     @Param('examSubjectId') examSubjectId: string,
-    @Body() body: { marks: any[] },
+    @Body() body: EnterMarksDto,
   ) {
     return this.service.enterMarks(
+      examId,
       examSubjectId,
       req.user.schoolId,
       body.marks,
@@ -123,9 +124,10 @@ export class ExamsController {
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   async getMarks(
     @Request() req: any,
+    @Param('id') examId: string,
     @Param('examSubjectId') examSubjectId: string,
   ) {
-    return this.service.getMarksForSubject(examSubjectId, req.user.schoolId);
+    return this.service.getMarksForSubject(examId, examSubjectId, req.user.schoolId);
   }
 
   // ─── Students for Marks Entry ─────────────────────────────────────────────
@@ -134,10 +136,12 @@ export class ExamsController {
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   async getStudentsForMarks(
     @Request() req: any,
+    @Param('id') examId: string,
     @Param('examSubjectId') examSubjectId: string,
     @Query('sectionId') sectionId: string,
   ) {
     return this.service.getStudentsForMarksEntry(
+      examId,
       examSubjectId,
       sectionId,
       req.user.schoolId,

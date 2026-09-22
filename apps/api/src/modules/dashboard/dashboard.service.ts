@@ -1143,6 +1143,9 @@ export class DashboardService {
               include: {
                 subject: true,
                 exam: true,
+                schoolSubjectOffering: {
+                  include: { curriculumSubject: true, globalSubject: true },
+                },
               },
             },
           },
@@ -1321,7 +1324,12 @@ export class DashboardService {
 
     const recentMarks = student.marks.map((m) => ({
       id: m.id,
-      subject: m.examSubject.subject.name,
+      subject:
+        m.examSubject.schoolSubjectOffering?.curriculumSubject?.displayName ||
+        m.examSubject.schoolSubjectOffering?.customName ||
+        m.examSubject.schoolSubjectOffering?.globalSubject?.name ||
+        m.examSubject.subject?.name ||
+        'General',
       examName: m.examSubject.exam.name,
       score: m.marksObtained ? Number(m.marksObtained) : 0,
       maxScore: Number(m.examSubject.maxMarks || 100),

@@ -294,7 +294,12 @@ export class ReportsService {
           include: { user: { select: { firstName: true, lastName: true } } },
         },
         examSubject: {
-          include: { subject: { select: { name: true } } },
+          include: {
+            subject: { select: { name: true } },
+            schoolSubjectOffering: {
+              include: { curriculumSubject: true, globalSubject: true },
+            },
+          },
         },
       },
     });
@@ -312,7 +317,12 @@ export class ReportsService {
           maxTotal: 0,
         };
       }
-      const subName = m.examSubject.subject.name;
+      const subName =
+        m.examSubject.schoolSubjectOffering?.curriculumSubject?.displayName ||
+        m.examSubject.schoolSubjectOffering?.customName ||
+        m.examSubject.schoolSubjectOffering?.globalSubject?.name ||
+        m.examSubject.subject?.name ||
+        'Subject';
       const esMaxMarks = m.examSubject.maxMarks.toNumber();
       studentMap[m.studentId].subjects[subName] = {
         marks: m.marksObtained?.toNumber() ?? null,
