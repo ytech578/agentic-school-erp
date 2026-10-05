@@ -161,7 +161,7 @@ export default function TeacherAssignmentsPage() {
   };
 
   // Handle Create
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleCreate = async (e: React.SubmitEvent) => {
     e.preventDefault();
     setCreating(true);
     try {

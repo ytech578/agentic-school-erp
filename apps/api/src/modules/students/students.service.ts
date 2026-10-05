@@ -1,18 +1,29 @@
 import {
   Injectable,
+  Optional,
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { StorageService } from '../../services/storage/storage.service';
 import { CreateStudentInput, UpdateStudentInput } from '@school-erp/shared';
 import * as bcrypt from 'bcryptjs';
-import { Prisma, Gender, BloodGroup } from '@prisma/client';
+import { Prisma, Gender, BloodGroup, DocumentType } from '@prisma/client';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
+import {
+  encryptSensitiveField,
+  decryptSensitiveField,
+  maskAadhaarNumber,
+} from '../../core/security/crypto.util';
 
 @Injectable()
 export class StudentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly storageService?: StorageService,
+  ) {}
 
   async createStudent(schoolId: string, data: CreateStudentInput) {
     const validSchoolId = requireSchoolId(schoolId, 'Create student');
@@ -74,7 +85,7 @@ export class StudentsService {
           religion: data.religion,
           caste: data.caste,
           nationality: data.nationality || 'Indian',
-          aadhaarNumber: data.aadhaarNumber,
+          aadhaarNumber: encryptSensitiveField(data.aadhaarNumber),
           address: data.address,
           city: data.city,
           state: data.state,
@@ -97,6 +108,9 @@ export class StudentsService {
             relationship: data.guardianRelationship,
             phone: data.guardianPhone || '',
             email: data.guardianEmail || null,
+            aadhaarNumber: encryptSensitiveField(
+              (data as any).guardianAadhaarNumber,
+            ),
             isPrimary: true,
           },
         });
@@ -194,8 +208,19 @@ export class StudentsService {
       }),
     ]);
 
+    const sanitizedStudents = students.map((s) => ({
+      ...s,
+      aadhaarNumber: maskAadhaarNumber(s.aadhaarNumber),
+      guardians: s.guardians?.map((g: any) => ({
+        ...g,
+        aadhaarNumber: g.aadhaarNumber
+          ? maskAadhaarNumber(g.aadhaarNumber)
+          : undefined,
+      })),
+    }));
+
     return {
-      items: students,
+      items: sanitizedStudents,
       total,
       page,
       limit,
@@ -203,7 +228,7 @@ export class StudentsService {
     };
   }
 
-  async getStudentById(schoolId: string, id: string) {
+  async getStudentById(schoolId: string, id: string, userRole: string = 'TEACHER') {
     const validSchoolId = requireSchoolId(schoolId, 'Get student');
     const student = await this.prisma.student.findFirst({
       where: { id, schoolId: validSchoolId },
@@ -225,7 +250,17 @@ export class StudentsService {
       throw new NotFoundException('Student not found');
     }
 
-    return student;
+    // RBAC Column-level permissions
+    const canViewSensitiveData = ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'].includes(userRole);
+
+    return {
+      ...student,
+      aadhaarNumber: canViewSensitiveData ? student.aadhaarNumber : maskAadhaarNumber(student.aadhaarNumber),
+      guardians: student.guardians.map((g) => ({
+        ...g,
+        aadhaarNumber: canViewSensitiveData ? g.aadhaarNumber : maskAadhaarNumber(g.aadhaarNumber),
+      })),
+    };
   }
 
   async calculateRiskScores(schoolId: string) {
@@ -401,7 +436,9 @@ export class StudentsService {
       if (data.nationality !== undefined)
         studentUpdateData.nationality = data.nationality;
       if (data.aadhaarNumber !== undefined)
-        studentUpdateData.aadhaarNumber = data.aadhaarNumber;
+        studentUpdateData.aadhaarNumber = encryptSensitiveField(
+          data.aadhaarNumber,
+        );
       if (data.address !== undefined) studentUpdateData.address = data.address;
       if (data.city !== undefined) studentUpdateData.city = data.city;
       if (data.state !== undefined) studentUpdateData.state = data.state;
@@ -612,5 +649,177 @@ export class StudentsService {
           : `Student marked as inactive (${data.status || 'TRANSFERRED'})`,
       };
     });
+  }
+
+  async getDecryptedAadhaar(schoolId: string, studentId: string) {
+    const validSchoolId = requireSchoolId(
+      schoolId,
+      'Access sensitive Aadhaar data',
+    );
+    const student = await this.prisma.student.findFirst({
+      where: { id: studentId, schoolId: validSchoolId },
+      select: {
+        id: true,
+        admissionNumber: true,
+        aadhaarNumber: true,
+        guardians: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            relationship: true,
+            aadhaarNumber: true,
+          },
+        },
+      },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+
+    return {
+      studentId: student.id,
+      admissionNumber: student.admissionNumber,
+      aadhaarNumber: decryptSensitiveField(student.aadhaarNumber),
+      guardians: student.guardians.map((g) => ({
+        id: g.id,
+        name: `${g.firstName} ${g.lastName}`.trim(),
+        relationship: g.relationship,
+        aadhaarNumber: decryptSensitiveField(g.aadhaarNumber),
+      })),
+    };
+  }
+
+  async uploadStudentDocument(
+    schoolId: string,
+    studentId: string,
+    file: {
+      buffer: Buffer;
+      originalname: string;
+      mimetype: string;
+      size: number;
+    },
+    documentType: DocumentType,
+    uploadedById?: string,
+  ) {
+    const validSchoolId = requireSchoolId(schoolId, 'Upload student document');
+    const student = await this.prisma.student.findFirst({
+      where: { id: studentId, schoolId: validSchoolId },
+    });
+    if (!student) {
+      throw new NotFoundException('Student not found in this school');
+    }
+
+    if (!file) throw new BadRequestException('File is required');
+
+    const allowedMimeTypes = ['application/pdf', 'image/png', 'image/jpeg'];
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      throw new BadRequestException(
+        'Only PDF, PNG, and JPEG files are permitted for student records',
+      );
+    }
+
+    if (!this.storageService) {
+      throw new BadRequestException('Storage service is not configured');
+    }
+
+    const uploadResult = await this.storageService.uploadFile(
+      file.buffer,
+      file.originalname,
+      file.mimetype,
+      `students/${validSchoolId}/${studentId}`,
+    );
+
+    return this.prisma.studentDocument.create({
+      data: {
+        studentId: student.id,
+        documentType,
+        fileName: file.originalname,
+        fileUrl: uploadResult.url,
+        fileSize: file.size,
+        mimeType: file.mimetype,
+        uploadedById,
+      },
+    });
+  }
+
+  async getStudentDocuments(schoolId: string, studentId: string) {
+    const validSchoolId = requireSchoolId(schoolId, 'List student documents');
+    const student = await this.prisma.student.findFirst({
+      where: { id: studentId, schoolId: validSchoolId },
+      include: {
+        documents: {
+          orderBy: { uploadedAt: 'desc' },
+        },
+      },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+    return student.documents;
+  }
+
+  async getStudentDocumentStream(
+    schoolId: string,
+    studentId: string,
+    documentId: string,
+    currentUser: { id: string; role: string; schoolId?: string },
+  ) {
+    const validSchoolId = requireSchoolId(
+      schoolId,
+      'Download student document',
+    );
+    const student = await this.prisma.student.findFirst({
+      where: { id: studentId, schoolId: validSchoolId },
+      include: { guardians: true },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+
+    if (currentUser.role === 'STUDENT' && student.userId !== currentUser.id) {
+      throw new ForbiddenException(
+        'Access denied: You can only access your own documents',
+      );
+    }
+    if (
+      currentUser.role === 'PARENT' &&
+      !student.guardians.some((g) => g.userId === currentUser.id)
+    ) {
+      throw new ForbiddenException(
+        'Access denied: You can only access your ward documents',
+      );
+    }
+
+    const doc = await this.prisma.studentDocument.findFirst({
+      where: { id: documentId, studentId: student.id },
+    });
+    if (!doc) throw new NotFoundException('Document not found');
+
+    if (!this.storageService) {
+      throw new BadRequestException('Storage service is not configured');
+    }
+
+    const fileStreamResult = await this.storageService.getFileStream(
+      doc.fileUrl,
+    );
+    return { doc, fileStreamResult };
+  }
+
+  async deleteStudentDocument(
+    schoolId: string,
+    studentId: string,
+    documentId: string,
+  ) {
+    const validSchoolId = requireSchoolId(schoolId, 'Delete student document');
+    const doc = await this.prisma.studentDocument.findFirst({
+      where: {
+        id: documentId,
+        student: { id: studentId, schoolId: validSchoolId },
+      },
+    });
+    if (!doc) throw new NotFoundException('Document not found');
+
+    if (!this.storageService) {
+      throw new BadRequestException('Storage service is not configured');
+    }
+
+    await this.storageService.deleteFile(doc.fileUrl);
+    await this.prisma.studentDocument.delete({ where: { id: documentId } });
+    return { success: true, message: 'Document deleted successfully' };
   }
 }

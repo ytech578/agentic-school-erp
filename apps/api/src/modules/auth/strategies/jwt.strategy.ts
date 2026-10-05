@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
+import * as jwt from 'jsonwebtoken';
 import { PrismaService } from '../../../core/database/prisma.service';
 import type { JwtPayload } from '@school-erp/shared';
 
@@ -11,10 +12,35 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     config: ConfigService,
     private prisma: PrismaService,
   ) {
+    const accessSecret = config.getOrThrow<string>('jwt.accessSecret');
+    const accessSecretPrev = config.get<string>('jwt.accessSecretPrev');
+
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        ExtractJwt.fromUrlQueryParameter('token'),
+      ]),
       ignoreExpiration: false,
-      secretOrKey: config.getOrThrow<string>('jwt.accessSecret'),
+      secretOrKeyProvider: (
+        _request: any,
+        rawJwtToken: any,
+        done: (err: any, secretOrKey?: string) => void,
+      ) => {
+        if (!accessSecretPrev) {
+          return done(null, accessSecret);
+        }
+        try {
+          jwt.verify(rawJwtToken, accessSecret);
+          return done(null, accessSecret);
+        } catch {
+          try {
+            jwt.verify(rawJwtToken, accessSecretPrev);
+            return done(null, accessSecretPrev);
+          } catch {
+            return done(null, accessSecret);
+          }
+        }
+      },
       passReqToCallback: true,
     });
   }

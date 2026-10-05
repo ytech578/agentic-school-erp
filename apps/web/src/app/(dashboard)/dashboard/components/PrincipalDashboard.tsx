@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import {
   Shield, Award, AlertTriangle, Users, Sparkles, Send,
   ArrowRight, CheckCircle2, TrendingUp, BookOpen,
-  CalendarCheck, UserX, UserCheck, Bot, BarChart2
+  CalendarCheck, UserX, UserCheck, Bot, BarChart2,
+  AlertOctagon, FileCheck, CalendarClock, BookUser, ShieldCheck, BookMarked
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend
@@ -14,20 +15,8 @@ import { apiClient } from "@/lib/axios";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { DashboardKpiCard } from "@/components/ui/DashboardKpiCard";
+import { DashboardLoadingSkeleton } from "@/components/ui/Skeleton";
 import { formatDate, getAnomalyBadgeStyle } from "@/lib/formatters";
-
-function LoadingSkeleton() {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      <div style={{ height: "180px", background: "var(--bg-surface)", borderRadius: "var(--radius-2xl)", animation: "shimmer 1.5s infinite" }} />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "1.25rem" }}>
-        {Array(4).fill(0).map((_, i) => (
-          <div key={i} style={{ height: "130px", background: "var(--bg-surface)", borderRadius: "var(--radius-xl)", animation: "shimmer 1.5s infinite" }} />
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export function PrincipalDashboard({ user }: { user: any }) {
   const router = useRouter();
@@ -37,26 +26,75 @@ export function PrincipalDashboard({ user }: { user: any }) {
   const [commandRunning, setCommandRunning] = useState(false);
 
   useEffect(() => {
-    const fetchDashboard = async () => {
+    let isMounted = true;
+    const fetchDashboard = async (retryCount = 0) => {
       try {
         const res = await apiClient.get("/dashboard/principal");
+        if (!isMounted) return;
         setData(res.data?.data || res.data);
-      } catch (err) {
-        console.error("Failed to fetch principal dashboard", err);
+      } catch (err: any) {
+        if (!isMounted) return;
+        if (retryCount < 3) {
+          setTimeout(() => {
+            if (isMounted) fetchDashboard(retryCount + 1);
+          }, 1500);
+          return;
+        }
+        console.warn("[PrincipalDashboard] Awaiting live telemetry:", err?.message || err);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
     fetchDashboard();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  const handleCommandSubmit = (e: React.FormEvent) => {
+  const handleCommandSubmit = (e: React.SubmitEvent) => {
     e.preventDefault();
     if (!commandPrompt.trim()) return;
     router.push(`/principal?q=${encodeURIComponent(commandPrompt)}`);
   };
 
-  if (loading) return <LoadingSkeleton />;
+  if (loading) return <DashboardLoadingSkeleton />;
+
+  if (!data) {
+    return (
+      <div style={{
+        padding: "3.5rem 2rem",
+        textAlign: "center",
+        background: "var(--bg-surface)",
+        borderRadius: "var(--radius-2xl)",
+        border: "1px solid var(--border-default)",
+        boxShadow: "var(--shadow-sm)",
+        margin: "1rem 0"
+      }}>
+        <div style={{
+          width: "48px",
+          height: "48px",
+          borderRadius: "50%",
+          background: "rgba(99, 102, 241, 0.1)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          margin: "0 auto 1rem auto",
+          color: "var(--brand-primary)"
+        }}>
+          <Sparkles size={24} />
+        </div>
+        <h3 style={{ fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
+          Connecting to Principal Command Center...
+        </h3>
+        <p style={{ color: "var(--text-secondary)", fontSize: "var(--text-sm)", maxWidth: "420px", margin: "0 auto 1.5rem auto" }}>
+          Campus telemetry is initializing. Metrics will appear automatically.
+        </p>
+        <Button variant="primary" onClick={() => { setLoading(true); location.reload(); }}>
+          Sync Live Cockpit
+        </Button>
+      </div>
+    );
+  }
 
   const overview = data?.overview;
   const classComparison = data?.classComparison || [];
@@ -161,6 +199,146 @@ export function PrincipalDashboard({ user }: { user: any }) {
           onClick={() => router.push('/hr')}
         />
       </div>
+
+      {/* Principal Academic & Operational Oversight Hub */}
+      <Card>
+        <CardHeader style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "0.75rem" }}>
+          <div>
+            <CardTitle style={{ fontSize: "var(--text-base)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <Shield size={18} className="text-brand" />
+              Executive Academic & Behavioral Sentinel
+            </CardTitle>
+            <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", margin: 0 }}>
+              Direct access to school discipline registry, official certificates issuance, PTM conferences, and examinations
+            </p>
+          </div>
+          <span style={{ fontSize: "11px", fontWeight: 700, padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", background: "rgba(99, 102, 241, 0.1)", color: "#4F46E5" }}>
+            Executive Authority
+          </span>
+        </CardHeader>
+        <CardContent style={{ padding: "0 1.25rem 1.25rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: "0.875rem" }}>
+            {[
+              {
+                title: "Discipline Sentinel",
+                desc: "Confidential behavioral logs, remedial actions, parent alerts",
+                href: "/discipline",
+                icon: AlertOctagon,
+                color: "#EF4444",
+                tag: "Governance",
+              },
+              {
+                title: "Official Certificates",
+                desc: "Transfer certificate approvals, bonafide & QR verification",
+                href: "/certificates",
+                icon: FileCheck,
+                color: "#2563EB",
+                tag: "Credentials",
+              },
+              {
+                title: "PTM Conferences",
+                desc: "Parent-teacher meeting schedules and teacher availability",
+                href: "/ptm",
+                icon: CalendarClock,
+                color: "#F59E0B",
+                tag: "Engagement",
+              },
+              {
+                title: "Curriculum & Subjects",
+                desc: "CBSE/ICSE curriculum mapping, subject offerings and learning standards",
+                href: "/curriculum",
+                icon: BookMarked,
+                color: "#06B6D4",
+                tag: "Academics",
+              },
+              {
+                title: "Alumni & Transcripts",
+                desc: "Graduates network, higher education tracking, official transcripts",
+                href: "/alumni",
+                icon: BookUser,
+                color: "#8B5CF6",
+                tag: "Alumni",
+              },
+              {
+                title: "DPDP Privacy Center",
+                desc: "Verifiable parental consent compliance, data portability audit",
+                href: "/privacy",
+                icon: ShieldCheck,
+                color: "#059669",
+                tag: "DPDP Act",
+              },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <div
+                  key={item.title}
+                  onClick={() => router.push(item.href)}
+                  style={{
+                    padding: "1rem",
+                    borderRadius: "var(--radius-xl)",
+                    background: "var(--bg-app)",
+                    border: "1px solid var(--border-default)",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    gap: "0.75rem",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = item.color;
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                    e.currentTarget.style.boxShadow = "var(--shadow-md)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "var(--border-default)";
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div
+                      style={{
+                        width: "36px",
+                        height: "36px",
+                        borderRadius: "10px",
+                        background: `${item.color}15`,
+                        color: item.color,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Icon size={18} />
+                    </div>
+                    <span
+                      style={{
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        padding: "0.15rem 0.5rem",
+                        borderRadius: "var(--radius-full)",
+                        background: `${item.color}12`,
+                        color: item.color,
+                      }}
+                    >
+                      {item.tag}
+                    </span>
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: "var(--text-sm)", color: "var(--text-primary)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span>{item.title}</span>
+                      <ArrowRight size={13} style={{ opacity: 0.6 }} />
+                    </div>
+                    <p style={{ margin: "0.25rem 0 0", fontSize: "11px", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                      {item.desc}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Mid Section: Class Academic Health & Teacher Substitutions */}
       <div style={{ display: "grid", gridTemplateColumns: "1.8fr 1.2fr", gap: "1.5rem" }}>

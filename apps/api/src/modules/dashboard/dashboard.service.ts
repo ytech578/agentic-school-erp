@@ -1,17 +1,48 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Injectable, Optional, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AIService } from '../ai/ai.service';
+import { RedisService } from '../../core/cache/redis.service';
 
 @Injectable()
 export class DashboardService {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly notificationsService?: NotificationsService,
+    @Optional() private readonly aiService?: AIService,
+    @Optional() private readonly redisService?: RedisService,
   ) {}
+
+  private async getFromCache<T>(key: string): Promise<T | null> {
+    if (!this.redisService) return null;
+    try {
+      const data = await this.redisService.get(key);
+      return data ? JSON.parse(data) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async setToCache(
+    key: string,
+    data: any,
+    ttlSeconds = 60,
+  ): Promise<void> {
+    if (!this.redisService) return;
+    try {
+      await this.redisService.set(key, JSON.stringify(data), ttlSeconds);
+    } catch {
+      // In-memory / cache write failure should not disrupt API response
+    }
+  }
 
   // ─── SUPER ADMIN DASHBOARD (Platform Multi-Tenant Fleet) ───────────────────
   async getSuperAdminDashboard() {
+    const cacheKey = 'dashboard:superadmin';
+    const cached = await this.getFromCache<any>(cacheKey);
+    if (cached) return cached;
+
     const [
       totalSchools,
       activeSchools,
@@ -68,7 +99,7 @@ export class DashboardService {
       }),
     ]);
 
-    return {
+    const result = {
       fleet: {
         totalSchools,
         activeSchools,
@@ -84,11 +115,16 @@ export class DashboardService {
         activeAgents: 4,
         dbStatus: 'HEALTHY',
         apiLatencyMs: 38,
-        redisStatus: 'CONNECTED',
+        redisStatus: this.redisService?.getStatus().connected
+          ? 'CONNECTED'
+          : 'DEGRADED_MEMORY',
       },
       recentSchools,
       recentActivityLogs,
     };
+
+    await this.setToCache(cacheKey, result, 60);
+    return result;
   }
 
   // ─── SCHOOL ADMIN DASHBOARD (Campus Operations & Finance) ─────────────────
@@ -97,6 +133,11 @@ export class DashboardService {
       isGlobal && !schoolId
         ? undefined
         : requireSchoolId(schoolId, 'School admin dashboard');
+
+    const cacheKey = `dashboard:schooladmin:${validSchoolId ?? 'global'}`;
+    const cached = await this.getFromCache<any>(cacheKey);
+    if (cached) return cached;
+
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const todayStart = new Date(
@@ -212,11 +253,9 @@ export class DashboardService {
 
     const collectedThisMonth = Number(monthCollectionAgg._sum.paidAmount ?? 0);
     const overdueDues = Number(overdueFeeAgg._sum.outstandingAmount ?? 0);
-    const monthlyTarget = Math.max(collectedThisMonth + overdueDues, 500000);
-    const collectionRate =
-      monthlyTarget > 0
-        ? Math.round((collectedThisMonth / monthlyTarget) * 100)
-        : 0;
+    // Option C: Honest reporting without synthetic target or arbitrary percentage floor
+    const monthlyTarget = null;
+    const collectionRate = null;
 
     const totalStudentRecs = studentAttendanceToday.length;
     const presentStudentRecs = studentAttendanceToday.filter(
@@ -225,7 +264,7 @@ export class DashboardService {
     const studentAttendancePct =
       totalStudentRecs > 0
         ? Math.round((presentStudentRecs / totalStudentRecs) * 100)
-        : 94.8;
+        : 0;
 
     // Real 7-day collection trend for Recharts
     const sevenDaysAgo = new Date(
@@ -249,10 +288,17 @@ export class DashboardService {
         })
       : [];
 
+    const toDateStr = (date: Date): string => {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    };
+
     const paymentsByDate = new Map<string, number>();
     for (const p of recentPayments) {
       if (p.paymentDate) {
-        const dStr = p.paymentDate.toISOString().split('T')[0];
+        const dStr = toDateStr(new Date(p.paymentDate));
         paymentsByDate.set(
           dStr,
           (paymentsByDate.get(dStr) || 0) + Number(p.paidAmount || 0),
@@ -260,57 +306,57 @@ export class DashboardService {
       }
     }
 
-    const hasRecentPayments = recentPayments.length > 0;
     const trendDays = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
       const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
-      const dStr = d.toISOString().split('T')[0];
+      const dStr = toDateStr(d);
       const actualDaily = paymentsByDate.get(dStr) || 0;
       trendDays.push({
         day: dayName,
         date: dStr,
-        collection: hasRecentPayments
-          ? actualDaily
-          : Math.round(
-              collectedThisMonth > 0
-                ? (collectedThisMonth / 7) * (0.8 + (i % 3) * 0.15)
-                : 35000 + i * 4000,
-            ),
+        collection: actualDaily,
       });
     }
 
-    return {
+    const result = {
       kpis: {
         totalStudents,
         totalStaff,
         totalClasses,
-        collectedThisMonth: collectedThisMonth || 425000,
-        overdueDues: overdueDues || 75000,
+        collectedThisMonth,
+        overdueDues,
         monthlyTarget,
-        collectionRate: collectionRate || 85,
+        collectionRate,
         studentAttendancePct,
         staffAttendance: {
-          present: staffPresentToday || Math.max(totalStaff - 2, 0),
-          onLeave: staffOnLeaveToday || 1,
-          absent: staffAbsentToday || 1,
+          present: staffPresentToday,
+          onLeave: staffOnLeaveToday,
+          absent: staffAbsentToday,
           total: totalStaff,
         },
         pendingLeaveRequests,
         admissions: {
-          enquiries: enquiryCount || 24,
-          applications: applicationCount || 16,
+          enquiries: enquiryCount,
+          applications: applicationCount,
           enrolled: totalStudents,
         },
       },
       collectionTrend: trendDays,
       recentEnrollments,
     };
+
+    await this.setToCache(cacheKey, result, 60);
+    return result;
   }
 
   // ─── PRINCIPAL DASHBOARD (Academic Command & Early Warnings) ─────────────
   async getPrincipalDashboard(schoolId: string) {
     const validSchoolId = requireSchoolId(schoolId);
+    const cacheKey = `dashboard:principal:${validSchoolId}`;
+    const cached = await this.getFromCache<any>(cacheKey);
+    if (cached) return cached;
+
     const now = new Date();
     const todayStart = new Date(
       now.getFullYear(),
@@ -460,7 +506,7 @@ export class DashboardService {
       }),
     ]);
 
-    let avgAcademicPct = 78.4;
+    let avgAcademicPct = 0;
     if (studentMarks.length > 0) {
       const validMarks = studentMarks.filter(
         (m) => !m.isAbsent && m.marksObtained !== null,
@@ -477,14 +523,70 @@ export class DashboardService {
       }
     }
 
-    const classComparison = classes.map((c, idx) => ({
-      name: c.name,
-      students:
-        c.sections.reduce((acc, s) => acc + s._count.enrollments, 0) ||
-        25 + (idx % 3) * 5,
-      avgScore: Math.min(65 + ((idx * 7) % 28), 96),
-      attendance: Math.min(88 + ((idx * 3) % 10), 98),
-    }));
+    const classComparison = await Promise.all(
+      classes.map(async (c) => {
+        const studentCount = c.sections.reduce(
+          (acc, s) => acc + s._count.enrollments,
+          0,
+        );
+        const sectionIds = c.sections.map((s) => s.id);
+
+        let avgScore = 0;
+        let attendance = 0;
+
+        if (sectionIds.length > 0) {
+          const classMarks = await this.prisma.studentMark.findMany({
+            where: {
+              student: {
+                enrollments: {
+                  some: { sectionId: { in: sectionIds }, status: 'ACTIVE' },
+                },
+              },
+              isAbsent: false,
+              marksObtained: { not: null },
+            },
+            select: {
+              marksObtained: true,
+              examSubject: { select: { maxMarks: true } },
+            },
+            take: 200,
+          });
+
+          if (classMarks.length > 0) {
+            const totalPct = classMarks.reduce((sum, m) => {
+              const max = Number(m.examSubject?.maxMarks) || 100;
+              return sum + (Number(m.marksObtained) / max) * 100;
+            }, 0);
+            avgScore = Math.round(totalPct / classMarks.length);
+          }
+
+          const classAttendance = await this.prisma.attendanceRecord.findMany({
+            where: {
+              sectionId: { in: sectionIds },
+            },
+            select: { status: true },
+            take: 200,
+          });
+
+          if (classAttendance.length > 0) {
+            const present = classAttendance.filter(
+              (a) =>
+                a.status === 'PRESENT' ||
+                a.status === 'LATE' ||
+                a.status === 'HALF_DAY',
+            ).length;
+            attendance = Math.round((present / classAttendance.length) * 100);
+          }
+        }
+
+        return {
+          name: c.name,
+          students: studentCount,
+          avgScore,
+          attendance,
+        };
+      }),
+    );
 
     // Build map of staff unavailable today (approved leave or absent/excused attendance)
     const unavailableMap = new Map<
@@ -692,42 +794,68 @@ export class DashboardService {
       status: l.status,
     }));
 
-    const atRiskStudents = (atRiskStudentsList || []).map(
-      (s: any, idx: number) => {
+    let atRiskStudents: any[] = [];
+    if (this.aiService) {
+      try {
+        const riskResult =
+          await this.aiService.getEarlyWarningRiskStudents(validSchoolId);
+        const flagged = (riskResult?.students || []).filter(
+          (s: any) =>
+            s.riskLevel === 'CRITICAL' ||
+            s.riskLevel === 'HIGH' ||
+            s.riskLevel === 'MODERATE',
+        );
+        atRiskStudents = flagged.slice(0, 10).map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          admissionNumber: s.admissionNumber,
+          className: s.class,
+          attendancePct: s.attendanceRate,
+          guardianPhone: null,
+          riskFactor: s.primaryDrivers?.[0] || 'Early Warning Triggered',
+          severity: s.riskLevel,
+        }));
+      } catch (err) {
+        atRiskStudents = [];
+      }
+    } else {
+      atRiskStudents = (atRiskStudentsList || []).map((s: any) => {
         const enrollment = s.enrollments?.[0];
         const className = enrollment?.section
           ? `${enrollment.section.class.name} - ${enrollment.section.name}`
-          : `Grade ${9 + (idx % 4)}`;
+          : 'Unassigned';
         const guardian = s.guardians?.[0];
-        const absentCount = (s.attendance || []).filter(
-          (a: any) => a.status === 'ABSENT',
+        const totalAtt = (s.attendance || []).length;
+        const presentAtt = (s.attendance || []).filter(
+          (a: any) =>
+            a.status === 'PRESENT' ||
+            a.status === 'LATE' ||
+            a.status === 'HALF_DAY',
         ).length;
-        const attendancePct = Math.max(72 - idx * 2, 58);
-
+        const attendancePct =
+          totalAtt > 0 ? Math.round((presentAtt / totalAtt) * 100) : 0;
         return {
           id: s.id,
           name: s.user
             ? `${s.user.firstName} ${s.user.lastName}`
-            : `Student ${s.admissionNumber || idx + 1}`,
-          admissionNumber: s.admissionNumber || `ADM-${100 + idx}`,
+            : s.admissionNumber,
+          admissionNumber: s.admissionNumber,
           className,
           attendancePct,
-          guardianPhone: guardian?.phone || '+91-9876543210',
+          guardianPhone: guardian?.phone || null,
           riskFactor:
-            idx % 2 === 0 ? 'Attendance < 75%' : 'Consecutive Test Score Drop',
-          severity: idx === 0 ? 'CRITICAL' : 'WARNING',
+            attendancePct < 75 ? 'Low Attendance' : 'Academic Monitoring',
+          severity: attendancePct < 75 ? 'HIGH' : 'MODERATE',
         };
-      },
-    );
+      });
+    }
 
-    return {
+    const result = {
       overview: {
-        totalStudents: totalStudents || 450,
-        totalFaculty: totalStaff || 32,
+        totalStudents,
+        totalFaculty: totalStaff,
         avgAcademicPct,
-        atRiskStudentsCount:
-          atRiskStudents.length ||
-          Math.max(Math.round((totalStudents || 450) * 0.04), 4),
+        atRiskStudentsCount: atRiskStudents.length,
         substitutionsNeeded: substitutions
           .filter((s) => !s.isConfirmed)
           .reduce((acc, s) => acc + (s.classesCount || 1), 0),
@@ -735,16 +863,7 @@ export class DashboardService {
           .filter((s) => s.isConfirmed)
           .reduce((acc, s) => acc + (s.classesCount || 1), 0),
       },
-      classComparison:
-        classComparison.length > 0
-          ? classComparison
-          : [
-              { name: 'Class 6', students: 46, avgScore: 80, attendance: 93 },
-              { name: 'Class 7', students: 50, avgScore: 84, attendance: 95 },
-              { name: 'Class 8', students: 48, avgScore: 82, attendance: 95 },
-              { name: 'Class 9', students: 52, avgScore: 78, attendance: 92 },
-              { name: 'Class 10', students: 60, avgScore: 85, attendance: 96 },
-            ],
+      classComparison,
       substitutions,
       pendingLeaves,
       atRiskStudents,
@@ -758,6 +877,9 @@ export class DashboardService {
         createdAt: al.createdAt,
       })),
     };
+
+    await this.setToCache(cacheKey, result, 60);
+    return result;
   }
 
   // ─── CONFIRM FACULTY SUBSTITUTIONS (Principal Auto-Assign Action) ─────────
@@ -1086,32 +1208,13 @@ export class DashboardService {
       classes,
       todaySchedule: mergedSchedule,
       coveredSubstitutionsCount: coveredSubstitutions.length,
-      pendingAssignments:
-        pendingAssignments.length > 0
-          ? pendingAssignments
-          : [
-              {
-                id: 'a1',
-                title: 'Quadratic Equations Exercise 3',
-                className: 'Grade 10-A',
-                subject: 'Mathematics',
-                dueDate: new Date().toISOString(),
-                pendingSubmissions: 12,
-              },
-              {
-                id: 'a2',
-                title: 'Polynomial Theorems & Proofs',
-                className: 'Grade 9-B',
-                subject: 'Mathematics',
-                dueDate: new Date().toISOString(),
-                pendingSubmissions: 8,
-              },
-            ],
-      totalStudentsTaught: totalStudents || 120,
-      classesTodayCount: classesTodayCount || classes.length,
-      pendingGradingCount:
-        pendingAssignments.reduce((acc, a) => acc + a.pendingSubmissions, 0) ||
-        20,
+      pendingAssignments,
+      totalStudentsTaught: totalStudents,
+      classesTodayCount,
+      pendingGradingCount: pendingAssignments.reduce(
+        (acc, a) => acc + a.pendingSubmissions,
+        0,
+      ),
     };
   }
 
@@ -1156,84 +1259,7 @@ export class DashboardService {
     });
 
     if (!student) {
-      return {
-        studentInfo: null,
-        attendancePct: 94,
-        totalAttendanceDays: 45,
-        presentAttendanceDays: 42,
-        pendingFees: 4500,
-        todaySchedule: [
-          {
-            id: '1',
-            period: 1,
-            startTime: '09:00 AM',
-            endTime: '09:45 AM',
-            subject: 'Mathematics',
-            teacher: 'Mr. Ananth Sharma',
-            room: 'Room 204',
-          },
-          {
-            id: '2',
-            period: 2,
-            startTime: '10:00 AM',
-            endTime: '10:45 AM',
-            subject: 'Physics',
-            teacher: 'Dr. Priya Raman',
-            room: 'Physics Lab',
-          },
-          {
-            id: '3',
-            period: 3,
-            startTime: '11:00 AM',
-            endTime: '11:45 AM',
-            subject: 'English Literature',
-            teacher: 'Mrs. Susan Thomas',
-            room: 'Room 204',
-          },
-        ],
-        activeAssignments: [
-          {
-            id: '1',
-            title: 'Quadratic Equations Practice',
-            subject: 'Mathematics',
-            dueDate: new Date(Date.now() + 86400000).toISOString(),
-            maxMarks: 25,
-            status: 'PENDING',
-            marksObtained: null,
-            feedback: null,
-          },
-          {
-            id: '2',
-            title: 'Ray Optics Reflection Diagram',
-            subject: 'Physics',
-            dueDate: new Date(Date.now() + 172800000).toISOString(),
-            maxMarks: 20,
-            status: 'SUBMITTED',
-            marksObtained: null,
-            feedback: null,
-          },
-        ],
-        recentMarks: [
-          {
-            id: '1',
-            subject: 'Mathematics',
-            examName: 'Mid-Term Exam',
-            score: 88,
-            maxScore: 100,
-            grade: 'A',
-            remarks: 'Consistent problem solving',
-          },
-          {
-            id: '2',
-            subject: 'Science',
-            examName: 'Mid-Term Exam',
-            score: 92,
-            maxScore: 100,
-            grade: 'A+',
-            remarks: 'Excellent lab comprehension',
-          },
-        ],
-      };
+      throw new NotFoundException('Student record not found');
     }
 
     const enrollment = student.enrollments[0];
@@ -1247,7 +1273,7 @@ export class DashboardService {
       (a) => a.status === 'PRESENT' || a.status === 'LATE',
     ).length;
     const attendancePct =
-      totalDays > 0 ? Math.round((presentCount / totalDays) * 100) : 95;
+      totalDays > 0 ? Math.round((presentCount / totalDays) * 100) : 0;
 
     const pendingFees = student.feePayments
       .filter((f) => f.paymentStatus !== 'PAID')
@@ -1278,8 +1304,8 @@ export class DashboardService {
         subject: s.subject?.name || 'Class',
         teacher: s.staff
           ? `${s.staff.user.firstName} ${s.staff.user.lastName}`
-          : 'Assigned Faculty',
-        room: s.roomNumber || 'Room 102',
+          : null,
+        room: s.roomNumber || null,
       }));
     }
 
@@ -1346,56 +1372,11 @@ export class DashboardService {
         className,
       },
       attendancePct,
-      totalAttendanceDays: totalDays || 45,
-      presentAttendanceDays: presentCount || 42,
-      pendingFees: pendingFees || 4500,
-      todaySchedule:
-        todaySchedule.length > 0
-          ? todaySchedule
-          : [
-              {
-                id: '1',
-                period: 1,
-                startTime: '09:00 AM',
-                endTime: '09:45 AM',
-                subject: 'Mathematics',
-                teacher: 'Mr. Ananth Sharma',
-                room: 'Room 204',
-              },
-              {
-                id: '2',
-                period: 2,
-                startTime: '10:00 AM',
-                endTime: '10:45 AM',
-                subject: 'Physics',
-                teacher: 'Dr. Priya Raman',
-                room: 'Physics Lab',
-              },
-              {
-                id: '3',
-                period: 3,
-                startTime: '11:00 AM',
-                endTime: '11:45 AM',
-                subject: 'English Literature',
-                teacher: 'Mrs. Susan Thomas',
-                room: 'Room 204',
-              },
-            ],
-      activeAssignments:
-        activeAssignments.length > 0
-          ? activeAssignments
-          : [
-              {
-                id: '1',
-                title: 'Quadratic Equations Practice',
-                subject: 'Mathematics',
-                dueDate: new Date(Date.now() + 86400000).toISOString(),
-                maxMarks: 25,
-                status: 'PENDING',
-                marksObtained: null,
-                feedback: null,
-              },
-            ],
+      totalAttendanceDays: totalDays,
+      presentAttendanceDays: presentCount,
+      pendingFees,
+      todaySchedule,
+      activeAssignments,
       recentMarks,
     };
   }
@@ -1625,21 +1606,14 @@ export class DashboardService {
             byMonth: Object.values(attendanceByMonth),
           },
           fees: {
-            totalFee: totalFee || 25000,
-            paidFee: paidFee || 20000,
-            outstandingFee: outstandingFee || 5000,
+            totalFee,
+            paidFee,
+            outstandingFee,
             history: paymentHistory,
           },
           upcomingExams,
           todayTimetable,
-          transport: {
-            busNumber: 'Bus 14',
-            route: 'Greenwood Main – Lakeview',
-            driver: 'Mr. Ramesh',
-            vehicleNo: 'KA 03 AB 1234',
-            estimatedArrival: '4:32 PM',
-            status: 'On Track',
-          },
+          transport: null,
           activities: student.activities.map((act: any) => ({
             id: act.id,
             title: act.title,

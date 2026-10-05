@@ -193,7 +193,8 @@ describe('Change #8E — Academic Invariants & Constraints Enforcement', () => {
           academicYearId: 'foreign-year-belonging-to-school-2',
         }),
       ).rejects.toThrow(
-        'Specified academic year does not belong to this school',
+        // Error message from centralized resolveActiveAcademicYear utility
+        'Academic year not found for this school',
       );
     });
 
@@ -435,12 +436,20 @@ describe('Change #8E — Academic Invariants & Constraints Enforcement', () => {
           {
             academicYearId: 'ay-2025',
             status: 'ACTIVE',
-            section: { class: { name: 'Class 9', numericLevel: 9, schoolId: 'school-1' } },
+            section: {
+              class: { name: 'Class 9', numericLevel: 9, schoolId: 'school-1' },
+            },
           },
           {
             academicYearId: 'ay-2026',
             status: 'ACTIVE',
-            section: { class: { name: 'Class 10', numericLevel: 10, schoolId: 'school-1' } },
+            section: {
+              class: {
+                name: 'Class 10',
+                numericLevel: 10,
+                schoolId: 'school-1',
+              },
+            },
           },
         ],
       });
@@ -454,18 +463,24 @@ describe('Change #8E — Academic Invariants & Constraints Enforcement', () => {
           globalSubject: { name: 'Mathematics' },
         },
       ]);
-      mockPrisma.$transaction.mockImplementation(async (cb: any) => cb({
-        studentSubjectEnrollment: {
-          updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-          upsert: jest.fn().mockResolvedValue({}),
-        },
-      }));
+      mockPrisma.$transaction.mockImplementation(async (cb: any) =>
+        cb({
+          studentSubjectEnrollment: {
+            updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+            upsert: jest.fn().mockResolvedValue({}),
+          },
+        }),
+      );
 
       // Explicit academicYearId targeting 2026-27
-      const res = await curriculumService.enrollStudentSubjects('school-1', 'std-multi', {
-        academicYearId: 'ay-2026',
-        offeringIds: ['off-grade10-math'],
-      });
+      const res = await curriculumService.enrollStudentSubjects(
+        'school-1',
+        'std-multi',
+        {
+          academicYearId: 'ay-2026',
+          offeringIds: ['off-grade10-math'],
+        },
+      );
 
       expect(res).toBeDefined();
     });
@@ -493,7 +508,9 @@ describe('Change #8E — Academic Invariants & Constraints Enforcement', () => {
           academicYearId: 'ay-2027',
           offeringIds: ['off-any'],
         }),
-      ).rejects.toThrow('Student has no active class enrollment in academic session "2027-28"');
+      ).rejects.toThrow(
+        'Student has no active class enrollment in academic session "2027-28"',
+      );
     });
 
     it('rejects subject enrollment mutation on locked academic year (Area C)', async () => {

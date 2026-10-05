@@ -48,9 +48,11 @@ const GRADE_OPTIONS = [
 ];
 
 export default function AdmissionsHelpdeskWidget({
+  schoolId,
   onEnquiryCreated,
   isEmbedded = true,
 }: {
+  schoolId?: string;
   onEnquiryCreated?: () => void;
   isEmbedded?: boolean;
 }) {
@@ -66,6 +68,15 @@ export default function AdmissionsHelpdeskWidget({
   const [email, setEmail] = useState("");
   const [classApplied, setClassApplied] = useState("Class 1");
   const [studentName, setStudentName] = useState("");
+
+  const activeSchoolId =
+    schoolId ||
+    (typeof window !== "undefined"
+      ? localStorage.getItem("schoolId") ||
+        localStorage.getItem("currentSchoolId") ||
+        new URLSearchParams(window.location.search).get("schoolId") ||
+        ""
+      : "");
 
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -105,6 +116,7 @@ export default function AdmissionsHelpdeskWidget({
       // Attempt authenticated endpoint first, fallback to public endpoint
       let res;
       const payload = {
+        schoolId: activeSchoolId,
         message: textToSend.trim(),
         language: selectedLanguage,
         sessionId,
@@ -143,7 +155,7 @@ export default function AdmissionsHelpdeskWidget({
       const fallbackMsg: Message = {
         id: `bot_err_${Date.now()}`,
         sender: "concierge",
-        text: "Thank you for your inquiry. Admissions for Nursery through Grade 10 are currently open. Please call our admissions desk at +91 98765 43210 or share your contact number to schedule an appointment.",
+        text: "Thank you for your inquiry. Admissions for Nursery through Grade 10 are currently open. Please share your contact number or visit our campus to schedule an appointment.",
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
       setMessages((prev) => [...prev, fallbackMsg]);

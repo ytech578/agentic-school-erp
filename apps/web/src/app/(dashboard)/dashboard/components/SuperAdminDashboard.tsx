@@ -13,23 +13,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { DashboardKpiCard } from "@/components/ui/DashboardKpiCard";
 import { formatDate, formatTimeAgo } from "@/lib/formatters";
 import { CreateSchoolModal } from "@/components/schools/CreateSchoolModal";
-
-function LoadingSkeleton() {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      <div style={{ height: "160px", background: "var(--bg-surface)", borderRadius: "var(--radius-2xl)", animation: "shimmer 1.5s infinite" }} />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "1.25rem" }}>
-        {Array(4).fill(0).map((_, i) => (
-          <div key={i} style={{ height: "130px", background: "var(--bg-surface)", borderRadius: "var(--radius-xl)", animation: "shimmer 1.5s infinite" }} />
-        ))}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
-        <div style={{ height: "300px", background: "var(--bg-surface)", borderRadius: "var(--radius-xl)", animation: "shimmer 1.5s infinite" }} />
-        <div style={{ height: "300px", background: "var(--bg-surface)", borderRadius: "var(--radius-xl)", animation: "shimmer 1.5s infinite" }} />
-      </div>
-    </div>
-  );
-}
+import { DashboardLoadingSkeleton } from "@/components/ui/Skeleton";
 
 export function SuperAdminDashboard({ user }: { user: any }) {
   const router = useRouter();
@@ -38,12 +22,16 @@ export function SuperAdminDashboard({ user }: { user: any }) {
   const [refreshing, setRefreshing] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  const fetchDashboard = async () => {
+  const fetchDashboard = async (retryCount = 0) => {
     try {
       const res = await apiClient.get("/dashboard/super-admin");
       setData(res.data?.data || res.data);
-    } catch (err) {
-      console.error("Failed to fetch super admin dashboard", err);
+    } catch (err: any) {
+      if (retryCount < 3) {
+        setTimeout(() => fetchDashboard(retryCount + 1), 1500);
+        return;
+      }
+      console.warn("[SuperAdminDashboard] Awaiting live fleet telemetry:", err?.message || err);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -54,7 +42,7 @@ export function SuperAdminDashboard({ user }: { user: any }) {
 
   const handleRefresh = () => { setRefreshing(true); fetchDashboard(); };
 
-  if (loading) return <LoadingSkeleton />;
+  if (loading) return <DashboardLoadingSkeleton />;
 
   const fleet = data?.fleet;
   const health = data?.systemHealth;
@@ -156,6 +144,162 @@ export function SuperAdminDashboard({ user }: { user: any }) {
           }
         />
       </div>
+
+      {/* Enterprise Platform Modules & Quick Operations Hub */}
+      <Card>
+        <CardHeader style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "0.75rem" }}>
+          <div>
+            <CardTitle style={{ fontSize: "var(--text-base)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <Cpu size={18} className="text-brand" />
+              Enterprise Platform Modules & Governance Hub
+            </CardTitle>
+            <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", margin: 0 }}>
+              Direct access to multi-tenant academic engines, statutory compliance, and fleet metering
+            </p>
+          </div>
+          <span style={{ fontSize: "11px", fontWeight: 700, padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", background: "rgba(37, 99, 235, 0.1)", color: "var(--brand-primary)" }}>
+            8 Core Systems Active
+          </span>
+        </CardHeader>
+        <CardContent style={{ padding: "0 1.25rem 1.25rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0.875rem" }}>
+            {[
+              {
+                title: "SaaS Subscriptions & Quota",
+                desc: "Real live telemetry, plan tiers, student/staff limits",
+                href: "/subscriptions",
+                icon: Sparkles,
+                color: "#8B5CF6",
+                tag: "Live Metering",
+              },
+              {
+                title: "Payroll & Payslips Engine",
+                desc: "Salary structures, EPF/ESI statutory cuts, disbursement",
+                href: "/payroll",
+                icon: Activity,
+                color: "#10B981",
+                tag: "HR & Finance",
+              },
+              {
+                title: "Certificates & Credentials",
+                desc: "Transfer certificates, bonafide & QR verification",
+                href: "/certificates",
+                icon: ShieldCheck,
+                color: "#2563EB",
+                tag: "Tamper-Evident",
+              },
+              {
+                title: "PTM Conferences",
+                desc: "Parent-teacher meeting scheduling, slot management, virtual links",
+                href: "/ptm",
+                icon: Clock,
+                color: "#06B6D4",
+                tag: "Conferencing",
+              },
+              {
+                title: "PTM Conference Scheduling",
+                desc: "Multi-teacher slot management and parent booking",
+                href: "/ptm",
+                icon: Clock,
+                color: "#F59E0B",
+                tag: "Conferencing",
+              },
+              {
+                title: "Student Discipline Registry",
+                desc: "Incident logs, remedial actions, confidential flags",
+                href: "/discipline",
+                icon: ShieldCheck,
+                color: "#EF4444",
+                tag: "Conduct Sentinel",
+              },
+              {
+                title: "Alumni & Transcripts",
+                desc: "Graduates directory, transcript requests tracking",
+                href: "/alumni",
+                icon: Database,
+                color: "#3B82F6",
+                tag: "Graduates Network",
+              },
+              {
+                title: "DPDP Privacy Center",
+                desc: "Parental consent, JSON export (Sec 11), erasure (Sec 12)",
+                href: "/privacy",
+                icon: ShieldCheck,
+                color: "#059669",
+                tag: "DPDP Act 2023",
+              },
+            ].map((module) => {
+              const Icon = module.icon;
+              return (
+                <div
+                  key={module.title}
+                  onClick={() => router.push(module.href)}
+                  style={{
+                    padding: "1rem",
+                    borderRadius: "var(--radius-xl)",
+                    background: "var(--bg-app)",
+                    border: "1px solid var(--border-default)",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    gap: "0.75rem",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = module.color;
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                    e.currentTarget.style.boxShadow = "var(--shadow-md)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "var(--border-default)";
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div
+                      style={{
+                        width: "36px",
+                        height: "36px",
+                        borderRadius: "10px",
+                        background: `${module.color}15`,
+                        color: module.color,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Icon size={18} />
+                    </div>
+                    <span
+                      style={{
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        padding: "0.15rem 0.5rem",
+                        borderRadius: "var(--radius-full)",
+                        background: `${module.color}12`,
+                        color: module.color,
+                      }}
+                    >
+                      {module.tag}
+                    </span>
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: "var(--text-sm)", color: "var(--text-primary)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span>{module.title}</span>
+                      <ArrowRight size={13} style={{ opacity: 0.6 }} />
+                    </div>
+                    <p style={{ margin: "0.25rem 0 0", fontSize: "11px", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                      {module.desc}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Main Grid: Campuses List & Global Audit Log */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "1.5rem" }}>

@@ -5,7 +5,7 @@ import { apiClient } from "@/lib/axios";
 import { DataTable, Column } from "@/components/ui/DataTable";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { Search, IndianRupee, QrCode } from "lucide-react";
+import { Search, IndianRupee, QrCode, FileText } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { AlertTriangle } from "lucide-react";
@@ -197,6 +197,10 @@ export default function FeesDashboardPage() {
           )}
           <Button variant="secondary" onClick={() => router.push("/fees/structures")}>
             Manage Structures
+          </Button>
+          <Button variant="outline" onClick={() => router.push("/fees/invoices")}>
+            <FileText size={16} style={{ marginRight: "0.35rem" }} />
+            Invoices & Receipts
           </Button>
           <Button variant="outline" onClick={() => router.push("/fees/settings")}>
             <QrCode size={16} style={{ marginRight: "0.35rem" }} />

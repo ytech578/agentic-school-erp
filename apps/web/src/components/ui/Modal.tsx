@@ -1,4 +1,7 @@
-import React, { useEffect, useRef } from "react";
+"use client";
+
+import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 export interface ModalProps {
@@ -7,10 +10,23 @@ export interface ModalProps {
   title: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  maxWidth?: string;
 }
 
-export function Modal({ isOpen, onClose, title, children, footer }: ModalProps) {
+export function Modal({
+  isOpen,
+  onClose,
+  title,
+  children,
+  footer,
+  maxWidth = "560px",
+}: ModalProps) {
+  const [mounted, setMounted] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -19,34 +35,49 @@ export function Modal({ isOpen, onClose, title, children, footer }: ModalProps) 
 
     if (isOpen) {
       document.body.style.overflow = "hidden";
+      const pageContent = document.querySelector(".page-content") as HTMLElement | null;
+      if (pageContent) {
+        pageContent.style.overflow = "hidden";
+      }
       document.addEventListener("keydown", handleKeyDown);
     } else {
       document.body.style.overflow = "unset";
+      const pageContent = document.querySelector(".page-content") as HTMLElement | null;
+      if (pageContent) {
+        pageContent.style.overflow = "auto";
+      }
     }
 
     return () => {
       document.body.style.overflow = "unset";
+      const pageContent = document.querySelector(".page-content") as HTMLElement | null;
+      if (pageContent) {
+        pageContent.style.overflow = "auto";
+      }
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
-  return (
+  const modalContent = (
     <div
+      className="modal-backdrop"
       style={{
         position: "fixed",
         top: 0,
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: "var(--bg-overlay)",
-        backdropFilter: "var(--modal-backdrop-blur)",
-        WebkitBackdropFilter: "var(--modal-backdrop-blur)",
+        width: "100vw",
+        height: "100vh",
+        backgroundColor: "var(--bg-overlay, rgba(15, 23, 42, 0.55))",
+        backdropFilter: "var(--modal-backdrop-blur, none)",
+        WebkitBackdropFilter: "var(--modal-backdrop-blur, none)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        zIndex: 1000,
+        zIndex: 99999,
         padding: "1rem",
         animation: "fadeIn 0.2s ease-out",
       }}
@@ -57,13 +88,13 @@ export function Modal({ isOpen, onClose, title, children, footer }: ModalProps) 
         className="modal-dialog"
         style={{
           width: "100%",
-          maxWidth: "500px",
+          maxWidth: maxWidth,
           maxHeight: "90vh",
           display: "flex",
           flexDirection: "column",
           padding: 0,
-          backgroundColor: "var(--bg-surface-solid)",
-          background: "var(--bg-surface-solid)",
+          backgroundColor: "var(--bg-surface-solid, #ffffff)",
+          background: "var(--bg-surface-solid, #ffffff)",
           opacity: 1,
         }}
         onClick={(e) => e.stopPropagation()}
@@ -79,15 +110,17 @@ export function Modal({ isOpen, onClose, title, children, footer }: ModalProps) 
         >
           <h2 style={{ fontSize: "1.25rem", fontWeight: 600, margin: 0 }}>{title}</h2>
           <button
+            type="button"
             onClick={onClose}
             className="btn-ghost btn-icon"
-            style={{ padding: "0.25rem", color: "var(--text-secondary)" }}
+            style={{ padding: "0.25rem", color: "var(--text-secondary)", cursor: "pointer" }}
+            aria-label="Close modal"
           >
             <X size={20} />
           </button>
         </div>
 
-        <div style={{ padding: "1.25rem", overflowY: "auto" }}>
+        <div style={{ padding: "1.25rem", overflowY: "auto", flex: 1 }}>
           {children}
         </div>
 
@@ -108,4 +141,6 @@ export function Modal({ isOpen, onClose, title, children, footer }: ModalProps) 
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }

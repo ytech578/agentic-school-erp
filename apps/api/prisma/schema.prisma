@@ -239,6 +239,7 @@ model School {
   agentAlerts           AgentAlert[]
   facultySubstitutions  FacultySubstitution[]
   agentActions          AgentAction[]
+  subscription          SchoolSubscription?
 
   @@index([code])
   @@index([boardId])
@@ -315,6 +316,7 @@ model User {
   activityLogs  ActivityLog[]
   notifications Notification[]
   sentMessages  Message[]      @relation("SentMessages")
+  deviceTokens  DeviceToken[]
 
   @@index([email])
   @@index([schoolId, role])
@@ -740,6 +742,13 @@ model Student {
   promotions            StudentPromotion[]
   admissionApplication  AdmissionApplication?
   subjectEnrollments    StudentSubjectEnrollment[]
+  certificates          IssuedCertificate[]
+  ptmSlots              PtmSlot[]
+  disciplineIncidents   DisciplineIncident[]
+  dataConsents          DataConsent[]
+  alumniProfile         AlumniProfile?
+  transcriptRequests    TranscriptRequest[]
+  onlineExamSubmissions OnlineExamSubmission[]
 
   @@unique([schoolId, admissionNumber])
   @@index([schoolId])
@@ -960,6 +969,10 @@ model Staff {
   Assignment            Assignment[]
   originalSubstitutions FacultySubstitution[] @relation("OriginalStaffSubstitutions")
   coveredSubstitutions  FacultySubstitution[] @relation("SubstituteStaffSubstitutions")
+  salaryStructure       SalaryStructure?
+  payslips              Payslip[]
+  ptmSlots              PtmSlot[]
+  reportedIncidents     DisciplineIncident[]  @relation("StaffReportedIncidents")
 
   @@unique([schoolId, employeeId])
   @@index([schoolId])
@@ -1176,6 +1189,7 @@ model FeePayment {
   items   FeePaymentItem[]
   receipt Receipt?
 
+  @@index([schoolId, transactionRef])
   @@index([schoolId, studentId])
   @@index([schoolId, paymentDate])
   @@index([schoolId, paymentStatus])
@@ -1628,3 +1642,509 @@ model SystemConfig {
   @@unique([schoolId, key])
   @@map("system_configs")
 }
+
+// ============================================================
+// PAYROLL & COMPENSATION (Wave 1)
+// ============================================================
+
+enum PayrollCycleStatus {
+  DRAFT
+  PROCESSING
+  APPROVED
+  PAID
+}
+
+enum PayslipStatus {
+  PENDING
+  PAID
+}
+
+model SalaryStructure {
+  id               String   @id @default(cuid())
+  schoolId         String
+  staffId          String   @unique
+  basicSalary      Float
+  da               Float    @default(0) // Dearness Allowance
+  hra              Float    @default(0) // House Rent Allowance
+  conveyance       Float    @default(0)
+  medicalAllowance Float    @default(0)
+  specialAllowance Float    @default(0)
+  epfApplicable    Boolean  @default(true) // Employee Provident Fund (12%)
+  esiApplicable    Boolean  @default(false) // ESI (0.75% / 3.25%)
+  professionalTax  Float    @default(200) // State PT
+  tdsMonthly       Float    @default(0) // TDS (Income Tax)
+  effectiveFrom    DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@map("salary_structures")
+}
+
+model PayrollCycle {
+  id              String             @id @default(cuid())
+  schoolId        String
+  month           Int                // 1-12
+  year            Int                // e.g. 2026
+  workingDays     Int                @default(30)
+  status          PayrollCycleStatus @default(DRAFT)
+  totalGross      Float              @default(0)
+  totalDeductions Float              @default(0)
+  totalNet        Float              @default(0)
+  processedBy     String?
+  approvedBy      String?
+  processedAt     DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  payslips Payslip[]
+
+  @@unique([schoolId, month, year])
+  @@index([schoolId])
+  @@map("payroll_cycles")
+}
+
+model Payslip {
+  id              String        @id @default(cuid())
+  schoolId        String
+  cycleId         String
+  staffId         String
+  payslipNumber   String
+  presentDays     Float
+  lossOfPayDays   Float         @default(0)
+  basicSalary     Float
+  da              Float         @default(0)
+  hra             Float         @default(0)
+  allowances      Float         @default(0)
+  grossSalary     Float
+  epfDeduction    Float         @default(0)
+  esiDeduction    Float         @default(0)
+  ptDeduction     Float         @default(0)
+  tdsDeduction    Float         @default(0)
+  otherDeductions Float         @default(0)
+  totalDeductions Float
+  netSalary       Float
+  paymentStatus   PayslipStatus @default(PENDING)
+  paymentMethod   String?       // NEFT, RTGS, CHEQUE, UPI
+  paymentRef      String?
+  paidAt          DateTime?
+  remarks         String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  cycle PayrollCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  staff Staff        @relation(fields: [staffId], references: [id])
+
+  @@unique([cycleId, staffId])
+  @@index([schoolId, staffId])
+  @@map("payslips")
+}
+
+// ============================================================
+// CERTIFICATES & VERIFICATION (Wave 1)
+// ============================================================
+
+enum CertificateType {
+  TRANSFER_CERTIFICATE
+  BONAFIDE
+  CHARACTER
+  STUDY_CONDUCT
+  MERIT
+  SPORTS
+}
+
+model CertificateTemplate {
+  id             String          @id @default(cuid())
+  schoolId       String
+  type           CertificateType
+  name           String
+  headerText     String?
+  bodyTemplate   String
+  footerText     String?
+  signatoryTitle String          @default("Principal")
+  includeQrCode  Boolean         @default(true)
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  issuedCertificates IssuedCertificate[]
+
+  @@index([schoolId, type])
+  @@map("certificate_templates")
+}
+
+model IssuedCertificate {
+  id                String          @id @default(cuid())
+  schoolId          String
+  templateId        String?
+  studentId         String
+  certificateNumber String
+  type              CertificateType
+  issueDate         DateTime        @default(now())
+  reason            String?
+  leavingReason     String?
+  conductRemark     String?         @default("Good")
+  remarks           String?
+  verificationHash  String          @unique
+  pdfUrl            String?
+  issuedByUserId    String
+  isRevoked         Boolean         @default(false)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  student  Student              @relation(fields: [studentId], references: [id])
+  template CertificateTemplate? @relation(fields: [templateId], references: [id])
+
+  @@unique([schoolId, certificateNumber])
+  @@index([schoolId, studentId])
+  @@index([verificationHash])
+  @@map("issued_certificates")
+}
+
+// ============================================================
+// PARENT-TEACHER MEETINGS (PTM) (Wave 2)
+// ============================================================
+
+enum PtmMode {
+  IN_PERSON
+  VIRTUAL
+}
+
+enum PtmSlotStatus {
+  AVAILABLE
+  BOOKED
+  COMPLETED
+  CANCELLED
+}
+
+model PtmSession {
+  id           String    @id @default(cuid())
+  schoolId     String
+  title        String
+  description  String?
+  date         DateTime
+  startTime    String    // HH:mm
+  endTime      String    // HH:mm
+  slotDuration Int       @default(15) // minutes
+  mode         PtmMode   @default(IN_PERSON)
+  meetingLink  String?
+  location     String?
+  classId      String?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  slots PtmSlot[]
+
+  @@index([schoolId, date])
+  @@map("ptm_sessions")
+}
+
+model PtmSlot {
+  id           String        @id @default(cuid())
+  schoolId     String
+  sessionId    String
+  teacherId    String
+  startTime    String
+  endTime      String
+  studentId    String?
+  parentId     String?
+  status       PtmSlotStatus @default(AVAILABLE)
+  parentNotes  String?
+  teacherNotes String?
+  actionItems  String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  session PtmSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  teacher Staff      @relation(fields: [teacherId], references: [id])
+  student Student?   @relation(fields: [studentId], references: [id])
+
+  @@unique([sessionId, teacherId, startTime])
+  @@index([schoolId, teacherId])
+  @@index([schoolId, studentId])
+  @@map("ptm_slots")
+}
+
+// ============================================================
+// DISCIPLINE INCIDENT TRACKING (Wave 2)
+// ============================================================
+
+enum IncidentSeverity {
+  MINOR
+  MODERATE
+  MAJOR
+  CRITICAL
+}
+
+enum IncidentStatus {
+  REPORTED
+  INVESTIGATING
+  RESOLVED
+  APPEALED
+  CLOSED
+}
+
+model DisciplineIncident {
+  id                String           @id @default(cuid())
+  schoolId          String
+  incidentNumber    String
+  title             String
+  description       String
+  category          String
+  severity          IncidentSeverity @default(MINOR)
+  status            IncidentStatus   @default(REPORTED)
+  incidentDate      DateTime         @default(now())
+  location          String?
+  studentId         String
+  reportedByStaffId String
+  actionTaken       String?
+  actionExpiryDate  DateTime?
+  parentNotified    Boolean          @default(false)
+  parentNotifiedAt  DateTime?
+  isConfidential    Boolean          @default(false)
+  resolutionNotes   String?
+  resolvedAt        DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  student         Student @relation(fields: [studentId], references: [id])
+  reportedByStaff Staff   @relation("StaffReportedIncidents", fields: [reportedByStaffId], references: [id])
+
+  @@unique([schoolId, incidentNumber])
+  @@index([schoolId, studentId])
+  @@index([schoolId, status])
+  @@map("discipline_incidents")
+}
+
+// ============================================================
+// PUSH NOTIFICATIONS / FCM (Wave 3)
+// ============================================================
+
+model DeviceToken {
+  id        String   @id @default(cuid())
+  userId    String
+  schoolId  String
+  token     String   @unique
+  platform  String   // "ANDROID" | "IOS" | "WEB"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([schoolId])
+  @@map("device_tokens")
+}
+
+// ============================================================
+// DPDP ACT 2023 COMPLIANCE & PRIVACY (Wave 3)
+// ============================================================
+
+model DataConsent {
+  id                   String    @id @default(cuid())
+  schoolId             String
+  studentId            String
+  guardianId           String
+  consentType          String    // "ACADEMIC_RECORDS", "BIOMETRIC_ATTENDANCE", "HEALTH_DATA", "MEDIA_PHOTOS", "AI_PROFILING"
+  isGranted            Boolean   @default(false)
+  grantedAt            DateTime?
+  revokedAt            DateTime?
+  ipAddress            String?
+  consentNoticeVersion String    @default("1.0")
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, consentType])
+  @@index([schoolId, consentType])
+  @@map("data_consents")
+}
+
+model DataPrivacyRequest {
+  id                String    @id @default(cuid())
+  schoolId          String
+  userId            String
+  requestType       String    // "EXPORT_DATA" | "ERASURE" | "RECTIFICATION"
+  status            String    // "PENDING" | "PROCESSING" | "COMPLETED" | "REJECTED"
+  exportDownloadUrl String?
+  rejectionReason   String?
+  processedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([schoolId, userId])
+  @@index([schoolId, status])
+  @@map("data_privacy_requests")
+}
+
+// ============================================================
+// MULTI-TENANT SAAS SUBSCRIPTIONS & METERING (Wave 3)
+// ============================================================
+
+enum SubscriptionPlan {
+  FREE_PILOT
+  STARTER
+  GROWTH
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELLED
+}
+
+model SchoolSubscription {
+  id                   String             @id @default(cuid())
+  schoolId             String             @unique
+  plan                 SubscriptionPlan   @default(FREE_PILOT)
+  status               SubscriptionStatus @default(ACTIVE)
+  maxStudents          Int                @default(200)
+  maxStaff             Int                @default(30)
+  maxStorageGb         Float              @default(5.0)
+  maxAiTokensMonthly   Int                @default(500000)
+  currentAiTokensUsed  Int                @default(0)
+  currentStorageGbUsed Float              @default(0.0)
+  startDate            DateTime           @default(now())
+  renewsAt             DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@map("school_subscriptions")
+}
+
+// ============================================================
+// ONLINE EXAMS & QUESTION BANK (Wave 3)
+// ============================================================
+
+enum QuestionType {
+  MCQ
+  TRUE_FALSE
+  SHORT_ANSWER
+  DESCRIPTIVE
+}
+
+model QuestionBank {
+  id            String       @id @default(cuid())
+  schoolId      String
+  subjectId     String?
+  classId       String?
+  questionText  String
+  type          QuestionType @default(MCQ)
+  options       Json?
+  correctAnswer String
+  explanation   String?
+  marks         Float        @default(1)
+  difficulty    String       @default("MEDIUM")
+  tags          String[]
+  createdBy     String
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([schoolId, subjectId])
+  @@index([schoolId, classId])
+  @@map("question_bank")
+}
+
+model OnlineExam {
+  id              String   @id @default(cuid())
+  schoolId        String
+  title           String
+  subjectId       String?
+  classId         String?
+  durationMinutes Int      @default(60)
+  totalMarks      Float
+  passMarks       Float
+  startTime       DateTime
+  endTime         DateTime
+  questions       Json
+  isPublished     Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  submissions OnlineExamSubmission[]
+
+  @@index([schoolId, classId])
+  @@map("online_exams")
+}
+
+model OnlineExamSubmission {
+  id          String    @id @default(cuid())
+  schoolId    String
+  examId      String
+  studentId   String
+  answers     Json
+  score       Float?
+  isGraded    Boolean   @default(false)
+  startedAt   DateTime  @default(now())
+  submittedAt DateTime?
+  feedback    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  exam    OnlineExam @relation(fields: [examId], references: [id], onDelete: Cascade)
+  student Student    @relation(fields: [studentId], references: [id])
+
+  @@unique([examId, studentId])
+  @@index([schoolId, studentId])
+  @@map("online_exam_submissions")
+}
+
+// ============================================================
+// ALUMNI MANAGEMENT & TRANSCRIPT ENGINE (Wave 3)
+// ============================================================
+
+model AlumniProfile {
+  id                  String   @id @default(cuid())
+  schoolId            String
+  studentId           String   @unique
+  graduationYear      Int
+  currentStatus       String?
+  higherEducationInst String?
+  degree              String?
+  company             String?
+  designation         String?
+  linkedInUrl         String?
+  phone               String?
+  email               String?
+  city                String?
+  country             String   @default("India")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId, graduationYear])
+  @@map("alumni_profiles")
+}
+
+model TranscriptRequest {
+  id             String   @id @default(cuid())
+  schoolId       String
+  studentId      String
+  requestNumber  String
+  purpose        String
+  deliveryMode   String   @default("DIGITAL")
+  status         String   @default("SUBMITTED")
+  documentUrl    String?
+  trackingNumber String?
+  remarks        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id])
+
+  @@unique([schoolId, requestNumber])
+  @@index([schoolId, studentId])
+  @@map("transcript_requests")
+}
+
+
+

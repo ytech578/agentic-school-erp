@@ -54,17 +54,20 @@ interface OfficialReportCardModalProps {
   onClose: () => void;
 }
 
+import { useSchool } from "@/hooks/useSchool";
+
 export function OfficialReportCardModal({ data, onClose }: OfficialReportCardModalProps) {
   const printRef = useRef<HTMLDivElement>(null);
+  const schoolConfig = useSchool();
 
   const handlePrint = () => {
     window.print();
   };
 
-  const schoolName = data.schoolName || "SUNRISE PUBLIC SCHOOL";
-  const affiliationNo = data.affiliationNo || "CBSE Affiliation No: 2130842 · School Code: 70192";
-  const schoolAddress = data.schoolAddress || "Institutional Area, Knowledge Park II, New Delhi - 110001";
-  const academicSession = data.academicSession || "Academic Session: 2025 – 2026";
+  const schoolName = data.schoolName || schoolConfig.schoolName || "SUNRISE PUBLIC SCHOOL";
+  const affiliationNo = data.affiliationNo || (schoolConfig.affiliationNo ? `Affiliation No: ${schoolConfig.affiliationNo}` : "Recognized & Affiliated Educational Institution");
+  const schoolAddress = data.schoolAddress || schoolConfig.fullAddress || "Institutional Area, Main Campus";
+  const academicSession = data.academicSession || "Academic Session: 2026 – 2027";
   const student = data.student;
   const summary = data.summary;
 
@@ -74,7 +77,7 @@ export function OfficialReportCardModal({ data, onClose }: OfficialReportCardMod
         position: "fixed",
         inset: 0,
         backgroundColor: "rgba(15, 23, 42, 0.75)",
-        backdropFilter: "blur(6px)",
+        backdropFilter: "none",
         zIndex: 9999,
         display: "flex",
         alignItems: "center",

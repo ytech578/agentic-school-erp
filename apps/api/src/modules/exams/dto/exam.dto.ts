@@ -13,7 +13,10 @@ import {
 import { Type } from 'class-transformer';
 
 export class CreateExamDto {
-  @ApiProperty({ description: 'Exam name', example: 'Mid-Term Examination 2026' })
+  @ApiProperty({
+    description: 'Exam name',
+    example: 'Mid-Term Examination 2026',
+  })
   @IsString()
   @IsNotEmpty()
   name: string;
@@ -23,7 +26,10 @@ export class CreateExamDto {
   @IsNotEmpty()
   examType: string;
 
-  @ApiProperty({ description: 'Start date (ISO format)', example: '2026-10-01' })
+  @ApiProperty({
+    description: 'Start date (ISO format)',
+    example: '2026-10-01',
+  })
   @IsDateString()
   @IsNotEmpty()
   startDate: string;
@@ -34,7 +40,8 @@ export class CreateExamDto {
   endDate: string;
 
   @ApiPropertyOptional({
-    description: 'Target Academic Year ID (defaults to active session if omitted)',
+    description:
+      'Target Academic Year ID (defaults to active session if omitted)',
   })
   @IsString()
   @IsOptional()
@@ -70,14 +77,16 @@ export class AddExamSubjectDto {
   classId: string;
 
   @ApiPropertyOptional({
-    description: 'Canonical School Subject Offering ID (preferred course reference)',
+    description:
+      'Canonical School Subject Offering ID (preferred course reference)',
   })
   @IsString()
   @IsOptional()
   schoolSubjectOfferingId?: string;
 
   @ApiPropertyOptional({
-    description: 'Legacy Subject ID (compatibility bridge, auto-resolved if offering provided)',
+    description:
+      'Legacy Subject ID (compatibility bridge, auto-resolved if offering provided)',
   })
   @IsString()
   @IsOptional()
@@ -98,7 +107,10 @@ export class AddExamSubjectDto {
   @IsOptional()
   examDate?: string;
 
-  @ApiPropertyOptional({ description: 'Exam duration in minutes', example: 180 })
+  @ApiPropertyOptional({
+    description: 'Exam duration in minutes',
+    example: 180,
+  })
   @IsNumber()
   @Min(1)
   @IsOptional()
@@ -116,7 +128,10 @@ export class StudentMarkEntryDto {
   @IsOptional()
   marksObtained?: number;
 
-  @ApiPropertyOptional({ description: 'Whether student was absent', default: false })
+  @ApiPropertyOptional({
+    description: 'Whether student was absent',
+    default: false,
+  })
   @IsBoolean()
   @IsOptional()
   isAbsent?: boolean;
@@ -128,7 +143,10 @@ export class StudentMarkEntryDto {
 }
 
 export class EnterMarksDto {
-  @ApiProperty({ description: 'List of student marks', type: [StudentMarkEntryDto] })
+  @ApiProperty({
+    description: 'List of student marks',
+    type: [StudentMarkEntryDto],
+  })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => StudentMarkEntryDto)

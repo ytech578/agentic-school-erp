@@ -1181,7 +1181,24 @@ export default function TeacherCopilotPage() {
                         outline: "none",
                       }}
                     >
-                      {["Mathematics", "Science", "Social Science", "English Language & Lit", "Hindi", "Computer Science", "Environmental Studies (EVS)"].map((s) => (
+                      {[
+                        "English Language & Literature",
+                        "Mathematics",
+                        "Hindi",
+                        "Telugu",
+                        "Sanskrit",
+                        "General Science",
+                        "Physical Science",
+                        "Biological Science",
+                        "Physics",
+                        "Chemistry",
+                        "Social Studies",
+                        "History & Civics",
+                        "Economics",
+                        "Computer Science & AI",
+                        "Environmental Studies (EVS)",
+                        "Physical & Health Education"
+                      ].map((s) => (
                         <option key={s} value={s}>{s}</option>
                       ))}
                     </select>

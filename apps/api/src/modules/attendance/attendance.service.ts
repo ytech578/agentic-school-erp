@@ -8,22 +8,18 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { MarkAttendanceInput } from '@school-erp/shared';
 import { AttendanceStatus, AttendanceMethod } from '@prisma/client';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
+import { TenantCacheService } from '../../core/cache/tenant-cache.service';
 
 @Injectable()
 export class AttendanceService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cache: TenantCacheService,
+  ) {}
 
   async getClassesAndSections(schoolId: string) {
     const validSchoolId = requireSchoolId(schoolId);
-    return this.prisma.class.findMany({
-      where: { schoolId: validSchoolId },
-      orderBy: { numericLevel: 'asc' },
-      include: {
-        sections: {
-          orderBy: { name: 'asc' },
-        },
-      },
-    });
+    return this.cache.getClassesAndSections(validSchoolId);
   }
 
   async getStudentsForAttendance(

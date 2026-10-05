@@ -750,24 +750,24 @@ export class AgentControlPlaneService {
       };
 
       const candidateClasses: ClassWithYear[] = this.prisma.class.findMany
-        ? ((await this.prisma.class.findMany({
+        ? await this.prisma.class.findMany({
             where: {
               name: { equals: args.className, mode: 'insensitive' },
               schoolId: ctx.schoolId,
             },
             include: { academicYear: true },
-          })) as ClassWithYear[])
-        : ((
-            [
-              await this.prisma.class.findFirst({
-                where: {
-                  name: { equals: args.className, mode: 'insensitive' },
-                  schoolId: ctx.schoolId,
-                },
-                include: { academicYear: true },
-              }),
-            ].filter((c): c is NonNullable<typeof c> => c !== null && c !== undefined)
-          ) as ClassWithYear[]);
+          })
+        : [
+            await this.prisma.class.findFirst({
+              where: {
+                name: { equals: args.className, mode: 'insensitive' },
+                schoolId: ctx.schoolId,
+              },
+              include: { academicYear: true },
+            }),
+          ].filter(
+            (c): c is NonNullable<typeof c> => c !== null && c !== undefined,
+          );
 
       if (candidateClasses.length === 0) {
         throw new NotFoundException(

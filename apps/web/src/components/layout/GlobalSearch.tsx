@@ -29,7 +29,7 @@ const SYSTEM_SEARCH_ITEMS: SearchItem[] = [
   { id: "nav-exams", category: "Academic", title: "Exams & Grading", subtitle: "Report cards, marks & grading rules", url: "/exams", icon: FileText, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
   { id: "nav-copilot", category: "AI Copilot", title: "Teacher AI Copilot", subtitle: "Lesson planning & exam paper helper", url: "/teacher-copilot", icon: Sparkles, roles: ["TEACHER", "SCHOOL_ADMIN", "SUPER_ADMIN"] },
   { id: "nav-ai", category: "AI Copilot", title: "AI Assistant", subtitle: "Curriculum and automated assistant", url: "/ai", icon: Sparkles, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
-  { id: "nav-staff", category: "Staff", title: "Staff Directory", subtitle: "Faculty, assignments & payroll", url: "/staff", icon: Users, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
+  { id: "nav-staff", category: "Staff", title: "Staff Directory", subtitle: "Faculty, assignments & payroll", url: "/staff", icon: Users, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
   { id: "nav-fees", category: "Finance", title: "Fees & Invoices", subtitle: "Fee structures, payments & receipts", url: "/fees", icon: DollarSign, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
   { id: "nav-parent-fees", category: "Finance", title: "Parent Fee Portal", subtitle: "Online UPI & card payment gateway", url: "/parent-fees", icon: DollarSign, roles: ["PARENT"] },
   { id: "nav-leaves", category: "Academic", title: "My Leaves & Records", subtitle: "Teacher attendance and leave requests", url: "/hr", icon: Calendar, roles: ["TEACHER"] },
@@ -220,8 +220,9 @@ export default function GlobalSearch({ isOpen, onClose }: { isOpen: boolean; onC
           inset: 0,
           background: "rgba(15, 23, 42, 0.55)",
           zIndex: 1000,
-          backdropFilter: "blur(4px)",
-          WebkitBackdropFilter: "blur(4px)",
+          backdropFilter: "none",
+          WebkitBackdropFilter: "none",
+          animation: "fadeIn 0.15s ease-out",
         }}
         onClick={onClose}
       />
@@ -233,12 +234,13 @@ export default function GlobalSearch({ isOpen, onClose }: { isOpen: boolean; onC
           transform: "translate(-50%, 0)", 
           width: "90%", 
           maxWidth: "580px",
-          background: "#ffffff", 
+          background: "var(--bg-surface-solid, #ffffff)", 
           borderRadius: "16px", 
-          border: "1px solid #e2e8f0",
-          boxShadow: "0 20px 50px rgba(0, 0, 0, 0.2)", 
+          border: "1px solid var(--border-default, #e2e8f0)",
+          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1)", 
           zIndex: 1001,
           overflow: "hidden",
+          animation: "scaleUp 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
         }}
         onKeyDown={handleKeyDown}
       >

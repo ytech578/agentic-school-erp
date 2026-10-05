@@ -6,6 +6,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   isLoading?: boolean;
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
+  icon?: React.ReactNode;
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -17,12 +18,14 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       isLoading = false,
       leftIcon,
       rightIcon,
+      icon,
       children,
       disabled,
       ...props
     },
     ref
   ) => {
+    const effectiveLeftIcon = leftIcon || icon;
     let variantClass = "btn-primary";
     if (variant === "secondary") variantClass = "btn-secondary";
     if (variant === "ghost") variantClass = "btn-ghost";
@@ -54,7 +57,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         {isLoading && (
           <span className="spinner" style={{ display: 'inline-block', width: '1em', height: '1em', border: '2px solid currentColor', borderRightColor: 'transparent', borderRadius: '50%' }} />
         )}
-        {!isLoading && leftIcon}
+        {!isLoading && effectiveLeftIcon}
         {children}
         {!isLoading && rightIcon}
       </button>

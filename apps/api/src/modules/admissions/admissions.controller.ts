@@ -4,16 +4,24 @@ import {
   Post,
   Body,
   Patch,
+  Delete,
   Param,
   UseGuards,
   Request,
+  Res,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
+import { ApiTags, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { AdmissionsService } from './admissions.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
 import { AdmissionStatus, EnquiryStatus } from '@prisma/client';
 
+@ApiTags('Admissions')
 @Controller('admissions')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class AdmissionsController {
@@ -87,12 +95,37 @@ export class AdmissionsController {
     );
   }
 
+  @Get('applications/:id/enrollment-preview')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  getEnrollmentPreview(@Request() req: any, @Param('id') id: string) {
+    return this.admissionsService.getEnrollmentPreview(req.user.schoolId, id);
+  }
+
+  @Post('applications/:id/reject')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  rejectApplication(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body('reason') reason?: string,
+  ) {
+    return this.admissionsService.rejectApplication(
+      req.user.schoolId,
+      id,
+      reason,
+    );
+  }
+
   @Post('applications/:id/convert')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  convertApplicationToStudent(@Request() req: any, @Param('id') id: string) {
+  convertApplicationToStudent(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body?: { classId?: string; sectionId?: string; rollNumber?: string },
+  ) {
     return this.admissionsService.convertApplicationToStudent(
       req.user.schoolId,
       id,
+      body,
     );
   }
 
@@ -102,5 +135,97 @@ export class AdmissionsController {
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   getAnalytics(@Request() req: any) {
     return this.admissionsService.getAnalytics(req.user.schoolId);
+  }
+
+  // ================= ADMISSION DOCUMENTS =================
+
+  @Post('applications/:id/documents')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload an admission application document' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' },
+        documentType: {
+          type: 'string',
+          example: 'BIRTH_CERTIFICATE',
+        },
+      },
+    },
+  })
+  async uploadApplicationDocument(
+    @Request() req: any,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('documentType') documentType: string,
+  ) {
+    const schoolId = req.user.schoolId;
+    return this.admissionsService.uploadApplicationDocument(
+      schoolId,
+      id,
+      file,
+      documentType,
+    );
+  }
+
+  @Get('applications/:id/documents')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  @ApiOperation({ summary: 'List documents for an admission application' })
+  async getApplicationDocuments(@Request() req: any, @Param('id') id: string) {
+    const schoolId = req.user.schoolId;
+    return this.admissionsService.getApplicationDocuments(schoolId, id);
+  }
+
+  @Get('applications/:id/documents/:docId/download')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  @ApiOperation({
+    summary: 'Download an authenticated admission application document',
+  })
+  async downloadApplicationDocument(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Res() res: Response,
+  ) {
+    const schoolId = req.user.schoolId;
+    const { doc, fileStreamResult } =
+      await this.admissionsService.getApplicationDocumentStream(
+        schoolId,
+        id,
+        docId,
+      );
+
+    res.setHeader(
+      'Content-Type',
+      fileStreamResult.mimeType || 'application/octet-stream',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(fileStreamResult.fileName)}"`,
+    );
+    if (fileStreamResult.fileSize) {
+      res.setHeader('Content-Length', fileStreamResult.fileSize.toString());
+    }
+
+    fileStreamResult.stream.pipe(res);
+  }
+
+  @Delete('applications/:id/documents/:docId')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  @ApiOperation({ summary: 'Delete an admission application document' })
+  async deleteApplicationDocument(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+  ) {
+    const schoolId = req.user.schoolId;
+    return this.admissionsService.deleteApplicationDocument(
+      schoolId,
+      id,
+      docId,
+    );
   }
 }

@@ -9,6 +9,7 @@ import { useEffect, useState, useRef } from "react";
 import { apiClient } from "@/lib/axios";
 import GlobalSearch from "@/components/layout/GlobalSearch";
 import SchoolSwitcher from "@/components/layout/SchoolSwitcher";
+import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
 
 export default function Header() {
   const { user, logout } = useAuthStore();
@@ -171,6 +172,7 @@ export default function Header() {
         <SchoolSwitcher />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <LanguageSwitcher />
           <ThemeToggle />
           
           {/* Notification Bell with Popover */}
@@ -181,7 +183,7 @@ export default function Header() {
               onClick={handleToggleNotifs}
               title="Notifications"
             >
-              <Bell size={20} />
+              <Bell size={20} className={unreadCount > 0 ? "bell-active" : ""} />
               {unreadCount > 0 && (
                 <span className="status-dot" style={{ 
                   position: 'absolute', top: '0.2rem', right: '0.2rem', 
@@ -204,7 +206,7 @@ export default function Header() {
                   boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
                   zIndex: 1000,
                   overflow: "hidden",
-                  animation: "fadeIn 0.15s ease-out",
+                  animation: "scaleUp 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
                 }}
               >
                 {/* Popover Header */}

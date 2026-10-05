@@ -10,30 +10,23 @@ export interface DataTableProps<T> {
   data: T[];
   columns: Column<T>[];
   isLoading?: boolean;
+  emptyMessage?: string;
 }
 
-export function DataTable<T>({ data, columns, isLoading }: DataTableProps<T>) {
+export function DataTable<T>({ data, columns, isLoading, emptyMessage }: DataTableProps<T>) {
+  const safeData: T[] = Array.isArray(data)
+    ? data
+    : data && typeof data === "object" && Array.isArray((data as any).items)
+    ? (data as any).items
+    : [];
+
   return (
     <div style={{ width: "100%", overflowX: "auto" }}>
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          textAlign: "left",
-          fontSize: "0.875rem",
-        }}
-      >
+      <table className="data-table">
         <thead>
-          <tr style={{ borderBottom: "1px solid var(--border-light)" }}>
+          <tr>
             {columns.map((col, index) => (
-              <th
-                key={index}
-                style={{
-                  padding: "0.75rem 1rem",
-                  fontWeight: 600,
-                  color: "var(--text-secondary)",
-                }}
-              >
+              <th key={index}>
                 {col.header}
               </th>
             ))}
@@ -41,36 +34,49 @@ export function DataTable<T>({ data, columns, isLoading }: DataTableProps<T>) {
         </thead>
         <tbody>
           {isLoading ? (
+            Array(5)
+              .fill(0)
+              .map((_, rIdx) => (
+                <tr key={`skeleton-row-${rIdx}`} className="skeleton-row">
+                  {columns.map((_, cIdx) => (
+                    <td key={`skeleton-cell-${cIdx}`}>
+                      <div
+                        className="skeleton"
+                        style={{
+                          height: "14px",
+                          width: cIdx === 0 ? "45%" : cIdx === 1 ? "75%" : "55%",
+                          borderRadius: "var(--radius-sm)",
+                        }}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))
+          ) : safeData.length === 0 ? (
             <tr>
               <td
                 colSpan={columns.length}
-                style={{ textAlign: "center", padding: "2rem", color: "var(--text-tertiary)" }}
+                style={{
+                  textAlign: "center",
+                  padding: "3rem 1.5rem",
+                  color: "var(--text-tertiary)",
+                  fontSize: "0.875rem",
+                }}
               >
-                Loading data...
-              </td>
-            </tr>
-          ) : data.length === 0 ? (
-            <tr>
-              <td
-                colSpan={columns.length}
-                style={{ textAlign: "center", padding: "2rem", color: "var(--text-tertiary)" }}
-              >
-                No results found.
+                {emptyMessage || "No records found matching criteria."}
               </td>
             </tr>
           ) : (
-            data.map((row, rowIndex) => (
+            safeData.map((row, rowIndex) => (
               <tr
                 key={rowIndex}
+                className="data-table-row"
                 style={{
-                  borderBottom: "1px solid var(--border-light)",
-                  transition: "background-color 0.2s",
+                  animationDelay: `${Math.min(rowIndex * 20, 250)}ms`,
                 }}
-                onMouseOver={(e) => (e.currentTarget.style.backgroundColor = "var(--bg-surface-hover)")}
-                onMouseOut={(e) => (e.currentTarget.style.backgroundColor = "")}
               >
                 {columns.map((col, colIndex) => (
-                  <td key={colIndex} style={{ padding: "0.75rem 1rem", color: "var(--text-primary)" }}>
+                  <td key={colIndex}>
                     {col.cell ? col.cell(row) : (row as any)[col.accessorKey]}
                   </td>
                 ))}

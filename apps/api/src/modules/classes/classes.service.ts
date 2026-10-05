@@ -17,6 +17,7 @@ import {
   UpdateTeacherAssignmentDto,
 } from './dto/teacher-assignment.dto';
 import { resolveGradeLevel } from '../../core/academic/grade-resolver.util';
+import { resolveActiveAcademicYear } from '../../core/academic/academic-year.util';
 
 @Injectable()
 export class ClassesService {
@@ -102,40 +103,12 @@ export class ClassesService {
   async createClass(schoolId: string, data: CreateClassDto) {
     const validSchoolId = requireSchoolId(schoolId, 'Create class');
 
-    let targetYear: any = null;
-    let resolvedYearId: string;
-
-    if (!data.academicYearId) {
-      targetYear =
-        (await this.prisma.academicYear.findFirst({
-          where: { schoolId: validSchoolId, isActive: true },
-        })) ||
-        (await this.prisma.academicYear.findFirst({
-          where: { schoolId: validSchoolId },
-        }));
-      if (!targetYear) {
-        throw new BadRequestException(
-          'No active academic year found for this school',
-        );
-      }
-      resolvedYearId = targetYear.id;
-    } else {
-      targetYear = await this.prisma.academicYear.findFirst({
-        where: { id: data.academicYearId, schoolId: validSchoolId },
-      });
-      if (!targetYear) {
-        throw new BadRequestException(
-          'Specified academic year does not belong to this school',
-        );
-      }
-      resolvedYearId = targetYear.id;
-    }
-
-    if (targetYear.isLocked) {
-      throw new BadRequestException(
-        `Academic session '${targetYear.name}' is locked. Structural changes are not permitted.`,
-      );
-    }
+    const targetYear = await resolveActiveAcademicYear(this.prisma, {
+      schoolId: validSchoolId,
+      requestedId: data.academicYearId,
+      isMutation: true,
+    });
+    const resolvedYearId = targetYear.id;
 
     const cleanName = data.name.trim();
     const numericLevel =
@@ -781,7 +754,7 @@ export class ClassesService {
       throw new BadRequestException('Cannot assign inactive staff member');
     }
 
-    let targetOfferingId =
+    const targetOfferingId =
       data.schoolSubjectOfferingId !== undefined
         ? data.schoolSubjectOfferingId
         : existing.schoolSubjectOfferingId;

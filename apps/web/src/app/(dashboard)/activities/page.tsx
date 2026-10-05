@@ -156,7 +156,7 @@ function ActivityModal({
     display: "block", marginBottom: "0.4rem",
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = async (e: React.SubmitEvent) => {
     e.preventDefault();
     if (!selectedClassId) {
       setError("Please select a Class.");

@@ -45,7 +45,7 @@ export default function MTSSInterventionPlanModal({
         inset: 0,
         zIndex: 9999,
         background: "rgba(15, 23, 42, 0.75)",
-        backdropFilter: "blur(6px)",
+        backdropFilter: "none",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

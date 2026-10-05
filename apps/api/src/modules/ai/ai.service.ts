@@ -3,6 +3,7 @@ import {
   Logger,
   ForbiddenException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditAction, RiskLevel, EnquiryStatus } from '@prisma/client';
@@ -12,6 +13,8 @@ import { generateNextSequence } from '../../core/database/sequence.util';
 import { AgentControlPlaneService } from './agent/agent-control-plane.service';
 import { AgentExecutionContext } from './agent/agent-types';
 import { ROLE_PERMISSIONS, UserRole } from '@school-erp/shared';
+import { AIResilienceService } from './ai-resilience.service';
+
 import {
   GoogleGenerativeAI,
   HarmCategory,
@@ -96,6 +99,7 @@ export class AIService {
     private prisma: PrismaService,
     private config: ConfigService,
     private controlPlane: AgentControlPlaneService,
+    @Optional() private resilienceService?: AIResilienceService,
   ) {
     const apiKey = this.config.get<string>('ai.geminiApiKey', '');
     if (apiKey) {
@@ -118,6 +122,24 @@ export class AIService {
         ],
       });
     }
+  }
+
+  // ─── Resilient Gemini content generation ──────────────────────────────────
+  async safeGenerateContent(
+    schoolId: string | undefined | null,
+    promptOrPayload: any,
+    operationName = 'generateContent',
+  ): Promise<any> {
+    if (!this.model) {
+      throw new BadRequestException('Gemini AI model is not configured.');
+    }
+    if (this.resilienceService) {
+      return this.resilienceService.execute(
+        () => this.model.generateContent(promptOrPayload),
+        { schoolId: schoolId || undefined, operationName },
+      );
+    }
+    return this.model.generateContent(promptOrPayload);
   }
 
   // ─── Build system prompt ─────────────────────────────────────────────────
@@ -449,8 +471,18 @@ General Rules:
           messagePayload = parts;
         }
 
-        const result = await chat.sendMessage(messagePayload);
+        const result = this.resilienceService
+          ? await this.resilienceService.execute(
+              () => chat.sendMessage(messagePayload),
+              {
+                schoolId: effectiveSchoolId,
+                operationName: 'agentChat',
+                estimatedTokens: 250,
+              },
+            )
+          : await chat.sendMessage(messagePayload);
         const response = await result.response;
+
         try {
           reply = response.text();
         } catch {

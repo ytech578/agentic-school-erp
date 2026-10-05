@@ -99,4 +99,27 @@ export class NotificationsController {
         'Edusphere Test Dispatch: Gateway verification successful.',
     );
   }
+
+  @Post('device-token')
+  @ApiOperation({
+    summary: 'Register FCM device token for mobile/web push notifications',
+  })
+  async registerDeviceToken(
+    @Request() req: any,
+    @Body() dto: { token: string; platform?: 'ANDROID' | 'IOS' | 'WEB' },
+  ) {
+    return this.service.registerDeviceToken(
+      req.user.id,
+      req.user.schoolId,
+      dto.token,
+      dto.platform || 'ANDROID',
+    );
+  }
+
+  @Post('device-token/remove')
+  @ApiOperation({ summary: 'Unregister FCM device token' })
+  async unregisterDeviceToken(@Body() dto: { token: string }) {
+    await this.service.unregisterDeviceToken(dto.token);
+    return { success: true };
+  }
 }

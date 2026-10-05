@@ -63,10 +63,14 @@ export function isRouteAllowedForRole(pathname: string, role?: string): boolean 
     return role === 'SUPER_ADMIN';
   }
 
-  // ─── Admin Core Operations: Admissions, Staff, Users, Reports ───
+  // ─── Faculty & Staff Directory (Admins, Principals, and Teachers viewing colleagues) ───
+  if (normalized.startsWith('/staff')) {
+    return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER'].includes(role);
+  }
+
+  // ─── Admin Core Operations: Admissions, Users, Reports ───
   if (
     normalized.startsWith('/admissions') ||
-    normalized.startsWith('/staff') ||
     normalized.startsWith('/users') ||
     normalized.startsWith('/reports')
   ) {
@@ -84,13 +88,60 @@ export function isRouteAllowedForRole(pathname: string, role?: string): boolean 
     return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER'].includes(role);
   }
 
-  // ─── HR & Leaves ───
-  if (normalized.startsWith('/hr')) {
+  // ─── Assignments: Teachers create, Students/Parents view their own ───
+  if (normalized.startsWith('/assignments')) {
     return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER'].includes(role);
   }
 
-  // Default fallback for unrecognized routes in dashboard: allow if not explicitly blocked
-  return true;
+  // ─── Curriculum & Lesson Planning ───
+  if (normalized.startsWith('/curriculum')) {
+    return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER'].includes(role);
+  }
+
+  // ─── Classes & Sections Management ───
+  if (normalized.startsWith('/classes')) {
+    return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'].includes(role);
+  }
+
+  // ─── HR & Leaves & Payroll ───
+  if (normalized.startsWith('/hr') || normalized.startsWith('/payroll')) {
+    return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER'].includes(role);
+  }
+
+  // ─── Certificates Engine ───
+  if (normalized.startsWith('/certificates')) {
+    return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'PARENT', 'STUDENT'].includes(role);
+  }
+
+  // ─── PTM Scheduling ───
+  if (normalized.startsWith('/ptm')) {
+    return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'PARENT'].includes(role);
+  }
+
+  // ─── Discipline Tracking ───
+  if (normalized.startsWith('/discipline')) {
+    return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER'].includes(role);
+  }
+
+  // ─── Alumni & Transcripts ───
+  if (normalized.startsWith('/alumni')) {
+    return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'STUDENT'].includes(role);
+  }
+
+  // ─── SaaS Subscriptions & Metering ───
+  if (normalized.startsWith('/subscriptions')) {
+    return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER'].includes(role);
+  }
+
+  // ─── DPDP Privacy Center ───
+  if (normalized.startsWith('/privacy')) {
+    return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'PARENT', 'STUDENT'].includes(role);
+  }
+
+  // Default fallback: deny access for any unrecognized/unlisted route.
+  // All new routes MUST be explicitly declared above.
+  // Fail-closed is the secure enterprise default.
+  return false;
 }
 
 /**

@@ -9,6 +9,7 @@ import {
   Query,
   UseGuards,
   Request,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { StaffService } from './staff.service';
@@ -24,49 +25,83 @@ import { CreateStaffSchema, UpdateStaffSchema } from '@school-erp/shared';
 export class StaffController {
   constructor(private service: StaffService) {}
 
+  private async resolveSchoolId(req: any): Promise<string> {
+    if (req.user?.schoolId) return req.user.schoolId;
+    const headerSchoolId = req.headers?.['x-school-id'];
+    const querySchoolId = req.query?.schoolId;
+    const targetSchoolId = headerSchoolId || querySchoolId;
+    if (targetSchoolId && typeof targetSchoolId === 'string' && targetSchoolId.trim()) {
+      return targetSchoolId.trim();
+    }
+    const defaultSchool = await this.service.getDefaultSchoolId();
+    if (defaultSchool) return defaultSchool;
+    throw new ForbiddenException('Valid school context is required');
+  }
+
   @Get('departments')
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   async getDepartments(@Request() req: any) {
-    return this.service.getDepartments(req.user.schoolId);
+    const schoolId = await this.resolveSchoolId(req);
+    return this.service.getDepartments(schoolId);
   }
 
   @Get('designations')
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   async getDesignations(@Request() req: any) {
-    return this.service.getDesignations(req.user.schoolId);
+    const schoolId = await this.resolveSchoolId(req);
+    return this.service.getDesignations(schoolId);
   }
 
   @Post()
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   async createStaff(@Request() req: any, @Body() body: any) {
+    const schoolId = await this.resolveSchoolId(req);
     const parsedBody = CreateStaffSchema.parse(body);
-    return this.service.createStaff(req.user.schoolId, parsedBody);
+    return this.service.createStaff(schoolId, parsedBody);
   }
 
   @Get()
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   async getStaffList(
     @Request() req: any,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('search') search?: string,
+    @Query('departmentId') departmentId?: string,
+    @Query('isActive') isActive?: string,
     @Query('includeSubjects') includeSubjects?: string,
   ) {
-    const pageNum = page ? parseInt(page, 10) : 1;
-    const limitNum = limit ? parseInt(limit, 10) : 10;
+    const schoolId = await this.resolveSchoolId(req);
+    const pageNum = page ? Math.max(1, parseInt(page, 10) || 1) : 1;
+    let limitNum = 100;
+    if (limit === 'all' || limit === '-1') {
+      limitNum = 1000;
+    } else if (limit) {
+      const parsed = parseInt(limit, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        limitNum = Math.min(parsed, 1000);
+      }
+    }
+
+    const activeBool =
+      isActive === 'true' ? true : isActive === 'false' ? false : undefined;
+
     return this.service.getStaffList(
-      req.user.schoolId,
+      schoolId,
       pageNum,
       limitNum,
       search,
       includeSubjects === 'true',
+      departmentId?.trim() || undefined,
+      activeBool,
     );
   }
 
   @Get(':id')
-  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   async getStaffById(@Request() req: any, @Param('id') id: string) {
-    return this.service.getStaffById(req.user.schoolId, id);
+    const schoolId = await this.resolveSchoolId(req);
+    return this.service.getStaffById(schoolId, id);
   }
 
   @Put(':id')
@@ -76,8 +111,9 @@ export class StaffController {
     @Param('id') id: string,
     @Body() body: any,
   ) {
+    const schoolId = await this.resolveSchoolId(req);
     const parsedBody = UpdateStaffSchema.parse(body);
-    return this.service.updateStaff(req.user.schoolId, id, parsedBody);
+    return this.service.updateStaff(schoolId, id, parsedBody);
   }
 
   @Patch(':id/status')
@@ -92,6 +128,7 @@ export class StaffController {
       reason?: string;
     },
   ) {
-    return this.service.updateStaffStatus(req.user.schoolId, id, body);
+    const schoolId = await this.resolveSchoolId(req);
+    return this.service.updateStaffStatus(schoolId, id, body);
   }
 }

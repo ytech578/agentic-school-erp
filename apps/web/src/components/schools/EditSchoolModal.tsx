@@ -46,7 +46,7 @@ export function EditSchoolModal({ school, isOpen, onClose, onSaved }: EditSchool
     if (error) setError(null);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SubmitEvent) => {
     e.preventDefault();
     if (!form.name.trim()) {
       setError("School name is required");
@@ -91,8 +91,8 @@ export function EditSchoolModal({ school, isOpen, onClose, onSaved }: EditSchool
         right: 0,
         bottom: 0,
         backgroundColor: "rgba(0, 0, 0, 0.65)",
-        backdropFilter: "blur(4px)",
-        WebkitBackdropFilter: "blur(4px)",
+        backdropFilter: "var(--modal-backdrop-blur, none)",
+        WebkitBackdropFilter: "var(--modal-backdrop-blur, none)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

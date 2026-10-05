@@ -33,7 +33,13 @@ import {
   Baby,
   QrCode,
   Layers,
-  Building2
+  Building2,
+  Receipt,
+  FileCheck,
+  CalendarClock,
+  AlertOctagon,
+  BookUser,
+  ShieldCheck
 } from "lucide-react";
 import { useState } from "react";
 import { useAuthStore } from "@/store/auth.store";
@@ -61,24 +67,36 @@ const NAV_GROUPS = [
       { label: "Attendance", href: "/attendance", icon: CalendarCheck, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
       { label: "Timetable", href: "/timetable", icon: CalendarDays, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
       { label: "Exams", href: "/exams", icon: FileText, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
+      { label: "Certificates", href: "/certificates", icon: FileCheck, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
+      { label: "PTM Scheduling", href: "/ptm", icon: CalendarClock, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
+      { label: "Discipline Log", href: "/discipline", icon: AlertOctagon, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
+      { label: "Alumni Directory", href: "/alumni", icon: BookUser, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
       { label: "Activities", href: "/activities", icon: Award, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
     ]
   },
   {
-    label: "Finance & Operations",
+    label: "Finance & Subscriptions",
     items: [
       { label: "Fees", href: "/fees", icon: CreditCard, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
       { label: "Payment Options & QR", href: "/fees/settings", icon: QrCode, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
-      { label: "Staff", href: "/staff", icon: Users, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
-      { label: "HR Management", href: "/hr", icon: Briefcase, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
-      { label: "My Leaves", href: "/hr", icon: CalendarCheck, roles: ["TEACHER"] },
+      { label: "SaaS Subscriptions", href: "/subscriptions", icon: Sparkles, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
       { label: "Reports", href: "/reports", icon: BarChart3, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
+    ]
+  },
+  {
+    label: "HR & Staff Management",
+    items: [
+      { label: "Staff", href: "/staff", icon: Users, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
+      { label: "HR Management", href: "/hr", icon: Briefcase, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
+      { label: "Payroll & Payslips", href: "/payroll", icon: Receipt, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER"] },
+      { label: "My Leaves", href: "/hr", icon: CalendarCheck, roles: ["TEACHER"] },
     ]
   },
   {
     label: "System",
     items: [
       { label: "Schools & Campuses", href: "/schools", icon: Building2, roles: ["SUPER_ADMIN"] },
+      { label: "DPDP Privacy Center", href: "/privacy", icon: ShieldCheck, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
       { label: "Users", href: "/users", icon: UserCog, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"] },
       { label: "Settings", href: "/settings", icon: Settings, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER", "PARENT", "STUDENT"] },
     ]
@@ -91,6 +109,8 @@ const PARENT_NAV = [
   { label: "My Children", href: "/parent/children", icon: Baby },
   { label: "Academic Performance", href: "/parent/academics", icon: TrendingUp },
   { label: "Attendance", href: "/parent/attendance", icon: CalendarCheck },
+  { label: "PTM Meetings", href: "/ptm", icon: CalendarClock },
+  { label: "Certificates", href: "/certificates", icon: FileCheck },
   { label: "Assignments & Homework", href: "/parent/assignments", icon: ClipboardList },
   { label: "Marks & Assessments", href: "/parent/marks", icon: BookMarked },
   { label: "Timetable", href: "/parent/timetable", icon: CalendarDays },
@@ -107,6 +127,7 @@ const PARENT_NAV = [
 // ─── STUDENT PORTAL NAV ─────────────────────────────────────────────────────
 const STUDENT_NAV = [
   { label: "Home", href: "/dashboard", icon: LayoutDashboard },
+  { label: "My Certificates", href: "/certificates", icon: FileCheck },
   { label: "My Attendance", href: "/student/attendance", icon: CalendarCheck },
   { label: "My Timetable", href: "/student/timetable", icon: CalendarDays },
   { label: "Homework & Assignments", href: "/student/assignments", icon: ClipboardList },

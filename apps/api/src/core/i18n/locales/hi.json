@@ -1,0 +1,83 @@
+{
+  "common": {
+    "dashboard": "डैशबोर्ड",
+    "students": "विद्यार्थी",
+    "staff": "शिक्षक एवं कर्मचारी",
+    "classes": "कक्षाएँ",
+    "attendance": "उपस्थिति",
+    "fees": "शुल्क",
+    "exams": "परीक्षाएं",
+    "reports": "रिपोर्ट्स",
+    "notifications": "सूचनाएं",
+    "settings": "सेटिंग्स",
+    "save": "सहेजें",
+    "cancel": "रद्द करें",
+    "delete": "हटाएं",
+    "edit": "संपादित करें",
+    "submit": "जमा करें",
+    "search": "खोजें...",
+    "status": "स्थिति",
+    "action": "कार्रवाई"
+  },
+  "admissions": {
+    "title": "छात्र प्रवेश",
+    "applyNow": "प्रवेश हेतु आवेदन करें",
+    "enquiry": "प्रवेश पूछताछ",
+    "applicationStatus": "आवेदन की स्थिति",
+    "applicantName": "आवेदक का नाम",
+    "gradeApplying": "कक्षा जिसके लिए आवेदन कर रहे हैं",
+    "parentContact": "अभिभावक संपर्क नंबर",
+    "submittedSuccess": "आवेदन सफलतापूर्वक जमा कर दिया गया है।"
+  },
+  "attendance": {
+    "title": "दैनिक उपस्थिति",
+    "present": "उपस्थित",
+    "absent": "अनुपस्थित",
+    "late": "देर से",
+    "halfDay": "आधा दिन",
+    "onLeave": "अवकाश पर",
+    "markAttendance": "उपस्थिति दर्ज करें",
+    "attendanceRate": "उपस्थिति दर"
+  },
+  "fees": {
+    "title": "शुल्क प्रबंधन",
+    "totalDue": "कुल देय राशि",
+    "paid": "भुगतान किया गया",
+    "pending": "लंबित",
+    "overdue": "अतिदेय",
+    "payNow": "अभी भुगतान करें",
+    "receipt": "शुल्क रसीद",
+    "transactionId": "लेनदेन संख्या (ट्रांजेक्शन आईडी)"
+  },
+  "exams": {
+    "title": "परीक्षाएं एवं अंक",
+    "reportCard": "प्रगति पत्र (रिपोर्ट कार्ड)",
+    "subject": "विषय",
+    "marksObtained": "प्राप्तांक",
+    "maxMarks": "पूर्णांक",
+    "grade": "ग्रेड (श्रेणी)",
+    "percentage": "प्रतिशत",
+    "result": "परिणाम",
+    "pass": "उत्तीर्ण",
+    "fail": "सुधार की आवश्यकता"
+  },
+  "certificates": {
+    "transferCertificate": "स्थानांतरण प्रमाण पत्र (टीसी)",
+    "bonafide": "वास्तविक छात्र प्रमाण पत्र (बोनाफाइड)",
+    "character": "चरित्र प्रमाण पत्र",
+    "verifyCertificate": "प्रमाण पत्र की प्रामाणिकता जांचें",
+    "validCertificate": "प्रमाण पत्र प्रामाणिक एवं मान्य है"
+  },
+  "ptm": {
+    "title": "अभिभावक-शिक्षक बैठक (पीटीएम)",
+    "bookSlot": "बैठक का समय बुक करें",
+    "myBookings": "मेरी बुक की गई बैठकें",
+    "teacherFeedback": "शिक्षक की टिप्पणी एवं सुझाव"
+  },
+  "discipline": {
+    "title": "अनुशासन एवं आचरण",
+    "incidentReport": "अनुशासनात्मक घटना",
+    "severity": "गंभीरता का स्तर",
+    "remedialAction": "की गई कार्रवाई"
+  }
+}

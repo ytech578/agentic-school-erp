@@ -4,7 +4,8 @@ import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/Button";
 import {
   ShieldCheck, Calendar as CalendarIcon, CheckCircle, ChevronRight,
-  User, Bell, Car, Award, Send, AlertTriangle, BrainCircuit, CreditCard
+  User, Bell, Car, Award, Send, AlertTriangle, BrainCircuit, CreditCard,
+  CalendarClock, FileCheck, ArrowRight
 } from "lucide-react";
 import { apiClient } from "@/lib/axios";
 import { useParentData } from "@/hooks/useParentData";
@@ -297,18 +298,48 @@ export function ParentDashboard({ user }: { user: any }) {
           )}
         </div>
 
-        {/* Transport */}
+        {/* PTM Conferences */}
         <div style={{ background: "var(--bg-surface)", borderRadius: '1rem', border: '1px solid var(--border-default)', padding: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Car size={16} color="var(--risk-low)" /> Transport</h3>
-            <span style={{ background: 'var(--risk-low-bg)', color: 'var(--risk-low)', padding: '0.15rem 0.5rem', borderRadius: '2rem', fontSize: '0.688rem', fontWeight: 600 }}>On Track</span>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <CalendarClock size={16} color="#D97706" /> PTM Conferences
+            </h3>
+            <span style={{ color: '#D97706', fontSize: '0.813rem', fontWeight: 600, cursor: 'pointer' }} onClick={() => router.push('/ptm')}>Book Slot →</span>
           </div>
           <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '0.75rem', alignItems: 'center' }}>
-            <Car size={28} color="var(--risk-low)" />
-            <div><div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Bus 14</div><div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Driver: Mr. Ramesh</div></div>
+            <div style={{ width: 42, height: 42, borderRadius: '0.5rem', background: 'rgba(245, 158, 11, 0.12)', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <CalendarClock size={22} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.875rem' }}>Parent-Teacher Meetings</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Schedule slots with class educators</div>
+            </div>
           </div>
-          <div style={{ fontSize: '0.813rem', fontWeight: 600, color: 'var(--text-primary)' }}>Estimated Arrival: 4:32 PM</div>
-          <div style={{ display: 'inline-block', background: 'var(--risk-low-bg)', color: 'var(--risk-low)', padding: '0.2rem 0.5rem', borderRadius: '2rem', fontSize: '0.7rem', fontWeight: 600, marginTop: '0.5rem' }}>Running on schedule</div>
+          <Button size="sm" variant="outline" style={{ width: '100%', fontSize: '0.75rem', marginTop: '0.25rem' }} onClick={() => router.push('/ptm')}>
+            View Available Sessions
+          </Button>
+        </div>
+
+        {/* Official Certificates */}
+        <div style={{ background: "var(--bg-surface)", borderRadius: '1rem', border: '1px solid var(--border-default)', padding: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <FileCheck size={16} color="#2563EB" /> Official Certificates
+            </h3>
+            <span style={{ color: '#2563EB', fontSize: '0.813rem', fontWeight: 600, cursor: 'pointer' }} onClick={() => router.push('/certificates')}>View →</span>
+          </div>
+          <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '0.75rem', alignItems: 'center' }}>
+            <div style={{ width: 42, height: 42, borderRadius: '0.5rem', background: 'rgba(37, 99, 235, 0.12)', color: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <FileCheck size={22} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.875rem' }}>Tamper-Evident Records</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Bonafide, Merit & Transfer Certificates</div>
+            </div>
+          </div>
+          <Button size="sm" variant="outline" style={{ width: '100%', fontSize: '0.75rem', marginTop: '0.25rem' }} onClick={() => router.push('/certificates')}>
+            Download Credentials
+          </Button>
         </div>
 
         {/* Upcoming Exams */}

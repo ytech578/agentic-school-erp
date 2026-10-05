@@ -214,7 +214,8 @@ export class UpdateOfferingStatusDto {
 
 export class EnrollStudentSubjectsDto {
   @ApiPropertyOptional({
-    description: 'Target Academic Year ID (defaults to active session if not provided)',
+    description:
+      'Target Academic Year ID (defaults to active session if not provided)',
   })
   @IsString()
   @IsOptional()

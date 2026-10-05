@@ -109,7 +109,9 @@ export default function DashboardLayout({
       <div className="main-content">
         <Header />
         <main className="page-content">
-          {children}
+          <div key={pathname} className="page-transition">
+            {children}
+          </div>
         </main>
       </div>
       

@@ -3,10 +3,12 @@
  * Eliminates scattered/magic conversions (e.g. numericLevel - 2, ad-hoc regex).
  * Standard K-12 schooling operates strictly between grades 1 and 12.
  */
-export function resolveGradeLevel(source?: {
-  numericLevel?: number | null;
-  name?: string | null;
-} | null): number {
+export function resolveGradeLevel(
+  source?: {
+    numericLevel?: number | null;
+    name?: string | null;
+  } | null,
+): number {
   if (!source) return 1;
 
   // 1. Direct authoritative numericLevel (source of truth)

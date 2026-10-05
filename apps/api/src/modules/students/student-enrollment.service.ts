@@ -289,7 +289,9 @@ export class StudentEnrollmentService {
       !existing.student ||
       (existing.student.schoolId && existing.student.schoolId !== validSchoolId)
     ) {
-      throw new BadRequestException('Enrolled student does not belong to this school');
+      throw new BadRequestException(
+        'Enrolled student does not belong to this school',
+      );
     }
 
     // 5. Section belongs to same school and academic year
@@ -298,7 +300,9 @@ export class StudentEnrollmentService {
       (existing.section.class?.schoolId &&
         existing.section.class.schoolId !== validSchoolId)
     ) {
-      throw new BadRequestException('Enrolled section does not belong to this school');
+      throw new BadRequestException(
+        'Enrolled section does not belong to this school',
+      );
     }
     if (
       existing.section.class?.academicYearId &&

@@ -1,9 +1,13 @@
-import { Injectable, Logger, MessageEvent, Optional } from '@nestjs/common';
+import { Injectable, Logger, MessageEvent, Optional, OnModuleDestroy } from '@nestjs/common';
 import { Observable, Subject } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 import { PrismaService } from '../../core/database/prisma.service';
+import { ConfigService } from '@nestjs/config';
 import { SmsWhatsAppService } from './sms-whatsapp.service';
 import { EmailService } from '../../services/email/email.service';
+import { FcmService } from '../../services/fcm/fcm.service';
+import { NotificationsGateway } from './notifications.gateway';
+import Redis from 'ioredis';
 
 export interface NotificationEventPayload {
   userId: string;
@@ -12,18 +16,82 @@ export interface NotificationEventPayload {
 }
 
 @Injectable()
-export class NotificationsService {
+export class NotificationsService implements OnModuleDestroy {
   private readonly logger = new Logger(NotificationsService.name);
   private readonly events$ = new Subject<NotificationEventPayload>();
+  private redisPub: Redis | null = null;
+  private redisSub: Redis | null = null;
 
   constructor(
     private prisma: PrismaService,
+    private config: ConfigService,
+    private gateway: NotificationsGateway,
     @Optional() private smsWhatsApp?: SmsWhatsAppService,
     @Optional() private emailService?: EmailService,
-  ) {}
+    @Optional() private fcmService?: FcmService,
+  ) {
+    const isTest = process.env.NODE_ENV === 'test' || this.config?.get<string>('NODE_ENV') === 'test';
+    if (!isTest) {
+      const redisUrl = this.config?.get<string>('redis.url') || process.env.REDIS_URL || 'redis://localhost:6379';
+      try {
+        this.redisPub = new Redis(redisUrl, { maxRetriesPerRequest: 1, enableOfflineQueue: false });
+        this.redisSub = new Redis(redisUrl, { maxRetriesPerRequest: 1, enableOfflineQueue: false });
+
+        this.redisPub.on('error', (err) => {
+          this.logger.warn(`Redis pub client error: ${err.message}`);
+        });
+        this.redisSub.on('error', (err) => {
+          this.logger.warn(`Redis sub client error: ${err.message}`);
+        });
+
+        this.redisSub.subscribe('erp_notifications_channel', (err) => {
+          if (err) {
+            this.logger.warn(`Redis subscribe failed: ${err.message}`);
+          }
+        });
+        this.redisSub.on('message', (channel, message) => {
+          if (channel === 'erp_notifications_channel') {
+            try {
+              const payload = JSON.parse(message);
+              this.events$.next(payload);
+            } catch (e) {
+              this.logger.error('Failed to parse Redis pubsub message', e);
+            }
+          }
+        });
+      } catch (e) {
+        this.logger.warn('Redis Pub/Sub not available, falling back to local events');
+      }
+    }
+  }
+
+  async onModuleDestroy() {
+    try {
+      if (this.redisPub) {
+        await this.redisPub.quit().catch(() => this.redisPub?.disconnect());
+      }
+      if (this.redisSub) {
+        await this.redisSub.quit().catch(() => this.redisSub?.disconnect());
+      }
+    } catch {
+      // ignore cleanup errors
+    }
+  }
 
   emitEvent(userId: string, schoolId: string, notification: any) {
-    this.events$.next({ userId, schoolId, notification });
+    const payload = { userId, schoolId, notification };
+    
+    // Fallback: Send over WebSockets via Gateway
+    this.gateway.sendToUser(userId, notification);
+
+    if (this.redisPub && this.redisPub.status === 'ready') {
+      this.redisPub.publish('erp_notifications_channel', JSON.stringify(payload)).catch(e => {
+        this.logger.warn('Failed to publish to Redis', e);
+        this.events$.next(payload); // Fallback
+      });
+    } else {
+      this.events$.next(payload);
+    }
   }
 
   getEventStream(userId: string, schoolId: string): Observable<MessageEvent> {
@@ -132,6 +200,21 @@ export class NotificationsService {
     // Real-time instant event dispatch for live in-portal badge
     this.emitEvent(data.userId, data.schoolId, notification);
 
+    // FCM mobile & web push notification dispatch
+    if (this.fcmService) {
+      this.fcmService
+        .sendToUser(data.userId, {
+          title: data.title,
+          body: data.message,
+          data: {
+            notificationId: notification.id,
+            actionUrl: data.actionUrl || '',
+            type: data.type,
+          },
+        })
+        .catch(() => {});
+    }
+
     // Multi-channel dispatch if phone number is available in metadata
     if (this.smsWhatsApp && data.metadata?.phone) {
       if (data.type === 'ATTENDANCE_ALERT') {
@@ -238,5 +321,20 @@ export class NotificationsService {
     }
 
     return notification;
+  }
+
+  async registerDeviceToken(
+    userId: string,
+    schoolId: string,
+    token: string,
+    platform: 'ANDROID' | 'IOS' | 'WEB' = 'ANDROID',
+  ) {
+    if (!this.fcmService) return null;
+    return this.fcmService.registerToken(userId, schoolId, token, platform);
+  }
+
+  async unregisterDeviceToken(token: string) {
+    if (!this.fcmService) return;
+    return this.fcmService.unregisterToken(token);
   }
 }

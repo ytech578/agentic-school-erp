@@ -152,7 +152,9 @@ export class AssignmentsService {
         throw new NotFoundException('Section not found');
       }
       if (sec.classId !== classId) {
-        throw new BadRequestException('Section does not belong to specified Class');
+        throw new BadRequestException(
+          'Section does not belong to specified Class',
+        );
       }
       if (sec.class?.schoolId !== validSchoolId) {
         throw new BadRequestException('Section does not belong to this school');
@@ -192,7 +194,11 @@ export class AssignmentsService {
           `Offering "${offering.id}" (grades ${offering.gradeFrom}-${offering.gradeTo}) is not compatible with class grade ${classGrade}`,
         );
       }
-      if (subjectId && offering.legacySubjectId && subjectId !== offering.legacySubjectId) {
+      if (
+        subjectId &&
+        offering.legacySubjectId &&
+        subjectId !== offering.legacySubjectId
+      ) {
         throw new BadRequestException(
           `Subject "${subjectId}" contradicts canonical offering legacySubjectId "${offering.legacySubjectId}"`,
         );
@@ -209,16 +215,17 @@ export class AssignmentsService {
       resolvedSubjectId = subj.id;
 
       // Deterministically check if a unique matching active offering exists in session covering this class grade
-      const matchingOfferings = await this.prisma.schoolSubjectOffering.findMany({
-        where: {
-          schoolId: validSchoolId,
-          academicYearId: academicYear.id,
-          legacySubjectId: subj.id,
-          gradeFrom: { lte: classGrade },
-          gradeTo: { gte: classGrade },
-          isOffered: true,
-        },
-      });
+      const matchingOfferings =
+        await this.prisma.schoolSubjectOffering.findMany({
+          where: {
+            schoolId: validSchoolId,
+            academicYearId: academicYear.id,
+            legacySubjectId: subj.id,
+            gradeFrom: { lte: classGrade },
+            gradeTo: { gte: classGrade },
+            isOffered: true,
+          },
+        });
       if (matchingOfferings.length === 1) {
         resolvedOfferingId = matchingOfferings[0].id;
       }
@@ -373,7 +380,8 @@ export class AssignmentsService {
     };
 
     if (data.title !== undefined) updateData.title = data.title;
-    if (data.description !== undefined) updateData.description = data.description;
+    if (data.description !== undefined)
+      updateData.description = data.description;
     if (data.dueDate !== undefined) updateData.dueDate = new Date(data.dueDate);
     if (data.maxMarks !== undefined)
       updateData.maxMarks = parseInt(data.maxMarks.toString(), 10);

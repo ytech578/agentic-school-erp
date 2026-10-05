@@ -5,13 +5,15 @@ import { useRouter } from "next/navigation";
 import { 
   BookOpen, Users, CalendarCheck, Clock, Sparkles, CheckCircle2, 
   ArrowRight, FileText, Check, AlertCircle, Edit3, MessageSquare, 
-  Mail, ExternalLink, Award
+  Mail, ExternalLink, Award,
+  CalendarClock, AlertOctagon, FileCheck, Receipt, Briefcase, ClipboardList
 } from "lucide-react";
 import { apiClient } from "@/lib/axios";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { DashboardKpiCard } from "@/components/ui/DashboardKpiCard";
 import { formatDate } from "@/lib/formatters";
+import { DashboardLoadingSkeleton } from "@/components/ui/Skeleton";
 
 export function TeacherDashboard({ user }: { user: any }) {
   const router = useRouter();
@@ -19,31 +21,32 @@ export function TeacherDashboard({ user }: { user: any }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchDashboard = async () => {
+    let isMounted = true;
+    const fetchDashboard = async (retryCount = 0) => {
       try {
         const res = await apiClient.get("/dashboard/teacher");
+        if (!isMounted) return;
         setData(res.data?.data || res.data);
-      } catch (err) {
-        console.error("Failed to fetch teacher dashboard", err);
+      } catch (err: any) {
+        if (!isMounted) return;
+        if (retryCount < 3) {
+          setTimeout(() => {
+            if (isMounted) fetchDashboard(retryCount + 1);
+          }, 1500);
+          return;
+        }
+        console.warn("[TeacherDashboard] Awaiting live classroom telemetry:", err?.message || err);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
     fetchDashboard();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  if (loading) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-        <div style={{ height: "140px", background: "var(--bg-surface)", borderRadius: "var(--radius-2xl)", animation: "shimmer 1.5s infinite" }} />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "1.25rem" }}>
-          {Array(4).fill(0).map((_, i) => (
-            <div key={i} style={{ height: "120px", background: "var(--bg-surface)", borderRadius: "var(--radius-xl)", animation: "shimmer 1.5s infinite" }} />
-          ))}
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <DashboardLoadingSkeleton />;
 
   const classes = data?.classes || [];
   const todaySchedule = data?.todaySchedule || [];
@@ -127,6 +130,21 @@ export function TeacherDashboard({ user }: { user: any }) {
             }}
           >
             <Edit3 size={15} /> Bulk Marks Entry
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => router.push('/ptm')}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              background: "rgba(255, 255, 255, 0.15)",
+              color: "#FFFFFF",
+              border: "1px solid rgba(255, 255, 255, 0.3)",
+              backdropFilter: "blur(8px)",
+            }}
+          >
+            <CalendarClock size={15} /> PTM Schedule
           </Button>
           <Button
             variant="secondary"
@@ -216,6 +234,146 @@ export function TeacherDashboard({ user }: { user: any }) {
           onClick={() => router.push('/attendance')}
         />
       </div>
+
+      {/* Teacher Academic & Operations Hub */}
+      <Card>
+        <CardHeader style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "0.75rem" }}>
+          <div>
+            <CardTitle style={{ fontSize: "var(--text-base)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <Sparkles size={18} className="text-brand" />
+              Teacher Academic & Operations Toolkit
+            </CardTitle>
+            <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", margin: 0 }}>
+              PTM parent scheduling, student discipline, certificates, and payroll access
+            </p>
+          </div>
+          <span style={{ fontSize: "11px", fontWeight: 700, padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", background: "rgba(16, 185, 129, 0.1)", color: "var(--status-success)" }}>
+            Faculty Tools
+          </span>
+        </CardHeader>
+        <CardContent style={{ padding: "0 1.25rem 1.25rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: "0.875rem" }}>
+            {[
+              {
+                title: "Assignments Hub",
+                desc: "Create, assign and grade student homework with smart rubric scoring",
+                href: "/teacher-copilot/assignments",
+                icon: ClipboardList,
+                color: "#06B6D4",
+                tag: "Assignments",
+              },
+              {
+                title: "My PTM Parent Meetings",
+                desc: "Check conference schedule, student discussion points & parent feedback",
+                href: "/ptm",
+                icon: CalendarClock,
+                color: "#F59E0B",
+                tag: "Conferencing",
+              },
+              {
+                title: "Report Discipline Incident",
+                desc: "Log student misconduct, request intervention, send parent alerts",
+                href: "/discipline",
+                icon: AlertOctagon,
+                color: "#EF4444",
+                tag: "Behavior",
+              },
+              {
+                title: "Student Certificates",
+                desc: "Verify issued character, merit, and bonafide student certificates",
+                href: "/certificates",
+                icon: FileCheck,
+                color: "#2563EB",
+                tag: "Credentials",
+              },
+              {
+                title: "My Payslips & Salary",
+                desc: "View official monthly payslips, EPF/tax deductions, and payment refs",
+                href: "/payroll",
+                icon: Receipt,
+                color: "#10B981",
+                tag: "Compensation",
+              },
+              {
+                title: "My Leaves & Absences",
+                desc: "Apply for leaves, view approval status, track available balances",
+                href: "/hr",
+                icon: CalendarCheck,
+                color: "#8B5CF6",
+                tag: "Leave Portal",
+              },
+            ].map((tool) => {
+              const Icon = tool.icon;
+              return (
+                <div
+                  key={tool.title}
+                  onClick={() => router.push(tool.href)}
+                  style={{
+                    padding: "1rem",
+                    borderRadius: "var(--radius-xl)",
+                    background: "var(--bg-app)",
+                    border: "1px solid var(--border-default)",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    gap: "0.75rem",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = tool.color;
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                    e.currentTarget.style.boxShadow = "var(--shadow-md)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "var(--border-default)";
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div
+                      style={{
+                        width: "36px",
+                        height: "36px",
+                        borderRadius: "10px",
+                        background: `${tool.color}15`,
+                        color: tool.color,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Icon size={18} />
+                    </div>
+                    <span
+                      style={{
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        padding: "0.15rem 0.5rem",
+                        borderRadius: "var(--radius-full)",
+                        background: `${tool.color}12`,
+                        color: tool.color,
+                      }}
+                    >
+                      {tool.tag}
+                    </span>
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: "var(--text-sm)", color: "var(--text-primary)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span>{tool.title}</span>
+                      <ArrowRight size={13} style={{ opacity: 0.6 }} />
+                    </div>
+                    <p style={{ margin: "0.25rem 0 0", fontSize: "11px", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                      {tool.desc}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Main Grid: Today's Live Schedule Timeline & Pending Grading Queue */}
       <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1.4fr", gap: "1.5rem" }}>

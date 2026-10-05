@@ -340,7 +340,7 @@ function PrincipalCommandContent() {
     }
   }, [prompt]);
 
-  const handleFormSubmit = (e?: React.FormEvent) => {
+  const handleFormSubmit = (e?: React.SyntheticEvent) => {
     if (e) e.preventDefault();
     executeCommand(prompt);
   };
@@ -353,7 +353,7 @@ function PrincipalCommandContent() {
   };
 
   // ─── New Admission submission ─────────────────────────────────────────────
-  const handleAdmissionSubmit = async (e: React.FormEvent) => {
+  const handleAdmissionSubmit = async (e: React.SubmitEvent) => {
     e.preventDefault();
     if (!admissionForm.studentName.trim() || !admissionForm.parentName.trim()) return;
     setSubmittingAdmission(true);
@@ -400,7 +400,7 @@ function PrincipalCommandContent() {
   };
 
   // ─── Broadcast submission ─────────────────────────────────────────────────
-  const handleBroadcastSubmit = async (e: React.FormEvent) => {
+  const handleBroadcastSubmit = async (e: React.SubmitEvent) => {
     e.preventDefault();
     if (!broadcastForm.title.trim() || !broadcastForm.message.trim()) return;
     setSubmittingBroadcast(true);
@@ -1654,8 +1654,8 @@ function PrincipalCommandContent() {
             MODAL 1: New Admission
         ═══════════════════════════════════════════════════════════════ */}
         {showAdmissionModal && (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
-            <div style={{ background: "var(--bg-surface-solid)", border: "1px solid var(--border-default)", borderRadius: "var(--radius-2xl)", width: "100%", maxWidth: "520px", boxShadow: "var(--shadow-2xl)", overflow: "hidden", animation: "fadeIn 0.2s ease-out" }}>
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "none", WebkitBackdropFilter: "none", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", animation: "fadeIn 0.15s ease-out" }}>
+            <div style={{ background: "var(--bg-surface-solid)", border: "1px solid var(--border-default)", borderRadius: "var(--radius-2xl)", width: "100%", maxWidth: "520px", boxShadow: "var(--shadow-2xl)", overflow: "hidden", animation: "scaleUp 0.22s cubic-bezier(0.16, 1, 0.3, 1)" }}>
               <div style={{ padding: "1.25rem 1.5rem", borderBottom: "1px solid var(--border-subtle)", display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-app)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
                   <div style={{ padding: "0.4rem", borderRadius: "var(--radius-md)", background: "rgba(79,70,229,0.1)", color: "#4F46E5" }}><UserPlus size={20} /></div>
@@ -1708,8 +1708,8 @@ function PrincipalCommandContent() {
             MODAL 2: Broadcast Announcement
         ═══════════════════════════════════════════════════════════════ */}
         {showBroadcastModal && (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
-            <div style={{ background: "var(--bg-surface-solid)", border: "1px solid var(--border-default)", borderRadius: "var(--radius-2xl)", width: "100%", maxWidth: "520px", boxShadow: "var(--shadow-2xl)", overflow: "hidden", animation: "fadeIn 0.2s ease-out" }}>
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "none", WebkitBackdropFilter: "none", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", animation: "fadeIn 0.15s ease-out" }}>
+            <div style={{ background: "var(--bg-surface-solid)", border: "1px solid var(--border-default)", borderRadius: "var(--radius-2xl)", width: "100%", maxWidth: "520px", boxShadow: "var(--shadow-2xl)", overflow: "hidden", animation: "scaleUp 0.22s cubic-bezier(0.16, 1, 0.3, 1)" }}>
               <div style={{ padding: "1.25rem 1.5rem", borderBottom: "1px solid var(--border-subtle)", display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-app)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
                   <div style={{ padding: "0.4rem", borderRadius: "var(--radius-md)", background: "rgba(99,102,241,0.1)", color: "#4F46E5" }}><Megaphone size={20} /></div>

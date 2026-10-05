@@ -127,7 +127,11 @@ export class ExamsController {
     @Param('id') examId: string,
     @Param('examSubjectId') examSubjectId: string,
   ) {
-    return this.service.getMarksForSubject(examId, examSubjectId, req.user.schoolId);
+    return this.service.getMarksForSubject(
+      examId,
+      examSubjectId,
+      req.user.schoolId,
+    );
   }
 
   // ─── Students for Marks Entry ─────────────────────────────────────────────

@@ -12,6 +12,7 @@ import { CreateFeeStructureInput, CollectFeeInput } from '@school-erp/shared';
 import { FeePaymentStatus, FeePaymentMode, FeeFrequency } from '@prisma/client';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
 import { generateNextSequence } from '../../core/database/sequence.util';
+import { resolveActiveAcademicYear } from '../../core/academic/academic-year.util';
 
 export function normalizeFeePaymentMode(mode?: string): FeePaymentMode {
   if (!mode) return FeePaymentMode.CASH;
@@ -54,41 +55,11 @@ export class FeesService {
     schoolId: string,
     providedId?: string,
   ): Promise<string> {
-    const validSchoolId = requireSchoolId(schoolId);
-    if (
-      providedId &&
-      providedId !== 'undefined' &&
-      providedId !== 'null' &&
-      providedId.trim() !== ''
-    ) {
-      const trimmed = providedId.trim();
-      const normalizedName = trimmed.replace(/^AY[-_]?/i, '');
-      const year = await this.prisma.academicYear.findFirst({
-        where: {
-          schoolId: validSchoolId,
-          OR: [{ id: trimmed }, { name: trimmed }, { name: normalizedName }],
-        },
-      });
-      if (year) {
-        return year.id;
-      }
-    }
-    const activeYear = await this.prisma.academicYear.findFirst({
-      where: { schoolId: validSchoolId, isActive: true },
+    const year = await resolveActiveAcademicYear(this.prisma, {
+      schoolId,
+      requestedId: providedId,
     });
-    if (activeYear) {
-      return activeYear.id;
-    }
-    const latestYear = await this.prisma.academicYear.findFirst({
-      where: { schoolId: validSchoolId },
-      orderBy: { startDate: 'desc' },
-    });
-    if (latestYear) {
-      return latestYear.id;
-    }
-    throw new BadRequestException(
-      'No active academic year found for this school',
-    );
+    return year.id;
   }
 
   async getFeeHeads(schoolId: string) {
@@ -964,39 +935,84 @@ export class FeesService {
 
   async handleRazorpayWebhook(
     signature: string,
-    rawPayload: string,
+    rawPayload: string | Buffer,
     eventData: any,
   ) {
     const webhookSecret = this.configService?.get<string>(
       'RAZORPAY_WEBHOOK_SECRET',
     );
-    if (webhookSecret && signature) {
-      const expectedSignature = crypto
-        .createHmac('sha256', webhookSecret)
-        .update(rawPayload)
-        .digest('hex');
-      if (expectedSignature !== signature) {
-        throw new BadRequestException('Invalid webhook signature');
-      }
+    if (!webhookSecret || !signature) {
+      throw new BadRequestException(
+        'Webhook secret and signature are required (fail-closed)',
+      );
+    }
+
+    const payloadBuffer = Buffer.isBuffer(rawPayload)
+      ? rawPayload
+      : Buffer.from(
+          typeof rawPayload === 'string'
+            ? rawPayload
+            : JSON.stringify(rawPayload),
+          'utf8',
+        );
+
+    const expectedSignature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(payloadBuffer)
+      .digest('hex');
+
+    const sigBuf = Buffer.from(signature, 'hex');
+    const expBuf = Buffer.from(expectedSignature, 'hex');
+
+    if (
+      sigBuf.length !== expBuf.length ||
+      !crypto.timingSafeEqual(sigBuf, expBuf)
+    ) {
+      throw new BadRequestException('Invalid webhook signature');
     }
 
     if (eventData?.event === 'payment.captured') {
       const paymentEntity = eventData.payload?.payment?.entity;
       const notes = paymentEntity?.notes;
-      if (notes?.schoolId && notes?.studentId) {
+      if (notes?.schoolId && notes?.studentId && paymentEntity?.id) {
+        // Idempotency check: prevent duplicate payments for the same transactionRef
+        const existingPayment = await this.prisma.feePayment.findFirst({
+          where: {
+            schoolId: notes.schoolId,
+            transactionRef: paymentEntity.id,
+          },
+        });
+        if (existingPayment) {
+          this.logger.log(
+            `Razorpay webhook payment ${paymentEntity.id} already processed for school ${notes.schoolId} (idempotent skip)`,
+          );
+          return { received: true, alreadyProcessed: true };
+        }
+
         const amount = Number(paymentEntity.amount) / 100;
         const resolvedYearId = await this.resolveAcademicYearId(
           notes.schoolId,
           notes.academicYearId,
         );
-        await this.collectFee(notes.schoolId, 'SYSTEM_RAZORPAY_WEBHOOK', {
-          studentId: notes.studentId,
-          academicYearId: resolvedYearId,
-          amountPaid: amount,
-          paymentMode: FeePaymentMode.ONLINE_UPI,
-          transactionRef: paymentEntity.id,
-          remarks: `Captured via Razorpay Webhook (Payment ID: ${paymentEntity.id})`,
-        });
+
+        try {
+          await this.collectFee(notes.schoolId, 'SYSTEM_RAZORPAY_WEBHOOK', {
+            studentId: notes.studentId,
+            academicYearId: resolvedYearId,
+            amountPaid: amount,
+            paymentMode: FeePaymentMode.ONLINE_UPI,
+            transactionRef: paymentEntity.id,
+            remarks: `Captured via Razorpay Webhook (Payment ID: ${paymentEntity.id})`,
+          });
+        } catch (err: any) {
+          if (err.code === 'P2002') {
+            this.logger.warn(
+              `Duplicate payment caught by P2002 constraint for ref: ${paymentEntity.id}`,
+            );
+            return { received: true, alreadyProcessed: true };
+          }
+          throw err;
+        }
       }
     }
 
@@ -1115,5 +1131,184 @@ export class FeesService {
       },
       school,
     };
+  }
+
+  async getFeeInvoices(
+    schoolId: string,
+    filters?: {
+      academicYearId?: string;
+      studentId?: string;
+      paymentStatus?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    },
+  ) {
+    const validSchoolId = requireSchoolId(schoolId, 'List fee invoices');
+    const resolvedYearId = filters?.academicYearId
+      ? await this.resolveAcademicYearId(validSchoolId, filters.academicYearId)
+      : undefined;
+
+    const where: any = { schoolId: validSchoolId };
+    if (resolvedYearId) where.academicYearId = resolvedYearId;
+    if (filters?.studentId) where.studentId = filters.studentId;
+    if (filters?.paymentStatus && filters.paymentStatus !== 'ALL') {
+      where.paymentStatus = filters.paymentStatus;
+    }
+
+    if (filters?.search) {
+      const q = filters.search.trim();
+      where.OR = [
+        { transactionRef: { contains: q, mode: 'insensitive' } },
+        { receipt: { receiptNumber: { contains: q, mode: 'insensitive' } } },
+        {
+          student: {
+            OR: [
+              { admissionNumber: { contains: q, mode: 'insensitive' } },
+              { user: { firstName: { contains: q, mode: 'insensitive' } } },
+              { user: { lastName: { contains: q, mode: 'insensitive' } } },
+            ],
+          },
+        },
+      ];
+    }
+
+    const [payments, feeHeads, school] = await Promise.all([
+      this.prisma.feePayment.findMany({
+        where,
+        include: {
+          receipt: true,
+          student: {
+            include: {
+              user: { select: { firstName: true, lastName: true, email: true } },
+              enrollments: {
+                where: { status: 'ACTIVE' },
+                include: { section: { include: { class: true } } },
+                take: 1,
+              },
+              guardians: {
+                where: { isPrimary: true },
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  phone: true,
+                  email: true,
+                },
+              },
+            },
+          },
+          items: true,
+        },
+        orderBy: { paymentDate: 'desc' },
+        skip:
+          filters?.page && filters?.limit
+            ? (Number(filters.page) - 1) * Number(filters.limit)
+            : undefined,
+        take: filters?.limit ? Math.min(Number(filters.limit), 500) : 200,
+      }),
+      this.prisma.feeHead.findMany({
+        where: { schoolId: validSchoolId },
+        select: { id: true, name: true },
+      }),
+      this.prisma.school.findUnique({
+        where: { id: validSchoolId },
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          address: true,
+          city: true,
+          state: true,
+          pinCode: true,
+          phone: true,
+          email: true,
+          affiliationNo: true,
+        },
+      }),
+    ]);
+
+    const feeHeadMap = new Map(feeHeads.map((h) => [h.id, h.name]));
+
+    return payments.map((p) => {
+      const activeEnrollment = p.student?.enrollments?.[0];
+      const className = activeEnrollment?.section?.class?.name || 'Class';
+      const sectionName = activeEnrollment?.section?.name || 'A';
+      const guardian = p.student?.guardians?.[0];
+      const invoiceNumber =
+        p.receipt?.receiptNumber || `INV-${p.id.slice(-8).toUpperCase()}`;
+
+      const paidAmt = Number(p.paidAmount ?? (p as any).amountPaid ?? 0);
+      const totalAmt = Number(p.totalAmount ?? (p as any).amount ?? paidAmt);
+      const outstandingAmt = Number(
+        p.outstandingAmount ?? Math.max(0, totalAmt - paidAmt),
+      );
+
+      let breakdown: any[] = [];
+      if (p.items && p.items.length > 0) {
+        breakdown = p.items.map((it) => ({
+          id: it.id,
+          head: feeHeadMap.get(it.feeHeadId) || 'Academic Fee',
+          amount: Number(it.amount),
+          period: it.period || 'Annual',
+        }));
+      } else {
+        const baseAmount = totalAmt > 0 ? totalAmt : paidAmt;
+        const heads = [
+          { name: 'Tuition Fee', ratio: 0.55 },
+          { name: 'Development Fee', ratio: 0.15 },
+          { name: 'Examination Fee', ratio: 0.10 },
+          { name: 'Computer & Lab Fee', ratio: 0.08 },
+          { name: 'Library Fee', ratio: 0.06 },
+          { name: 'Sports & Activities', ratio: 0.06 },
+        ];
+        let runningSum = 0;
+        breakdown = heads.map((h, idx) => {
+          const isLast = idx === heads.length - 1;
+          const amt = isLast
+            ? Math.round(baseAmount - runningSum)
+            : Math.round(baseAmount * h.ratio);
+          runningSum += amt;
+          return {
+            id: `head-${idx}`,
+            head: h.name,
+            amount: amt,
+            period: 'Annual',
+          };
+        });
+      }
+
+      return {
+        id: p.id,
+        invoiceNumber,
+        receiptNumber: p.receipt?.receiptNumber || invoiceNumber,
+        receiptId: p.receipt?.id || p.id,
+        paymentDate: p.paymentDate,
+        createdAt: p.createdAt,
+        totalAmount: totalAmt,
+        paidAmount: paidAmt,
+        discountAmount: Number(p.discountAmount || 0),
+        fineAmount: Number(p.fineAmount || 0),
+        outstandingAmount: outstandingAmt,
+        paymentMode: p.paymentMode,
+        paymentStatus: p.paymentStatus,
+        transactionRef: p.transactionRef,
+        chequeNumber: p.chequeNumber,
+        chequeBankName: p.chequeBankName,
+        remarks: p.remarks,
+        student: {
+          id: p.student?.id,
+          admissionNumber: p.student?.admissionNumber,
+          rollNumber: p.student?.rollNumber,
+          name: `${p.student?.user?.firstName || ''} ${p.student?.user?.lastName || ''}`.trim(),
+          class: `${className} - ${sectionName}`,
+          parentName: guardian
+            ? `${guardian.firstName} ${guardian.lastName}`.trim()
+            : null,
+          parentPhone: guardian?.phone,
+        },
+        breakdown,
+        school,
+      };
+    });
   }
 }

@@ -106,6 +106,13 @@ export default function BulkMarksEntryPage() {
     setHasUnsavedChanges(false);
   }, [selectedExamId]);
 
+  useEffect(() => {
+    setSelectedExamSubjectId("");
+    setStudents([]);
+    setMarksData({});
+    setHasUnsavedChanges(false);
+  }, [selectedClassId]);
+
   const handleFetchStudents = async () => {
     if (!selectedExamId || !selectedExamSubjectId || !selectedSectionId) return;
     setFetchingStudents(true);
@@ -434,16 +441,23 @@ export default function BulkMarksEntryPage() {
 
         {/* Subject Select */}
         <div>
-          <label style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: "0.375rem" }}>
-            Exam Subject *
-          </label>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.375rem" }}>
+            <label style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--text-secondary)", display: "block" }}>
+              Exam Subject *
+            </label>
+            {selectedClassId && availableSubjects.length > 0 && (
+              <span style={{ fontSize: "11px", color: "var(--brand-primary)", fontWeight: 600 }}>
+                {availableSubjects.length} subjects available
+              </span>
+            )}
+          </div>
           <select
             value={selectedExamSubjectId}
             onChange={(e) => {
               setSelectedExamSubjectId(e.target.value);
               setStudents([]);
             }}
-            disabled={!selectedExamId}
+            disabled={!selectedExamId || !selectedClassId}
             style={{
               width: "100%",
               padding: "0.625rem 0.875rem",
@@ -453,15 +467,29 @@ export default function BulkMarksEntryPage() {
               color: "var(--text-primary)",
               fontSize: "var(--text-sm)",
               outline: "none",
-              opacity: !selectedExamId ? 0.6 : 1,
+              opacity: !selectedExamId || !selectedClassId ? 0.6 : 1,
             }}
           >
-            <option value="">-- Choose Subject --</option>
-            {availableSubjects.map((es) => (
-              <option key={es.id} value={es.id}>
-                {es.subject?.name || "Subject"} (Max: {es.maxMarks}, Pass: {es.passMarks})
-              </option>
-            ))}
+            {!selectedClassId ? (
+              <option value="">-- Select Class First --</option>
+            ) : availableSubjects.length === 0 ? (
+              <option value="">-- No subjects configured for this class --</option>
+            ) : (
+              <option value="">-- Choose Subject ({availableSubjects.length} available) --</option>
+            )}
+            {availableSubjects.map((es) => {
+              const subName =
+                es.subject?.name ||
+                (es as any).schoolSubjectOffering?.globalSubject?.name ||
+                (es as any).schoolSubjectOffering?.curriculumSubject?.name ||
+                "Subject";
+              const code = es.subject?.code ? ` [${es.subject.code}]` : "";
+              return (
+                <option key={es.id} value={es.id}>
+                  {subName}{code} (Max: {es.maxMarks}, Pass: {es.passMarks})
+                </option>
+              );
+            })}
           </select>
         </div>
 

@@ -44,10 +44,10 @@ export default function StaffEditPage({ params }: { params: Promise<{ id: string
           apiClient.get("/staff/designations"),
           apiClient.get(`/staff/${id}`),
         ]);
-        setDepartments(depRes.data.data || []);
-        setDesignations(desRes.data.data || []);
+        setDepartments(depRes.data?.data || depRes.data || []);
+        setDesignations(desRes.data?.data || desRes.data || []);
         
-        const staffData = staffRes.data.data;
+        const staffData = staffRes.data?.data || staffRes.data;
         if (staffData) {
           reset({
             firstName: staffData.user?.firstName || "",

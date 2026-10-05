@@ -253,7 +253,7 @@ function StaffRosterTab() {
     fetchStaff();
   }, [selectedDept, selectedDesig]);
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
+  const handleSearchSubmit = (e: React.SubmitEvent) => {
     e.preventDefault();
     fetchStaff();
   };
@@ -404,7 +404,7 @@ function DepartmentsTab() {
     fetchStructure();
   }, []);
 
-  const handleCreateDept = async (e: React.FormEvent) => {
+  const handleCreateDept = async (e: React.SubmitEvent) => {
     e.preventDefault();
     if (!deptForm.name.trim()) return;
     setSavingDept(true);

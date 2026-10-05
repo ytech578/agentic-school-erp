@@ -5,13 +5,15 @@ import { useRouter } from "next/navigation";
 import { 
   GraduationCap, BookOpen, Clock, CalendarCheck, CheckCircle2, 
   AlertTriangle, DollarSign, Sparkles, ArrowRight, Award, 
-  FileText, Check, HelpCircle, Send
+  FileText, Check, HelpCircle, Send,
+  FileCheck, CalendarClock, ShieldCheck, BookMarked
 } from "lucide-react";
 import { apiClient } from "@/lib/axios";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { DashboardKpiCard } from "@/components/ui/DashboardKpiCard";
 import { formatCurrencyINR, formatDate, getGradeBadge } from "@/lib/formatters";
+import { DashboardLoadingSkeleton } from "@/components/ui/Skeleton";
 
 export function StudentDashboard({ user }: { user: any }) {
   const router = useRouter();
@@ -19,31 +21,32 @@ export function StudentDashboard({ user }: { user: any }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchDashboard = async () => {
+    let isMounted = true;
+    const fetchDashboard = async (retryCount = 0) => {
       try {
         const res = await apiClient.get("/dashboard/student");
+        if (!isMounted) return;
         setData(res.data?.data || res.data);
-      } catch (err) {
-        console.error("Failed to fetch student dashboard", err);
+      } catch (err: any) {
+        if (!isMounted) return;
+        if (retryCount < 3) {
+          setTimeout(() => {
+            if (isMounted) fetchDashboard(retryCount + 1);
+          }, 1500);
+          return;
+        }
+        console.warn("[StudentDashboard] Awaiting live student portal data:", err?.message || err);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
     fetchDashboard();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  if (loading) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-        <div style={{ height: "140px", background: "var(--bg-surface)", borderRadius: "var(--radius-2xl)", animation: "shimmer 1.5s infinite" }} />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "1.25rem" }}>
-          {Array(4).fill(0).map((_, i) => (
-            <div key={i} style={{ height: "120px", background: "var(--bg-surface)", borderRadius: "var(--radius-xl)", animation: "shimmer 1.5s infinite" }} />
-          ))}
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <DashboardLoadingSkeleton />;
 
   const studentInfo = data?.studentInfo || {
     name: `${user?.firstName || "Student"} ${user?.lastName || ""}`.trim(),
@@ -102,7 +105,21 @@ export function StudentDashboard({ user }: { user: any }) {
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "0.75rem", zIndex: 1 }}>
+        <div style={{ display: "flex", gap: "0.75rem", zIndex: 1, flexWrap: "wrap" }}>
+          <Button
+            variant="secondary"
+            onClick={() => router.push('/student/assignments')}
+            style={{ background: "rgba(255, 255, 255, 0.2)", color: "#FFFFFF", border: "1px solid rgba(255, 255, 255, 0.35)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", gap: "0.4rem" }}
+          >
+            <BookMarked size={15} /> Homework & Assignments
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => router.push('/certificates')}
+            style={{ background: "rgba(255, 255, 255, 0.2)", color: "#FFFFFF", border: "1px solid rgba(255, 255, 255, 0.35)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", gap: "0.4rem" }}
+          >
+            <FileCheck size={15} /> My Certificates
+          </Button>
           <Button
             variant="secondary"
             onClick={() => router.push('/settings')}
@@ -146,6 +163,94 @@ export function StudentDashboard({ user }: { user: any }) {
           subText="Standard Daily Timetable"
           onClick={() => router.push('/timetable')}
         />
+      </div>
+
+      {/* Student Academic Services Hub */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1rem" }}>
+        {[
+          {
+            title: "Homework & Assignments",
+            desc: "View, submit and track all homework and assignment submissions",
+            href: "/student/assignments",
+            icon: BookMarked,
+            color: "#06B6D4",
+          },
+          {
+            title: "Official Certificates",
+            desc: "View, download and verify authentic bonafide and transfer certificates",
+            href: "/certificates",
+            icon: FileCheck,
+            color: "#2563EB",
+          },
+          {
+            title: "Parent-Teacher Conferences",
+            desc: "View upcoming parent-teacher conference schedules & feedback",
+            href: "/ptm",
+            icon: CalendarClock,
+            color: "#F59E0B",
+          },
+          {
+            title: "DPDP Privacy & Data Rights",
+            desc: "Exercise personal data portability rights and download archives",
+            href: "/privacy",
+            icon: ShieldCheck,
+            color: "#059669",
+          },
+        ].map((item) => {
+          const Icon = item.icon;
+          return (
+            <div
+              key={item.title}
+              onClick={() => router.push(item.href)}
+              style={{
+                padding: "1rem",
+                borderRadius: "var(--radius-xl)",
+                background: "var(--bg-app)",
+                border: "1px solid var(--border-default)",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.875rem",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = item.color;
+                e.currentTarget.style.transform = "translateY(-2px)";
+                e.currentTarget.style.boxShadow = "var(--shadow-md)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "var(--border-default)";
+                e.currentTarget.style.transform = "translateY(0)";
+                e.currentTarget.style.boxShadow = "none";
+              }}
+            >
+              <div
+                style={{
+                  width: "40px",
+                  height: "40px",
+                  borderRadius: "10px",
+                  background: `${item.color}15`,
+                  color: item.color,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <Icon size={20} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: "var(--text-xs)", color: "var(--text-primary)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span>{item.title}</span>
+                  <ArrowRight size={12} style={{ opacity: 0.6 }} />
+                </div>
+                <p style={{ margin: "0.2rem 0 0", fontSize: "11px", color: "var(--text-secondary)", lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {item.desc}
+                </p>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Main Grid: Today's Timetable & Active Homework Radar */}

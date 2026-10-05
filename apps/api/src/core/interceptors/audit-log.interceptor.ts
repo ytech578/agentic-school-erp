@@ -37,6 +37,11 @@ export class AuditLogInterceptor implements NestInterceptor {
       return next.handle();
     }
 
+    // Capture incoming payload as the "before" state (intent of mutation)
+    const beforeState = request.body && Object.keys(request.body).length > 0 
+      ? this.sanitizeData(JSON.parse(JSON.stringify(request.body))) 
+      : null;
+
     return next.handle().pipe(
       tap({
         next: async (responseBody) => {
@@ -76,6 +81,7 @@ export class AuditLogInterceptor implements NestInterceptor {
                   .toString()
                   .slice(0, 45),
                 userAgent: (request.headers['user-agent'] || '').slice(0, 255),
+                before: beforeState,
                 after: sanitizedAfter
                   ? JSON.parse(JSON.stringify(sanitizedAfter))
                   : null,

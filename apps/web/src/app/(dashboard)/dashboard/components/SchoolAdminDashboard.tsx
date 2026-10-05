@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import {
   Users, GraduationCap, DollarSign, CalendarCheck, UserPlus,
   ArrowRight, CheckCircle2, AlertTriangle, Clock, TrendingUp,
-  CreditCard, Check, X, FileText, Send, BarChart2
+  CreditCard, Check, X, FileText, Send, BarChart2,
+  Receipt, FileCheck, CalendarClock, AlertOctagon, BookUser, ShieldCheck, Sparkles, BookMarked
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
@@ -14,20 +15,8 @@ import { apiClient } from "@/lib/axios";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { DashboardKpiCard } from "@/components/ui/DashboardKpiCard";
+import { DashboardLoadingSkeleton } from "@/components/ui/Skeleton";
 import { formatCurrencyINR, formatDate } from "@/lib/formatters";
-
-function LoadingSkeleton() {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      <div style={{ height: "160px", background: "var(--bg-surface)", borderRadius: "var(--radius-2xl)", animation: "shimmer 1.5s infinite" }} />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "1.25rem" }}>
-        {Array(4).fill(0).map((_, i) => (
-          <div key={i} style={{ height: "130px", background: "var(--bg-surface)", borderRadius: "var(--radius-xl)", animation: "shimmer 1.5s infinite" }} />
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export function SchoolAdminDashboard({ user }: { user: any }) {
   const router = useRouter();
@@ -37,21 +26,36 @@ export function SchoolAdminDashboard({ user }: { user: any }) {
   const [pendingLeaves, setPendingLeaves] = useState<any[]>([]);
 
   useEffect(() => {
-    const fetchDashboard = async () => {
+    let isMounted = true;
+    const fetchDashboard = async (retryCount = 0) => {
       try {
         const [dashRes, leavesRes] = await Promise.all([
           apiClient.get("/dashboard/school-admin"),
           apiClient.get("/hr/leaves?status=PENDING&limit=5").catch(() => ({ data: { data: [] } })),
         ]);
+        if (!isMounted) return;
         setData(dashRes.data?.data || dashRes.data);
         setPendingLeaves(leavesRes.data?.data || []);
-      } catch (err) {
-        console.error("Failed to fetch school admin dashboard", err);
+      } catch (err: any) {
+        if (!isMounted) return;
+        // In dev mode when server restarts, gracefully retry before logging to avoid Turbopack crash overlays
+        if (retryCount < 3) {
+          setTimeout(() => {
+            if (isMounted) fetchDashboard(retryCount + 1);
+          }, 1500);
+          return;
+        }
+        console.warn("[SchoolAdminDashboard] Backend initializing, awaiting live telemetry:", err?.message || err);
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
     fetchDashboard();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleLeaveAction = async (id: string, action: "APPROVED" | "REJECTED") => {
@@ -66,7 +70,44 @@ export function SchoolAdminDashboard({ user }: { user: any }) {
     }
   };
 
-  if (loading) return <LoadingSkeleton />;
+  if (loading) return <DashboardLoadingSkeleton />;
+
+  if (!data) {
+    return (
+      <div style={{
+        padding: "3.5rem 2rem",
+        textAlign: "center",
+        background: "var(--bg-surface)",
+        borderRadius: "var(--radius-2xl)",
+        border: "1px solid var(--border-default)",
+        boxShadow: "var(--shadow-sm)",
+        margin: "1rem 0"
+      }}>
+        <div style={{
+          width: "48px",
+          height: "48px",
+          borderRadius: "50%",
+          background: "rgba(99, 102, 241, 0.1)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          margin: "0 auto 1rem auto",
+          color: "var(--brand-primary)"
+        }}>
+          <Sparkles size={24} />
+        </div>
+        <h3 style={{ fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
+          Connecting to Campus Telemetry...
+        </h3>
+        <p style={{ color: "var(--text-secondary)", fontSize: "var(--text-sm)", maxWidth: "420px", margin: "0 auto 1.5rem auto" }}>
+          The backend services are initializing. Live metrics will appear automatically.
+        </p>
+        <Button variant="primary" onClick={() => { setLoading(true); location.reload(); }}>
+          Sync Live Cockpit
+        </Button>
+      </div>
+    );
+  }
 
   const kpis = data?.kpis;
   const collectionTrend = data?.collectionTrend || [];
@@ -159,6 +200,162 @@ export function SchoolAdminDashboard({ user }: { user: any }) {
           onClick={() => router.push('/admissions')}
         />
       </div>
+
+      {/* Campus Academic & Operational Modules Hub */}
+      <Card>
+        <CardHeader style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "0.75rem" }}>
+          <div>
+            <CardTitle style={{ fontSize: "var(--text-base)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <Sparkles size={18} className="text-brand" />
+              Campus Management & Operations Hub
+            </CardTitle>
+            <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", margin: 0 }}>
+              Quick access to statutory payroll, official credentials, online examinations, and parent-teacher scheduling
+            </p>
+          </div>
+          <span style={{ fontSize: "11px", fontWeight: 700, padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", background: "rgba(16, 185, 129, 0.1)", color: "var(--status-success)" }}>
+            School Scope Active
+          </span>
+        </CardHeader>
+        <CardContent style={{ padding: "0 1.25rem 1.25rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0.875rem" }}>
+            {[
+              {
+                title: "Payroll & Payslips",
+                desc: "Salary structures, EPF/ESI statutory calculations, disbursement",
+                href: "/payroll",
+                icon: Receipt,
+                color: "#10B981",
+                tag: "HR & Finance",
+              },
+              {
+                title: "Official Certificates",
+                desc: "Transfer certificates, bonafide & QR verification",
+                href: "/certificates",
+                icon: FileCheck,
+                color: "#2563EB",
+                tag: "Tamper-Evident",
+              },
+              {
+                title: "PTM Scheduling",
+                desc: "Teacher conferencing slots, parent bookings & meetings",
+                href: "/ptm",
+                icon: CalendarClock,
+                color: "#F59E0B",
+                tag: "Conferencing",
+              },
+              {
+                title: "Discipline Log",
+                desc: "Incident records, parental notifications, restorative action",
+                href: "/discipline",
+                icon: AlertOctagon,
+                color: "#EF4444",
+                tag: "Conduct Sentinel",
+              },
+              {
+                title: "Curriculum & Subjects",
+                desc: "CBSE/ICSE curriculum mapping, subject offerings and standards",
+                href: "/curriculum",
+                icon: BookMarked,
+                color: "#06B6D4",
+                tag: "Academics",
+              },
+              {
+                title: "Alumni & Transcripts",
+                desc: "Graduates directory, transcript requests, alumni networking",
+                href: "/alumni",
+                icon: BookUser,
+                color: "#8B5CF6",
+                tag: "Alumni Network",
+              },
+              {
+                title: "DPDP Privacy Center",
+                desc: "Sec 9 parental consents, Sec 11 data portability, Sec 12 erasure",
+                href: "/privacy",
+                icon: ShieldCheck,
+                color: "#059669",
+                tag: "DPDP Act 2023",
+              },
+              {
+                title: "SaaS Subscriptions",
+                desc: "Plan tier quotas, active student & faculty meter telemetry",
+                href: "/subscriptions",
+                icon: Sparkles,
+                color: "#6366F1",
+                tag: "Quota & Limits",
+              },
+            ].map((module) => {
+              const Icon = module.icon;
+              return (
+                <div
+                  key={module.title}
+                  onClick={() => router.push(module.href)}
+                  style={{
+                    padding: "1rem",
+                    borderRadius: "var(--radius-xl)",
+                    background: "var(--bg-app)",
+                    border: "1px solid var(--border-default)",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    gap: "0.75rem",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = module.color;
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                    e.currentTarget.style.boxShadow = "var(--shadow-md)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "var(--border-default)";
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div
+                      style={{
+                        width: "36px",
+                        height: "36px",
+                        borderRadius: "10px",
+                        background: `${module.color}15`,
+                        color: module.color,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Icon size={18} />
+                    </div>
+                    <span
+                      style={{
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        padding: "0.15rem 0.5rem",
+                        borderRadius: "var(--radius-full)",
+                        background: `${module.color}12`,
+                        color: module.color,
+                      }}
+                    >
+                      {module.tag}
+                    </span>
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: "var(--text-sm)", color: "var(--text-primary)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span>{module.title}</span>
+                      <ArrowRight size={13} style={{ opacity: 0.6 }} />
+                    </div>
+                    <p style={{ margin: "0.25rem 0 0", fontSize: "11px", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                      {module.desc}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Mid Section: 7-Day Collection Trend & Pending Approvals */}
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "1.5rem", flexWrap: "wrap" as any }}>

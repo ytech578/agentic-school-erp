@@ -1,8 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { ExamsService } from './exams.service';
 import { PrismaService } from '../../core/database/prisma.service';
 
@@ -136,10 +133,7 @@ describe('ExamsService — Change #9B Hardened Academic Context', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ExamsService,
-        { provide: PrismaService, useValue: prisma },
-      ],
+      providers: [ExamsService, { provide: PrismaService, useValue: prisma }],
     }).compile();
 
     service = module.get<ExamsService>(ExamsService);
@@ -167,7 +161,11 @@ describe('ExamsService — Change #9B Hardened Academic Context', () => {
       expect(prisma.academicYear.findFirst).toHaveBeenCalledWith({
         where: {
           schoolId,
-          OR: [{ id: academicYearId }, { name: academicYearId }, { name: '2026' }],
+          OR: [
+            { id: academicYearId },
+            { name: academicYearId },
+            { name: '2026' },
+          ],
         },
       });
     });
@@ -181,7 +179,7 @@ describe('ExamsService — Change #9B Hardened Academic Context', () => {
       const res = await service.createExam(schoolId, {
         name: 'Finals 2026',
         examType: 'FINAL',
-        academicYearId: undefined as any,
+        academicYearId: undefined,
         startDate: '2026-12-01',
         endDate: '2026-12-15',
       });
@@ -251,9 +249,9 @@ describe('ExamsService — Change #9B Hardened Academic Context', () => {
         academicYear: lockedYear,
         _count: { reportCards: 0 },
       });
-      await expect(
-        service.deleteExam(schoolId, 'exam-1'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.deleteExam(schoolId, 'exam-1')).rejects.toThrow(
+        BadRequestException,
+      );
 
       // addExamSubject
       await expect(
@@ -696,7 +694,12 @@ describe('ExamsService — Change #9B Hardened Academic Context', () => {
         class: { schoolId },
       });
 
-      await service.getStudentsForMarksEntry('exam-1', 'es-1', 'sec-10a', schoolId);
+      await service.getStudentsForMarksEntry(
+        'exam-1',
+        'es-1',
+        'sec-10a',
+        schoolId,
+      );
 
       expect(prisma.studentEnrollment.findMany).toHaveBeenCalledWith(
         expect.objectContaining({

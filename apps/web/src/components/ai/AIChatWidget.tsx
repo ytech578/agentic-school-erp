@@ -43,17 +43,24 @@ export default function AIChatWidget() {
     return (
       <button
         onClick={toggle}
+        className="agentic-fab"
+        title="Open AI School Copilot"
         style={{
-          position: "fixed", bottom: "2rem", right: "2rem", zIndex: 100,
-          width: "56px", height: "56px", borderRadius: "50%",
-          background: "var(--primary-500)",
-          backgroundImage: "var(--brand-gradient)",
-          color: "#ffffff", display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: "var(--shadow-lg), 0 0 20px rgba(99, 102, 241, 0.4)",
-          border: "none", cursor: "pointer", transition: "transform 0.2s",
+          position: "fixed",
+          bottom: "2rem",
+          right: "2rem",
+          zIndex: 100,
+          width: "56px",
+          height: "56px",
+          borderRadius: "50%",
+          background: "var(--brand-gradient)",
+          color: "#ffffff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          border: "none",
+          cursor: "pointer",
         }}
-        onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.1)")}
-        onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
       >
         <BrainCircuit size={24} />
       </button>
@@ -61,15 +68,27 @@ export default function AIChatWidget() {
   }
 
   return (
-    <div style={{
-      position: "fixed", bottom: "5rem", right: "2rem", zIndex: 100,
-      width: "360px", height: "520px", background: "var(--bg-surface-solid)",
-      backgroundColor: "var(--bg-surface-solid)", opacity: 1,
-      borderRadius: "var(--radius-xl)", border: "1px solid var(--border-default)",
-      boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1)",
-      display: "flex", flexDirection: "column",
-      overflow: "hidden", animation: "fadeInUp 0.3s ease-out"
-    }}>
+    <div
+      style={{
+        position: "fixed",
+        bottom: "5rem",
+        right: "2rem",
+        zIndex: 100,
+        width: "360px",
+        height: "520px",
+        background: "var(--bg-surface-solid)",
+        backgroundColor: "var(--bg-surface-solid)",
+        opacity: 1,
+        borderRadius: "var(--radius-xl)",
+        border: "1px solid var(--border-default)",
+        boxShadow:
+          "0 25px 50px -12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1)",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        animation: "scaleUp 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards",
+      }}
+    >
       <div style={{
         background: "var(--primary-500)",
         backgroundImage: "var(--brand-gradient)",

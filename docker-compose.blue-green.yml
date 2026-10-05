@@ -1,0 +1,151 @@
+﻿version: '3.9'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Blue/Green Deployment Docker Compose
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# USAGE:
+#   # Deploy new version to GREEN slot
+#   docker compose -f docker-compose.blue-green.yml up -d api_green web_green
+#
+#   # Check health of green before switching
+#   curl http://localhost:8081/api/v1/health
+#
+#   # Switch traffic (instant, zero-downtime):
+#   echo 'ACTIVE_SLOT=green' > nginx.env
+#   docker compose -f docker-compose.blue-green.yml exec nginx nginx -s reload
+#
+#   # Rollback (flip back to blue):
+#   echo 'ACTIVE_SLOT=blue' > nginx.env
+#   docker compose -f docker-compose.blue-green.yml exec nginx nginx -s reload
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: school_erp_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: school_erp_redis
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+
+  # ── Blue Slot ───────────────────────────────────────────────────────────────
+  api_blue:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: school_erp_api_blue
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      APP_URL: ${APP_URL}
+      API_URL: ${API_URL}
+      DEPLOY_SLOT: blue
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - uploads:/app/uploads
+
+  web_blue:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${API_URL}
+    container_name: school_erp_web_blue
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${API_URL}
+      DEPLOY_SLOT: blue
+    depends_on:
+      - api_blue
+
+  # ── Green Slot ──────────────────────────────────────────────────────────────
+  api_green:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: school_erp_api_green
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      APP_URL: ${APP_URL}
+      API_URL: ${API_URL}
+      DEPLOY_SLOT: green
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - uploads:/app/uploads
+
+  web_green:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${API_URL}
+    container_name: school_erp_web_green
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${API_URL}
+      DEPLOY_SLOT: green
+    depends_on:
+      - api_green
+
+  # ── Nginx: Routes traffic to active slot ─────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: school_erp_nginx
+    restart: always
+    env_file: ./nginx.env
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"   # Direct Blue access for smoke tests
+      - "8081:8081"   # Direct Green access for smoke tests
+    volumes:
+      - ./nginx/nginx.blue-green.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - web_blue
+      - api_blue
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  uploads:
+    driver: local

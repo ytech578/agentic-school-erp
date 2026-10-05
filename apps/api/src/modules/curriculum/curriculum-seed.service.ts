@@ -13,11 +13,19 @@ export class CurriculumSeedService implements OnApplicationBootstrap {
   constructor(private prisma: PrismaService) {}
 
   async onApplicationBootstrap() {
-    try {
-      await this.seedAll();
-    } catch (err) {
-      this.logger.error('Failed to run curriculum seed:', err);
-    }
+    // Run seed asynchronously in the background so HTTP server can bind to port immediately
+    setImmediate(async () => {
+      try {
+        const boardCount = await this.prisma.board.count();
+        if (boardCount >= 4) {
+          this.logger.log('Curriculum baseline already seeded. Skipping redundant upserts.');
+          return;
+        }
+        await this.seedAll();
+      } catch (err) {
+        this.logger.error('Failed to run curriculum seed:', err);
+      }
+    });
   }
 
   async seedAll() {

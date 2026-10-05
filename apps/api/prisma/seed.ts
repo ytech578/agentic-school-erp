@@ -103,6 +103,18 @@ async function main() {
   });
   console.log(`✅ School Admin: ${schoolAdmin.email}`);
 
+  await prisma.staff.upsert({
+    where: { userId: schoolAdmin.id },
+    update: {},
+    create: {
+      schoolId: school.id,
+      userId: schoolAdmin.id,
+      employeeId: 'ADM0001',
+      joinDate: new Date('2020-01-01'),
+      isActive: true,
+    },
+  });
+
   // ─── Principal ────────────────────────────────────────────────────────────
   const principal = await prisma.user.upsert({
     where: { email: 'principal@sunriseschool.edu.in' },
@@ -120,6 +132,18 @@ async function main() {
     },
   });
   console.log(`✅ Principal: ${principal.email}`);
+
+  await prisma.staff.upsert({
+    where: { userId: principal.id },
+    update: {},
+    create: {
+      schoolId: school.id,
+      userId: principal.id,
+      employeeId: 'PRN0001',
+      joinDate: new Date('2018-06-01'),
+      isActive: true,
+    },
+  });
 
   // ─── Departments ─────────────────────────────────────────────────────────
   const departments = await Promise.all([

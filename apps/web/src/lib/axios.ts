@@ -6,7 +6,7 @@ const API_URL =
     ? (!process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_URL.includes('localhost')
         ? '/api'
         : process.env.NEXT_PUBLIC_API_URL)
-    : (process.env.INTERNAL_API_URL || 'http://127.0.0.1:4000/api');
+    : (process.env.INTERNAL_API_URL || 'http://127.0.0.1:4000/api/v1');
 
 export const apiClient = axios.create({
   baseURL: API_URL,
@@ -131,16 +131,39 @@ apiClient.interceptors.response.use(
     }
 
     // ── Transient Retry for Idempotent GET Requests on Network Glitches / Server Restarts ──
-    const isNetworkError = !error.response && (error.message === 'Network Error' || error.code === 'ERR_NETWORK');
+    const isProxyRestartError =
+      Boolean(error.response) &&
+      (error.response.status === 500 ||
+        error.response.status === 502 ||
+        error.response.status === 503 ||
+        error.response.status === 504) &&
+      (typeof error.response.data === 'string' &&
+        (error.response.data.includes('Internal Server Error') ||
+          error.response.data.includes('ECONNREFUSED') ||
+          error.response.data.includes('Bad Gateway') ||
+          error.response.data.includes('Service Unavailable') ||
+          error.response.data.includes('Failed to proxy')));
+
+    const isNetworkError =
+      (!error.response &&
+        (error.message === 'Network Error' ||
+          error.code === 'ERR_NETWORK' ||
+          error.code === 'ECONNREFUSED')) ||
+      isProxyRestartError;
+
     if (
       isNetworkError &&
       originalRequest &&
       originalRequest.method?.toLowerCase() === 'get' &&
-      (!originalRequest._retryCount || originalRequest._retryCount < 3)
+      (!originalRequest._retryCount || originalRequest._retryCount < 5)
     ) {
       originalRequest._retryCount = (originalRequest._retryCount || 0) + 1;
-      const delay = originalRequest._retryCount * 1200;
-      console.info(`[apiClient] Backend reconnecting: GET ${originalRequest.url}. Attempt ${originalRequest._retryCount}/3 (retrying in ${delay}ms)...`);
+      const delay = Math.min(originalRequest._retryCount * 1000, 3000);
+      if (typeof window !== 'undefined') {
+        console.debug(
+          `[apiClient] Backend initializing or reconnecting (GET ${originalRequest.url}). Retrying attempt ${originalRequest._retryCount}/5 in ${delay}ms...`
+        );
+      }
       await new Promise((resolve) => setTimeout(resolve, delay));
       return apiClient(originalRequest);
     }

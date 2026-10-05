@@ -220,4 +220,32 @@ export class FeesController {
   getReceiptDetails(@Request() req: any, @Param('id') id: string) {
     return this.feesService.getReceiptDetails(req.user.schoolId, id);
   }
+
+  @Get('invoices')
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'PARENT',
+    'STUDENT',
+  )
+  getFeeInvoices(
+    @Request() req: any,
+    @Query('academicYearId') academicYearId?: string,
+    @Query('studentId') studentId?: string,
+    @Query('paymentStatus') paymentStatus?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.feesService.getFeeInvoices(req.user.schoolId, {
+      academicYearId,
+      studentId,
+      paymentStatus,
+      search,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
 }

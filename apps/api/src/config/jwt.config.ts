@@ -23,6 +23,8 @@ const KNOWN_PLACEHOLDERS = [
 export interface ValidatedJwtConfig {
   accessSecret: string;
   refreshSecret: string;
+  accessSecretPrev?: string;
+  refreshSecretPrev?: string;
   accessExpiresIn: string;
   refreshExpiresIn: string;
   refreshExpiresInMs: number;
@@ -33,11 +35,17 @@ export function validateJwtConfig(
 ): ValidatedJwtConfig {
   const rawAccess = env.JWT_ACCESS_SECRET;
   const rawRefresh = env.JWT_REFRESH_SECRET;
+  const rawAccessPrev = env.JWT_ACCESS_SECRET_PREV;
+  const rawRefreshPrev = env.JWT_REFRESH_SECRET_PREV;
 
   const accessSecret: string =
     typeof rawAccess === 'string' ? rawAccess.trim() : '';
   const refreshSecret: string =
     typeof rawRefresh === 'string' ? rawRefresh.trim() : '';
+  const accessSecretPrev: string | undefined =
+    typeof rawAccessPrev === 'string' && rawAccessPrev.trim() ? rawAccessPrev.trim() : undefined;
+  const refreshSecretPrev: string | undefined =
+    typeof rawRefreshPrev === 'string' && rawRefreshPrev.trim() ? rawRefreshPrev.trim() : undefined;
 
   // 1. Existence check
   if (!accessSecret) {
@@ -99,6 +107,8 @@ export function validateJwtConfig(
   return {
     accessSecret,
     refreshSecret,
+    accessSecretPrev,
+    refreshSecretPrev,
     accessExpiresIn: env.JWT_ACCESS_EXPIRES || '15m',
     refreshExpiresIn: env.JWT_REFRESH_EXPIRES || '7d',
     refreshExpiresInMs: 7 * 24 * 60 * 60 * 1000, // 7 days in ms

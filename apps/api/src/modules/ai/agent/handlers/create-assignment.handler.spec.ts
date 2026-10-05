@@ -255,7 +255,9 @@ describe('CreateAssignmentAgentHandler', () => {
         }),
       );
       expect(rec.status).toBe('NOT_APPLIED');
-      expect(rec.reason).toContain('No assignment titled "Algebra homework" found');
+      expect(rec.reason).toContain(
+        'No assignment titled "Algebra homework" found',
+      );
     });
 
     it('3. missing authenticated staff profile -> NOT_APPLIED / failure', async () => {
@@ -268,7 +270,9 @@ describe('CreateAssignmentAgentHandler', () => {
       });
 
       expect(rec.status).toBe('NOT_APPLIED');
-      expect(rec.reason).toContain('Authenticated teacher staff profile not found');
+      expect(rec.reason).toContain(
+        'Authenticated teacher staff profile not found',
+      );
       expect(assignmentsService.findAssignmentByDetails).not.toHaveBeenCalled();
     });
   });

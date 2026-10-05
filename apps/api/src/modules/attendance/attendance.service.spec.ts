@@ -45,6 +45,7 @@ describe('AttendanceService - Hardware Punch Webhook', () => {
       providers: [
         AttendanceService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: require("../../core/cache/tenant-cache.service").TenantCacheService, useValue: { getClassesAndSections: jest.fn().mockResolvedValue([]) } },
       ],
     }).compile();
 

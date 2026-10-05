@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
 import { resolveGradeLevel } from '../../core/academic/grade-resolver.util';
+import { resolveActiveAcademicYear } from '../../core/academic/academic-year.util';
 import {
   CreateExamDto,
   UpdateExamDto,
@@ -44,55 +45,11 @@ export class ExamsService {
     providedId?: string,
     isMutation = false,
   ) {
-    const validSchoolId = requireSchoolId(schoolId);
-    let year = null;
-
-    if (
-      providedId &&
-      providedId !== 'undefined' &&
-      providedId !== 'null' &&
-      providedId.trim() !== ''
-    ) {
-      const trimmed = providedId.trim();
-      const normalizedName = trimmed.replace(/^AY[-_]?/i, '');
-      year = await this.prisma.academicYear.findFirst({
-        where: {
-          schoolId: validSchoolId,
-          OR: [{ id: trimmed }, { name: trimmed }, { name: normalizedName }],
-        },
-      });
-      if (!year) {
-        throw new NotFoundException('Academic year not found for this school');
-      }
-    } else {
-      year = await this.prisma.academicYear.findFirst({
-        where: { schoolId: validSchoolId, isActive: true },
-      });
-      if (!year) {
-        if (isMutation) {
-          throw new BadRequestException(
-            'No active academic year found for this school. Please specify an explicit academicYearId.',
-          );
-        }
-        const latestYear = await this.prisma.academicYear.findFirst({
-          where: { schoolId: validSchoolId },
-          orderBy: { startDate: 'desc' },
-        });
-        if (latestYear) return latestYear;
-
-        throw new BadRequestException(
-          'No active academic year found for this school',
-        );
-      }
-    }
-
-    if (isMutation && year.isLocked) {
-      throw new BadRequestException(
-        `Academic session '${year.name}' is locked. Structural changes are not permitted.`,
-      );
-    }
-
-    return year;
+    return await resolveActiveAcademicYear(this.prisma, {
+      schoolId,
+      requestedId: providedId,
+      isMutation,
+    });
   }
 
   async resolveAcademicYearId(
@@ -100,7 +57,11 @@ export class ExamsService {
     providedId?: string,
     isMutation = false,
   ): Promise<string> {
-    const year = await this.resolveAcademicYear(schoolId, providedId, isMutation);
+    const year = await this.resolveAcademicYear(
+      schoolId,
+      providedId,
+      isMutation,
+    );
     return year.id;
   }
 
@@ -310,16 +271,17 @@ export class ExamsService {
       resolvedSubjectId = subj.id;
 
       // Deterministically check if a unique matching active offering exists in session covering this class grade
-      const matchingOfferings = await this.prisma.schoolSubjectOffering.findMany({
-        where: {
-          schoolId: validSchoolId,
-          academicYearId: exam.academicYearId,
-          legacySubjectId: subj.id,
-          gradeFrom: { lte: classGrade },
-          gradeTo: { gte: classGrade },
-          isOffered: true,
-        },
-      });
+      const matchingOfferings =
+        await this.prisma.schoolSubjectOffering.findMany({
+          where: {
+            schoolId: validSchoolId,
+            academicYearId: exam.academicYearId,
+            legacySubjectId: subj.id,
+            gradeFrom: { lte: classGrade },
+            gradeTo: { gte: classGrade },
+            isOffered: true,
+          },
+        });
       if (matchingOfferings.length === 1) {
         resolvedOfferingId = matchingOfferings[0].id;
       }
@@ -335,7 +297,9 @@ export class ExamsService {
         examId: exam.id,
         classId: data.classId,
         OR: [
-          ...(resolvedOfferingId ? [{ schoolSubjectOfferingId: resolvedOfferingId }] : []),
+          ...(resolvedOfferingId
+            ? [{ schoolSubjectOfferingId: resolvedOfferingId }]
+            : []),
           ...(resolvedSubjectId ? [{ subjectId: resolvedSubjectId }] : []),
         ],
       },
@@ -1005,7 +969,8 @@ export class ExamsService {
         'Subject';
 
       marksByExam.get(eId)!.push({
-        subjectId: m.examSubject.schoolSubjectOfferingId || m.examSubject.subjectId,
+        subjectId:
+          m.examSubject.schoolSubjectOfferingId || m.examSubject.subjectId,
         subjectName: resolvedName,
         marksObtained: m.marksObtained ? Number(m.marksObtained) : 0,
         maxMarks: Number(m.examSubject.maxMarks || 100),

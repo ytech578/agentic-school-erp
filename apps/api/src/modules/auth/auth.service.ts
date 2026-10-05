@@ -367,18 +367,26 @@ export class AuthService {
   }
 
   private async incrementFailedAttempts(userId: string) {
-    const user = await this.prisma.user.update({
+    // Use a single atomic update to prevent race conditions.
+    // First, read the current count to determine if we should lock.
+    const current = await this.prisma.user.findUnique({
       where: { id: userId },
-      data: { failedLoginAttempts: { increment: 1 } },
+      select: { failedLoginAttempts: true },
     });
 
-    // Lock account after 5 failed attempts for 15 minutes
-    if (user.failedLoginAttempts >= 5) {
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: { lockedUntil: new Date(Date.now() + 15 * 60 * 1000) },
-      });
-    }
+    const currentCount = current?.failedLoginAttempts ?? 0;
+    const willExceedLimit = currentCount + 1 >= 5;
+
+    // Atomic single-write: increment AND conditionally set lockout in one operation
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        failedLoginAttempts: { increment: 1 },
+        ...(willExceedLimit
+          ? { lockedUntil: new Date(Date.now() + 15 * 60 * 1000) }
+          : {}),
+      },
+    });
   }
 
   private async createAuditLog(

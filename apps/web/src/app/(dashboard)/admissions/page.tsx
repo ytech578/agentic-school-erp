@@ -3,8 +3,24 @@
 import { useState, useEffect } from "react";
 import { apiClient } from "@/lib/axios";
 import { Button } from "@/components/ui/Button";
-import { Plus, CheckCircle, Sparkles, Loader2, X, MessageSquare } from "lucide-react";
+import { Input } from "@/components/ui/Input";
+import { 
+  Plus, 
+  CheckCircle, 
+  Sparkles, 
+  Loader2, 
+  X, 
+  MessageSquare,
+  FileText,
+  Award,
+  Search,
+  FolderOpen
+} from "lucide-react";
 import AdmissionsHelpdeskWidget from "@/components/admissions/AdmissionsHelpdeskWidget";
+import { AdmissionDocumentVaultModal } from "@/components/admissions/AdmissionDocumentVaultModal";
+import { OfficialAdmissionOfferLetterModal } from "@/components/admissions/OfficialAdmissionOfferLetterModal";
+import { EnrollStudentModal } from "@/components/admissions/EnrollStudentModal";
+import { RejectApplicationModal } from "@/components/admissions/RejectApplicationModal";
 
 type Tab = "dashboard" | "enquiries" | "applications" | "concierge";
 
@@ -21,6 +37,16 @@ export default function AdmissionsPage() {
   const [showEnquiryForm, setShowEnquiryForm] = useState(false);
   const [showAppForm, setShowAppForm] = useState(false);
   
+  // Document Vault & Offer Letter Modals
+  const [vaultApplication, setVaultApplication] = useState<any | null>(null);
+  const [offerApplication, setOfferApplication] = useState<any | null>(null);
+  const [enrollApplication, setEnrollApplication] = useState<any | null>(null);
+  const [rejectApplication, setRejectApplication] = useState<any | null>(null);
+
+  // Search states
+  const [enquirySearch, setEnquirySearch] = useState("");
+  const [applicationSearch, setApplicationSearch] = useState("");
+
   // Basic states for forms (in a real app, use react-hook-form)
   const [enquiryForm, setEnquiryForm] = useState({ studentName: "", classApplied: "", parentName: "", phone: "", source: "WALK_IN" });
   const [appForm, setAppForm] = useState({ studentName: "", dateOfBirth: "", gender: "MALE", classApplied: "", parentName: "", parentPhone: "" });
@@ -198,6 +224,12 @@ export default function AdmissionsPage() {
                   </h2>
                 </div>
                 <div style={{ background: "var(--bg-surface)", padding: "1.5rem", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-default)" }}>
+                  <p style={{ color: "var(--text-secondary)", fontSize: "var(--text-sm)", marginBottom: "0.5rem" }}>Rejected</p>
+                  <h2 style={{ fontSize: "var(--text-3xl)", fontWeight: "var(--font-bold)", color: "var(--status-danger)" }}>
+                    {analytics?.applications?.find((a: any) => a.status === 'REJECTED')?._count || 0}
+                  </h2>
+                </div>
+                <div style={{ background: "var(--bg-surface)", padding: "1.5rem", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-default)" }}>
                   <p style={{ color: "var(--text-secondary)", fontSize: "var(--text-sm)", marginBottom: "0.5rem" }}>Total Enquiries</p>
                   <h2 style={{ fontSize: "var(--text-3xl)", fontWeight: "var(--font-bold)", color: "var(--brand-primary)" }}>
                     {analytics?.enquiries?.reduce((acc: number, curr: any) => acc + curr._count, 0) || 0}
@@ -244,11 +276,20 @@ export default function AdmissionsPage() {
       {/* ENQUIRIES TAB */}
       {tab === "enquiries" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <Button onClick={calculateLeadScores} variant="secondary" isLoading={isSubmitting}>
-              Run AI Lead Scoring
-            </Button>
-            <Button onClick={() => setShowEnquiryForm(true)}><Plus size={16} style={{ marginRight: "0.5rem" }}/> Log Enquiry</Button>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+            <div style={{ width: "320px", maxWidth: "100%" }}>
+              <Input
+                placeholder="Search enquiries by student, parent, phone..."
+                value={enquirySearch}
+                onChange={e => setEnquirySearch(e.target.value)}
+              />
+            </div>
+            <div style={{ display: "flex", gap: "0.75rem" }}>
+              <Button onClick={calculateLeadScores} variant="secondary" isLoading={isSubmitting}>
+                Run AI Lead Scoring
+              </Button>
+              <Button onClick={() => setShowEnquiryForm(true)} icon={<Plus size={16} />}>Log Enquiry</Button>
+            </div>
           </div>
 
           {showEnquiryForm && (
@@ -269,7 +310,18 @@ export default function AdmissionsPage() {
 
           <div style={{ display: "flex", gap: "1rem", overflowX: "auto", paddingBottom: "1rem" }}>
             {["NEW", "CONTACTED", "INTERESTED", "NOT_INTERESTED", "CONVERTED"].map(statusGroup => {
-              const columnEnqs = enquiries.filter(e => e.status === statusGroup);
+              const columnEnqs = enquiries
+                .filter(e => e.status === statusGroup)
+                .filter(e => {
+                  if (!enquirySearch.trim()) return true;
+                  const q = enquirySearch.toLowerCase();
+                  return (
+                    (e.studentName || "").toLowerCase().includes(q) ||
+                    (e.parentName || "").toLowerCase().includes(q) ||
+                    (e.phone || "").toLowerCase().includes(q) ||
+                    (e.classApplied || "").toLowerCase().includes(q)
+                  );
+                });
               return (
                 <div key={statusGroup} style={{ flex: "0 0 320px", display: "flex", flexDirection: "column", gap: "0.75rem", background: "var(--bg-elevated)", padding: "1rem", borderRadius: "var(--radius-lg)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -319,6 +371,17 @@ export default function AdmissionsPage() {
       {/* APPLICATIONS TAB (Kanban) */}
       {tab === "applications" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", height: "100%" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+            <div style={{ width: "320px", maxWidth: "100%" }}>
+              <Input
+                placeholder="Search applications by student, app no, phone..."
+                value={applicationSearch}
+                onChange={e => setApplicationSearch(e.target.value)}
+              />
+            </div>
+            <Button onClick={() => setShowAppForm(true)} icon={<Plus size={16} />}>New Application</Button>
+          </div>
+
           {showAppForm && (
             <div style={{ background: "var(--bg-surface)", padding: "1.5rem", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-default)" }}>
               <h3 style={{ marginBottom: "1rem" }}>New Application</h3>
@@ -340,12 +403,27 @@ export default function AdmissionsPage() {
           )}
 
           <div style={{ display: "flex", gap: "1rem", overflowX: "auto", paddingBottom: "1rem" }}>
-            {["SUBMITTED", "SHORTLISTED", "INTERVIEW_SCHEDULED", "ACCEPTED"].map(statusGroup => {
-              const columnApps = applications.filter(a => a.status === statusGroup);
+            {["SUBMITTED", "SHORTLISTED", "INTERVIEW_SCHEDULED", "ACCEPTED", "REJECTED"].map(statusGroup => {
+              const columnApps = applications
+                .filter(a => a.status === statusGroup)
+                .filter(a => {
+                  if (!applicationSearch.trim()) return true;
+                  const q = applicationSearch.toLowerCase();
+                  return (
+                    (a.studentName || "").toLowerCase().includes(q) ||
+                    (a.applicationNo || "").toLowerCase().includes(q) ||
+                    (a.parentName || "").toLowerCase().includes(q) ||
+                    (a.parentPhone || "").toLowerCase().includes(q) ||
+                    (a.classApplied || "").toLowerCase().includes(q)
+                  );
+                });
+              const isRejectedCol = statusGroup === "REJECTED";
               return (
-                <div key={statusGroup} style={{ flex: "0 0 300px", display: "flex", flexDirection: "column", gap: "0.75rem", background: "var(--bg-elevated)", padding: "1rem", borderRadius: "var(--radius-lg)" }}>
+                <div key={statusGroup} style={{ flex: "0 0 300px", display: "flex", flexDirection: "column", gap: "0.75rem", background: isRejectedCol ? "rgba(239, 68, 68, 0.04)" : "var(--bg-elevated)", padding: "1rem", borderRadius: "var(--radius-lg)", border: isRejectedCol ? "1px solid rgba(239, 68, 68, 0.15)" : undefined }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <h4 style={{ fontSize: "var(--text-sm)", fontWeight: "var(--font-semibold)", color: "var(--text-secondary)" }}>{statusGroup.replace("_", " ")}</h4>
+                    <h4 style={{ fontSize: "var(--text-sm)", fontWeight: "var(--font-semibold)", color: isRejectedCol ? "var(--status-danger)" : "var(--text-secondary)" }}>
+                      {statusGroup.replace("_", " ")}
+                    </h4>
                     <span style={{ fontSize: "var(--text-xs)", background: "var(--bg-surface)", padding: "0.125rem 0.5rem", borderRadius: "var(--radius-full)" }}>{columnApps.length}</span>
                   </div>
                   
@@ -358,12 +436,66 @@ export default function AdmissionsPage() {
                       <h5 style={{ fontSize: "var(--text-base)", fontWeight: "var(--font-semibold)" }}>{app.studentName}</h5>
                       <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>Class: {app.classApplied} • {new Date(app.createdAt).toLocaleDateString()}</p>
                       
-                      <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem", flexWrap: "wrap" }}>
-                        {statusGroup === "SUBMITTED" && <Button size="sm" variant="secondary" onClick={() => updateAppStatus(app.id, "SHORTLISTED")} style={{ flex: 1, fontSize: "0.7rem", padding: "0.25rem" }}>Shortlist</Button>}
-                        {statusGroup === "SHORTLISTED" && <Button size="sm" variant="secondary" onClick={() => updateAppStatus(app.id, "INTERVIEW_SCHEDULED")} style={{ flex: 1, fontSize: "0.7rem", padding: "0.25rem" }}>Interview</Button>}
-                        {statusGroup === "INTERVIEW_SCHEDULED" && <Button size="sm" variant="secondary" onClick={() => updateAppStatus(app.id, "ACCEPTED")} style={{ flex: 1, fontSize: "0.7rem", padding: "0.25rem" }}>Accept</Button>}
-                        {statusGroup === "ACCEPTED" && !app.convertedStudentId && <Button size="sm" onClick={() => convertToStudent(app.id)} style={{ flex: 1, fontSize: "0.7rem", padding: "0.25rem" }}>Enroll as Student</Button>}
-                        {app.convertedStudentId && <span style={{ fontSize: "var(--text-xs)", color: "var(--status-success)", fontWeight: "var(--font-medium)", textAlign: "center", width: "100%" }}>Enrolled</span>}
+                      {/* Document Vault & Offer Letter Action Bar */}
+                      <div style={{ display: "flex", gap: "0.35rem", width: "100%", marginTop: "0.25rem" }}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          icon={<FileText size={12} />}
+                          onClick={() => setVaultApplication(app)}
+                          style={{ flex: 1, fontSize: "0.7rem", padding: "0.25rem" }}
+                        >
+                          Docs Vault
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          icon={<Award size={12} />}
+                          onClick={() => setOfferApplication(app)}
+                          style={{ flex: 1, fontSize: "0.7rem", padding: "0.25rem", color: "var(--brand-teal)", borderColor: "var(--brand-teal)" }}
+                        >
+                          Offer Letter
+                        </Button>
+                      </div>
+
+                      <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.25rem", flexWrap: "wrap" }}>
+                        {statusGroup === "SUBMITTED" && (
+                          <div style={{ display: "flex", gap: "0.35rem", width: "100%" }}>
+                            <Button size="sm" variant="secondary" onClick={() => updateAppStatus(app.id, "SHORTLISTED")} style={{ flex: 1, fontSize: "0.7rem", padding: "0.25rem" }}>Shortlist</Button>
+                            <Button size="sm" variant="outline" onClick={() => setRejectApplication(app)} style={{ fontSize: "0.7rem", padding: "0.25rem 0.5rem", color: "var(--status-danger)", borderColor: "rgba(239, 68, 68, 0.35)" }}>Reject</Button>
+                          </div>
+                        )}
+                        {statusGroup === "SHORTLISTED" && (
+                          <div style={{ display: "flex", gap: "0.35rem", width: "100%" }}>
+                            <Button size="sm" variant="secondary" onClick={() => updateAppStatus(app.id, "INTERVIEW_SCHEDULED")} style={{ flex: 1, fontSize: "0.7rem", padding: "0.25rem" }}>Interview</Button>
+                            <Button size="sm" variant="outline" onClick={() => setRejectApplication(app)} style={{ fontSize: "0.7rem", padding: "0.25rem 0.5rem", color: "var(--status-danger)", borderColor: "rgba(239, 68, 68, 0.35)" }}>Reject</Button>
+                          </div>
+                        )}
+                        {statusGroup === "INTERVIEW_SCHEDULED" && (
+                          <div style={{ display: "flex", gap: "0.35rem", width: "100%" }}>
+                            <Button size="sm" variant="primary" onClick={() => updateAppStatus(app.id, "ACCEPTED")} style={{ flex: 1, fontSize: "0.7rem", padding: "0.25rem", background: "var(--status-success)", borderColor: "var(--status-success)" }}>Accept</Button>
+                            <Button size="sm" variant="outline" onClick={() => setRejectApplication(app)} style={{ fontSize: "0.7rem", padding: "0.25rem 0.5rem", color: "var(--status-danger)", borderColor: "rgba(239, 68, 68, 0.35)" }}>Reject</Button>
+                          </div>
+                        )}
+                        {statusGroup === "ACCEPTED" && !app.convertedStudentId && (
+                          <div style={{ display: "flex", gap: "0.35rem", width: "100%" }}>
+                            <Button size="sm" onClick={() => setEnrollApplication(app)} style={{ flex: 1, fontSize: "0.7rem", padding: "0.25rem", background: "linear-gradient(135deg, #059669 0%, #10B981 100%)", color: "#FFFFFF", border: "none" }}>Enroll as Student</Button>
+                            <Button size="sm" variant="outline" onClick={() => setRejectApplication(app)} style={{ fontSize: "0.7rem", padding: "0.25rem 0.5rem", color: "var(--status-danger)", borderColor: "rgba(239, 68, 68, 0.35)" }}>Reject</Button>
+                          </div>
+                        )}
+                        {statusGroup === "REJECTED" && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", width: "100%" }}>
+                            {app.interviewNotes && (
+                              <p style={{ fontSize: "11px", color: "var(--status-danger)", background: "rgba(239,68,68,0.06)", padding: "0.3rem 0.5rem", borderRadius: "var(--radius-sm)", lineHeight: 1.4 }}>
+                                {app.interviewNotes}
+                              </p>
+                            )}
+                            <Button size="sm" variant="outline" onClick={() => updateAppStatus(app.id, "SHORTLISTED")} style={{ fontSize: "0.7rem", padding: "0.25rem", width: "100%" }}>
+                              Reconsider / Shortlist
+                            </Button>
+                          </div>
+                        )}
+                        {app.convertedStudentId && <span style={{ fontSize: "var(--text-xs)", color: "var(--status-success)", fontWeight: "var(--font-medium)", textAlign: "center", width: "100%" }}>Enrolled ✓</span>}
                         <button
                           onClick={() => runAgenticWorkflow(app.id, app.studentName)}
                           disabled={!!workflowState && workflowState.appId === app.id && workflowState.loading}
@@ -407,8 +539,8 @@ export default function AdmissionsPage() {
       {/* AI Workflow Result Modal */}
       {workflowResult && (
         <div style={{
-          position: "fixed", inset: 0, background: "var(--bg-overlay)",
-          backdropFilter: "var(--modal-backdrop-blur)", WebkitBackdropFilter: "var(--modal-backdrop-blur)",
+          position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.75)",
+          backdropFilter: "none", WebkitBackdropFilter: "none",
           zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem", animation: "fadeIn 0.2s ease-out"
         }}>
           <div style={{
@@ -462,6 +594,42 @@ export default function AdmissionsPage() {
           </div>
         </div>
       )}
+
+      {/* Admission Document Vault Modal */}
+      <AdmissionDocumentVaultModal
+        isOpen={Boolean(vaultApplication)}
+        onClose={() => setVaultApplication(null)}
+        application={vaultApplication}
+      />
+
+      {/* Official Provisional Admission Offer Letter Modal */}
+      <OfficialAdmissionOfferLetterModal
+        isOpen={Boolean(offerApplication)}
+        onClose={() => setOfferApplication(null)}
+        data={offerApplication}
+      />
+
+      {/* Enterprise Student Enrollment Modal */}
+      <EnrollStudentModal
+        isOpen={Boolean(enrollApplication)}
+        onClose={() => setEnrollApplication(null)}
+        application={enrollApplication}
+        onSuccess={() => {
+          fetchApplications();
+          fetchAnalytics();
+        }}
+      />
+
+      {/* Application Rejection Modal */}
+      <RejectApplicationModal
+        isOpen={Boolean(rejectApplication)}
+        onClose={() => setRejectApplication(null)}
+        application={rejectApplication}
+        onSuccess={() => {
+          fetchApplications();
+          fetchAnalytics();
+        }}
+      />
     </div>
   );
 }

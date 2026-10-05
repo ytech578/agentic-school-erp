@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/Button";
 import {
   ArrowLeft, Plus, BookOpen, BarChart2, FileText,
   CheckCircle, Clock, Save, Trophy, Search, Printer, X,
-  Award, TrendingUp, Filter, CheckCheck, Sparkles, UserCheck
+  Award, TrendingUp, Filter, CheckCheck, Sparkles, UserCheck, Download
 } from "lucide-react";
 import { OfficialReportCardModal } from "@/components/exams/OfficialReportCardModal";
+import { OfficialHallTicketModal, HallTicketData } from "@/components/exams/OfficialHallTicketModal";
 
 type Tab = "overview" | "subjects" | "marks" | "results" | "reportcards";
 
@@ -21,6 +22,7 @@ export default function ExamDetailPage() {
   const [exam, setExam] = useState<any>(null);
   const [tab, setTab] = useState<Tab>("overview");
   const [isLoading, setIsLoading] = useState(true);
+  const [previewHallTicket, setPreviewHallTicket] = useState<HallTicketData | null>(null);
 
   // Subjects tab
   const [subjects, setSubjects] = useState<any[]>([]);
@@ -86,6 +88,35 @@ export default function ExamDetailPage() {
     } finally {
       setLoadingPreview(false);
     }
+  };
+
+  const handleExportMarksCsv = () => {
+    if (!filteredResults.length) {
+      alert("No examination results available to export.");
+      return;
+    }
+    const headers = ["Rank", "Admission Number", "Student Name", "Class", "Total Marks", "Obtained Marks", "Percentage", "Grade", "Status"];
+    const rows = filteredResults.map((r: any) => [
+      r.rank || "",
+      `"${r.student?.admissionNumber || ""}"`,
+      `"${r.student?.user?.firstName || ""} ${r.student?.user?.lastName || ""}"`,
+      `"${r.student?.enrollments?.[0]?.section?.class?.name || "Class"}"`,
+      Number(r.totalMarks || 0).toFixed(0),
+      Number(r.obtainedMarks || 0).toFixed(0),
+      `${Number(r.percentage || 0).toFixed(1)}%`,
+      `"${r.grade || ""}"`,
+      Number(r.percentage || 0) >= 35 ? "PASSED" : "FAILED",
+    ]);
+    const csvContent = [headers.join(","), ...rows.map((row) => row.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `exam-results-${(exam?.name || "exam").replace(/[^a-zA-Z0-9_-]/g, "_")}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   };
 
   const handleAddSubject = async () => {
@@ -502,6 +533,9 @@ export default function ExamDetailPage() {
               </div>
 
               <div style={{ display: "flex", gap: "0.75rem" }}>
+                <Button onClick={handleExportMarksCsv} variant="outline" icon={<Download size={14} />}>
+                  Export Marks CSV
+                </Button>
                 <Button onClick={handleGenerateReportCards} isLoading={generatingCards} variant="secondary">
                   Regenerate Report Cards
                 </Button>
@@ -580,9 +614,37 @@ export default function ExamDetailPage() {
                             </span>
                           </td>
                           <td style={{ padding: "1rem 1.25rem" }}>
-                            <Button size="sm" variant="ghost" onClick={() => handleOpenReportCard(r.studentId)}>
-                              View Card
-                            </Button>
+                            <div style={{ display: "flex", gap: "0.4rem" }}>
+                              <Button size="sm" variant="ghost" onClick={() => handleOpenReportCard(r.studentId)}>
+                                View Card
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setPreviewHallTicket({
+                                    examName: exam?.name || "Terminal Examination",
+                                    student: {
+                                      firstName: r.student?.user?.firstName || "Student",
+                                      lastName: r.student?.user?.lastName || "",
+                                      admissionNumber: r.student?.admissionNumber || "AD-101",
+                                      rollNumber: r.student?.rollNumber || `#${r.rank || 1}`,
+                                      className: r.student?.enrollments?.[0]?.section?.class?.name || "Class",
+                                      sectionName: r.student?.enrollments?.[0]?.section?.name || "A",
+                                    },
+                                    schedule: (subjects || []).map((s: any) => ({
+                                      date: s.examDate ? new Date(s.examDate).toLocaleDateString() : "TBD",
+                                      time: "09:30 AM - 12:30 PM",
+                                      subjectCode: s.subject?.code || "SUB",
+                                      subjectName: s.subject?.name || "Subject",
+                                      maxMarks: Number(s.maxMarks || 100),
+                                    })),
+                                  });
+                                }}
+                              >
+                                Admit Card
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -597,7 +659,7 @@ export default function ExamDetailPage() {
 
       {/* Official Report Card Modal */}
       {loadingPreview && (
-        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem" }}>
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(15,23,42,0.75)", backdropFilter: "none", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem" }}>
           <div style={{ background: "var(--bg-surface)", padding: "2rem 3rem", borderRadius: "var(--radius-xl)", color: "var(--text-primary)", fontWeight: 600 }}>
             Loading official student report card...
           </div>
@@ -642,6 +704,13 @@ export default function ExamDetailPage() {
           onClose={() => setPreviewStudent(null)}
         />
       )}
+
+      {/* Official Examination Admit Card & Hall Ticket Modal */}
+      <OfficialHallTicketModal
+        isOpen={Boolean(previewHallTicket)}
+        onClose={() => setPreviewHallTicket(null)}
+        data={previewHallTicket}
+      />
     </div>
   );
 }

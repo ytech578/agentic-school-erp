@@ -12,15 +12,24 @@
     "dev:web": "npm run dev --workspace=apps/web",
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces --if-present",
+    "test:cov": "npm run test:cov --workspace=apps/api",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "db:migrate": "npm run db:migrate --workspace=apps/api",
     "db:seed": "npm run db:seed --workspace=apps/api",
     "db:studio": "npm run db:studio --workspace=apps/api",
+    "db:status": "node scripts/db/migrate.js status",
+    "db:backup": "node scripts/db/migrate.js backup",
+    "db:rollback": "node scripts/db/migrate.js rollback",
+    "db:list": "node scripts/db/migrate.js list",
+    "secrets:rotate": "node scripts/db/rotate-secrets.js",
     "docker:dev": "docker-compose -f docker-compose.dev.yml up -d",
     "docker:dev:down": "docker-compose -f docker-compose.dev.yml down",
     "docker:prod": "docker-compose up -d",
-    "docker:prod:down": "docker-compose down"
+    "docker:prod:down": "docker-compose down",
+    "docker:blue-green": "docker-compose -f docker-compose.blue-green.yml up -d",
+    "deploy:green": "docker-compose -f docker-compose.blue-green.yml up -d api_green web_green",
+    "deploy:flip": "node -e \"require('fs').writeFileSync('nginx.env','ACTIVE_SLOT='+process.argv[1]);\" --"
   },
   "devDependencies": {
     "concurrently": "^9.2.4"

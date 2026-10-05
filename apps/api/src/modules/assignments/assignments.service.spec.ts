@@ -1,8 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { AssignmentsService } from './assignments.service';
 import { PrismaService } from '../../core/database/prisma.service';
 
@@ -441,7 +438,9 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
           },
           'user-teacher-1',
         ),
-      ).rejects.toThrow('School subject offering belongs to a different academic session');
+      ).rejects.toThrow(
+        'School subject offering belongs to a different academic session',
+      );
     });
 
     it('11. rejects when offering grade band does not cover class numeric level', async () => {
@@ -599,7 +598,9 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
           },
           'user-without-staff-profile',
         ),
-      ).rejects.toThrow('Authenticated user has no active staff profile in this school');
+      ).rejects.toThrow(
+        'Authenticated user has no active staff profile in this school',
+      );
     });
 
     it('17. verifies there is NO "first staff in school" fallback behavior', async () => {
@@ -770,7 +771,9 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
         service.updateAssignment(schoolId, assignmentId, {
           schoolSubjectOfferingId: 'off-other-year',
         }),
-      ).rejects.toThrow('School subject offering belongs to a different academic session');
+      ).rejects.toThrow(
+        'School subject offering belongs to a different academic session',
+      );
     });
 
     it('23. cannot change staff to another school', async () => {

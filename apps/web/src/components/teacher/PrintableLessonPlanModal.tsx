@@ -81,7 +81,7 @@ export default function PrintableLessonPlanModal({
         position: "fixed",
         inset: 0,
         backgroundColor: "rgba(15, 23, 42, 0.75)",
-        backdropFilter: "blur(8px)",
+        backdropFilter: "none",
         zIndex: 9999,
         display: "flex",
         alignItems: "center",

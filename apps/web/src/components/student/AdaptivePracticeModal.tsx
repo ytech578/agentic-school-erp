@@ -197,17 +197,20 @@ export default function AdaptivePracticeModal({
         inset: 0,
         zIndex: 9999,
         background: "rgba(15, 23, 42, 0.75)",
-        backdropFilter: "blur(6px)",
+        backdropFilter: "none",
+        WebkitBackdropFilter: "none",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         padding: "1rem",
+        animation: "fadeIn 0.15s ease-out",
       }}
     >
       <div
         style={{
           background: "var(--bg-surface)",
           borderRadius: "var(--radius-2xl)",
+          animation: "scaleUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
           width: "100%",
           maxWidth: "760px",
           maxHeight: "92vh",

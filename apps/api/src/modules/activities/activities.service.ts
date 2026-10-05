@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
+import { CreateActivityDto, UpdateActivityDto } from './dto/activity.dto';
 
 @Injectable()
 export class ActivitiesService {
@@ -37,22 +38,22 @@ export class ActivitiesService {
     }));
   }
 
-  async createActivity(schoolId: string, data: any) {
+  async createActivity(schoolId: string, dto: CreateActivityDto) {
     const validSchoolId = requireSchoolId(schoolId);
     const student = await this.prisma.student.findFirst({
-      where: { id: data.studentId, schoolId: validSchoolId },
+      where: { id: dto.studentId, schoolId: validSchoolId },
     });
     if (!student) throw new NotFoundException('Student not found');
 
     const created = await this.prisma.activity.create({
       data: {
         schoolId: validSchoolId,
-        studentId: data.studentId,
-        title: data.title,
-        event: data.event,
-        date: new Date(data.date),
-        icon: data.category || data.icon || 'ACADEMIC',
-        description: data.description,
+        studentId: dto.studentId,
+        title: dto.title,
+        event: dto.event,
+        date: new Date(dto.date),
+        icon: dto.category ?? 'ACADEMIC',
+        description: dto.description,
       },
     });
 
@@ -62,27 +63,25 @@ export class ActivitiesService {
     };
   }
 
-  async updateActivity(schoolId: string, activityId: string, data: any) {
+  async updateActivity(schoolId: string, activityId: string, dto: UpdateActivityDto) {
     const validSchoolId = requireSchoolId(schoolId);
     const activity = await this.prisma.activity.findFirst({
       where: { id: activityId, schoolId: validSchoolId },
     });
     if (!activity) throw new NotFoundException('Activity not found');
 
-    const updateData: any = {};
-    if (data.title) updateData.title = data.title;
-    if (data.event !== undefined) updateData.event = data.event;
-    if (data.date) updateData.date = new Date(data.date);
-    if (data.category || data.icon)
-      updateData.icon = data.category || data.icon;
-    if (data.description !== undefined)
-      updateData.description = data.description;
-    if (data.studentId) {
+    const updateData: Record<string, unknown> = {};
+    if (dto.title !== undefined) updateData.title = dto.title;
+    if (dto.event !== undefined) updateData.event = dto.event;
+    if (dto.date !== undefined) updateData.date = new Date(dto.date);
+    if (dto.category !== undefined) updateData.icon = dto.category;
+    if (dto.description !== undefined) updateData.description = dto.description;
+    if (dto.studentId !== undefined) {
       const student = await this.prisma.student.findFirst({
-        where: { id: data.studentId, schoolId: validSchoolId },
+        where: { id: dto.studentId, schoolId: validSchoolId },
       });
       if (!student) throw new NotFoundException('Student not found');
-      updateData.studentId = data.studentId;
+      updateData.studentId = dto.studentId;
     }
 
     const updated = await this.prisma.activity.update({

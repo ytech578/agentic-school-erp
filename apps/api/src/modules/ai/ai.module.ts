@@ -2,8 +2,10 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AIService } from './ai.service';
+import { AIResilienceService } from './ai-resilience.service';
 import { AIController } from './ai.controller';
 import { PublicAIController } from './public-ai.controller';
+
 import { AIScheduler } from './ai.scheduler';
 import { AgentControlPlaneService } from './agent/agent-control-plane.service';
 import { AgentPolicyService } from './agent/agent-policy.service';
@@ -54,6 +56,7 @@ const TOOL_HANDLERS = [
   controllers: [AIController, PublicAIController],
   providers: [
     AIService,
+    AIResilienceService,
     AIScheduler,
     AgentControlPlaneService,
     AgentPolicyService,
@@ -65,6 +68,11 @@ const TOOL_HANDLERS = [
       inject: TOOL_HANDLERS,
     },
   ],
-  exports: [AIService, AgentControlPlaneService, AgentToolDispatcher],
+  exports: [
+    AIService,
+    AIResilienceService,
+    AgentControlPlaneService,
+    AgentToolDispatcher,
+  ],
 })
 export class AIModule {}

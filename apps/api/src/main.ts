@@ -1,8 +1,11 @@
+import './tracing';
 import { NestFactory } from '@nestjs/core';
-import { Logger } from '@nestjs/common';
+import { Logger, ValidationPipe, VersioningType } from '@nestjs/common';
+import { Logger as PinoLogger } from 'nestjs-pino';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import compression from 'compression';
 import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './core/filters/global-exception.filter';
@@ -11,8 +14,10 @@ import { ZodValidationPipe } from './core/pipes/zod-validation.pipe';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    bufferLogs: true,
+    bufferLogs: true, // Buffer logs until Pino is ready
   });
+  
+  app.useLogger(app.get(PinoLogger));
 
   const port = process.env.PORT || 4000;
   const apiPrefix = process.env.API_PREFIX || 'api';
@@ -42,10 +47,18 @@ async function bootstrap() {
         : false, // In development, allow Swagger UI resources
     }),
   );
+  app.use(compression());
   app.use(cookieParser());
 
   // ─── Body Parsers (Support base64 QR codes & file uploads) ───────────────
-  app.use(json({ limit: '25mb' }));
+  app.use(
+    json({
+      limit: '25mb',
+      verify: (req: any, _res, buf) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
   app.use(urlencoded({ limit: '25mb', extended: true }));
 
   // ─── CORS ─────────────────────────────────────────────────────────────────
@@ -90,10 +103,26 @@ async function bootstrap() {
     exposedHeaders: ['Content-Range', 'X-Total-Count'],
   });
 
-  // ─── Global Prefix ────────────────────────────────────────────────────────
+  // ─── Global Prefix & Versioning ─────────────────────────────────────────
   app.setGlobalPrefix(apiPrefix);
+  app.enableVersioning({
+    type: VersioningType.URI,
+    defaultVersion: '1',
+  });
 
   // ─── Global Pipes, Filters, Interceptors ─────────────────────────────────
+  // Global ValidationPipe: enforces DTO validation on ALL controllers.
+  // whitelist: strips unknown properties; forbidNonWhitelisted: throws on extras;
+  // transform: auto-casts primitives (e.g. string "123" → number 123).
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: true },
+      stopAtFirstError: false,
+    }),
+  );
   app.useGlobalFilters(new GlobalExceptionFilter());
   app.useGlobalInterceptors(new TransformInterceptor());
   // Note: ZodValidationPipe is applied per-route where Zod schemas are used

@@ -124,6 +124,24 @@ describe('JWT Secret Fallback & Configuration Hardening', () => {
       expect(config.accessExpiresIn).toBe('15m');
       expect(config.refreshExpiresIn).toBe('7d');
       expect(config.refreshExpiresInMs).toBe(7 * 24 * 60 * 60 * 1000);
+      expect(config.accessSecretPrev).toBeUndefined();
+      expect(config.refreshSecretPrev).toBeUndefined();
+    });
+
+    it('should parse JWT_ACCESS_SECRET_PREV and JWT_REFRESH_SECRET_PREV during secret rotation', () => {
+      const prevAccess = 'previous-access-secret-32-chars-minimum-len!';
+      const prevRefresh = 'previous-refresh-secret-32-chars-minimum-len!';
+      const config = validateJwtConfig({
+        JWT_ACCESS_SECRET: validAccessSecret,
+        JWT_REFRESH_SECRET: validRefreshSecret,
+        JWT_ACCESS_SECRET_PREV: prevAccess,
+        JWT_REFRESH_SECRET_PREV: prevRefresh,
+      });
+
+      expect(config.accessSecret).toBe(validAccessSecret);
+      expect(config.refreshSecret).toBe(validRefreshSecret);
+      expect(config.accessSecretPrev).toBe(prevAccess);
+      expect(config.refreshSecretPrev).toBe(prevRefresh);
     });
 
     it('should never expose secret values in error messages', () => {

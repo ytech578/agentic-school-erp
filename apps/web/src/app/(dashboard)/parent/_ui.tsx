@@ -1,7 +1,9 @@
 import React from "react";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { formatCurrencyINR, formatDate, getAttendanceStatusBadge } from "@/lib/formatters";
 
 export const Sk = ({ w = "100%", h = "1rem", r = "0.375rem", style }: { w?: string; h?: string; r?: string; style?: React.CSSProperties }) => (
-  <div style={{ width: w, height: h, borderRadius: r, background: "linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.5s infinite", ...style }} />
+  <Skeleton style={{ width: w, height: h, borderRadius: r, ...style }} />
 );
 
 export const Card = ({ children, style, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
@@ -29,10 +31,9 @@ export const PageHeader = ({ title, subtitle, icon }: { title: string; subtitle?
   </div>
 );
 
-export { formatCurrencyINR as fmt, formatDate as fmtDate } from "@/lib/formatters";
+export { formatCurrencyINR as fmt, formatDate as fmtDate };
+
 export const statusColor = (s: string) => {
-  if (s === "PRESENT") return { color: "var(--success)", bg: "var(--success-light)" };
-  if (s === "ABSENT") return { color: "var(--danger)", bg: "var(--danger-light)" };
-  if (s === "LATE") return { color: "var(--warning)", bg: "var(--warning-light)" };
-  return { color: "var(--text-secondary)", bg: "var(--bg-surface-hover)" };
+  const badge = getAttendanceStatusBadge(s);
+  return { color: badge.color, bg: badge.bg };
 };

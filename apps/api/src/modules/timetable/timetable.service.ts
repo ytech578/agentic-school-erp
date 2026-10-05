@@ -7,10 +7,14 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { Prisma } from '@prisma/client';
 import { TIMETABLE_TEMPLATES, getClassCategory } from '@school-erp/shared';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
+import { TenantCacheService } from '../../core/cache/tenant-cache.service';
 
 @Injectable()
 export class TimetableService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cache: TenantCacheService,
+  ) {}
 
   private parseTimeToMinutes(timeStr?: string): number {
     if (!timeStr) return 0;
@@ -31,45 +35,13 @@ export class TimetableService {
     return hours * 60 + minutes;
   }
 
-  private async resolveActiveYear(
-    schoolId: string,
-    academicYearId?: string,
-  ): Promise<string> {
-    const validSchoolId = requireSchoolId(schoolId, 'Resolve active year');
-    if (
-      academicYearId &&
-      academicYearId !== 'undefined' &&
-      academicYearId !== 'null' &&
-      academicYearId.trim() !== ''
-    ) {
-      const trimmed = academicYearId.trim();
-      const normalizedName = trimmed.replace(/^AY[-_]?/i, '');
-      const year = await this.prisma.academicYear.findFirst({
-        where: {
-          schoolId: validSchoolId,
-          OR: [{ id: trimmed }, { name: trimmed }, { name: normalizedName }],
-        },
-      });
-      if (year) return year.id;
-    }
-    const ay = await this.prisma.academicYear.findFirst({
-      where: { schoolId: validSchoolId, isActive: true },
-    });
-    if (ay) return ay.id;
-    const latest = await this.prisma.academicYear.findFirst({
-      where: { schoolId: validSchoolId },
-      orderBy: { startDate: 'desc' },
-    });
-    if (latest) return latest.id;
-    throw new NotFoundException('Active academic year not found');
-  }
 
   async getTimetable(
     schoolId: string,
     query: { classId?: string; sectionId?: string; academicYearId?: string },
   ) {
     const validSchoolId = requireSchoolId(schoolId, 'Get timetable');
-    const ayId = await this.resolveActiveYear(
+    const ayId = await this.cache.resolveActiveYear(
       validSchoolId,
       query.academicYearId,
     );
@@ -104,7 +76,7 @@ export class TimetableService {
     academicYearId?: string,
   ) {
     const validSchoolId = requireSchoolId(schoolId, 'Get teacher timetable');
-    const ayId = await this.resolveActiveYear(validSchoolId, academicYearId);
+    const ayId = await this.cache.resolveActiveYear(validSchoolId, academicYearId);
     return this.prisma.timetableSlot.findMany({
       where: {
         schoolId: validSchoolId,
@@ -127,7 +99,7 @@ export class TimetableService {
     academicYearId?: string,
   ) {
     const validSchoolId = requireSchoolId(schoolId, 'Get today schedule');
-    const ayId = await this.resolveActiveYear(validSchoolId, academicYearId);
+    const ayId = await this.cache.resolveActiveYear(validSchoolId, academicYearId);
     const dayOfWeek = new Date().getDay() || 7; // Convert 0 (Sunday) to 7 if using 1=Mon..7=Sun, or adjust per your week standard
 
     return this.prisma.timetableSlot.findMany({
@@ -207,7 +179,7 @@ export class TimetableService {
 
   async saveSlot(schoolId: string, data: any) {
     const validSchoolId = requireSchoolId(schoolId, 'Save timetable slot');
-    const ayId = await this.resolveActiveYear(
+    const ayId = await this.cache.resolveActiveYear(
       validSchoolId,
       data.academicYearId,
     );
@@ -269,7 +241,7 @@ export class TimetableService {
     // Get active academic year if not provided
     let ayId = slots[0]?.academicYearId;
     if (!ayId) {
-      ayId = await this.resolveActiveYear(validSchoolId);
+      ayId = await this.cache.resolveActiveYear(validSchoolId);
     }
 
     for (const slot of slots) {
@@ -294,7 +266,7 @@ export class TimetableService {
     academicYearId?: string,
   ) {
     const validSchoolId = requireSchoolId(schoolId, 'Auto generate timetable');
-    const ayId = await this.resolveActiveYear(validSchoolId, academicYearId);
+    const ayId = await this.cache.resolveActiveYear(validSchoolId, academicYearId);
 
     const assignments = await this.prisma.teacherAssignment.findMany({
       where: { sectionId, academicYearId: ayId },

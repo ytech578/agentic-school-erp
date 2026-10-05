@@ -4,18 +4,27 @@ import {
   Post,
   Put,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
   UseGuards,
   Request,
+  Res,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
+import { ApiTags, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { DocumentType } from '@prisma/client';
 import { StudentsService } from './students.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
 import { CreateStudentSchema, UpdateStudentSchema } from '@school-erp/shared';
 
+@ApiTags('Students')
 @Controller('students')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class StudentsController {
@@ -54,7 +63,7 @@ export class StudentsController {
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   async getStudentById(@Request() req: any, @Param('id') id: string) {
     const schoolId = req.user.schoolId;
-    return this.studentsService.getStudentById(schoolId, id);
+    return this.studentsService.getStudentById(schoolId, id, req.user.role);
   }
 
   @Post('calculate-risk')
@@ -108,5 +117,135 @@ export class StudentsController {
   ) {
     const schoolId = req.user.schoolId;
     return this.studentsService.updateStudentStatus(schoolId, id, body);
+  }
+
+  @Get(':id/aadhaar')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  @ApiOperation({
+    summary:
+      'Audited retrieval of unmasked student and guardian Aadhaar numbers',
+  })
+  async getDecryptedAadhaar(@Request() req: any, @Param('id') id: string) {
+    const schoolId = req.user.schoolId;
+    return this.studentsService.getDecryptedAadhaar(schoolId, id);
+  }
+
+  @Post(':id/documents')
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'PARENT',
+    'STUDENT',
+  )
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload an official student document' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' },
+        documentType: {
+          type: 'string',
+          enum: [
+            'AADHAAR_CARD',
+            'BIRTH_CERTIFICATE',
+            'TRANSFER_CERTIFICATE',
+            'MARK_SHEET',
+            'MIGRATION_CERTIFICATE',
+            'MEDICAL_CERTIFICATE',
+            'PHOTO',
+            'OTHER',
+          ],
+        },
+      },
+    },
+  })
+  async uploadDocument(
+    @Request() req: any,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('documentType') documentType: DocumentType,
+  ) {
+    const schoolId = req.user.schoolId;
+    const uploadedById = req.user.id;
+    return this.studentsService.uploadStudentDocument(
+      schoolId,
+      id,
+      file,
+      documentType,
+      uploadedById,
+    );
+  }
+
+  @Get(':id/documents')
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'PARENT',
+    'STUDENT',
+  )
+  @ApiOperation({ summary: 'List all documents for a student' })
+  async getDocuments(@Request() req: any, @Param('id') id: string) {
+    const schoolId = req.user.schoolId;
+    return this.studentsService.getStudentDocuments(schoolId, id);
+  }
+
+  @Get(':id/documents/:docId/download')
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'PARENT',
+    'STUDENT',
+  )
+  @ApiOperation({
+    summary: 'Securely download an authenticated student document',
+  })
+  async downloadDocument(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Res() res: Response,
+  ) {
+    const schoolId = req.user.schoolId;
+    const { doc, fileStreamResult } =
+      await this.studentsService.getStudentDocumentStream(
+        schoolId,
+        id,
+        docId,
+        req.user,
+      );
+
+    res.setHeader(
+      'Content-Type',
+      doc.mimeType || fileStreamResult.mimeType || 'application/octet-stream',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(doc.fileName)}"`,
+    );
+    if (fileStreamResult.fileSize) {
+      res.setHeader('Content-Length', fileStreamResult.fileSize.toString());
+    }
+
+    fileStreamResult.stream.pipe(res);
+  }
+
+  @Delete(':id/documents/:docId')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  @ApiOperation({ summary: 'Delete a student document' })
+  async deleteDocument(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+  ) {
+    const schoolId = req.user.schoolId;
+    return this.studentsService.deleteStudentDocument(schoolId, id, docId);
   }
 }

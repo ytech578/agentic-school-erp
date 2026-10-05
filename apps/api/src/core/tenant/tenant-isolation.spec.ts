@@ -136,7 +136,7 @@ describe('Multi-Tenant Systematic Data Isolation (Change #4)', () => {
       mockPrisma.student.findFirst.mockResolvedValue(null);
 
       await expect(
-        studentsService.getStudentById(SCHOOL_1, 'student_beta'),
+        studentsService.getStudentById(SCHOOL_1, 'student_beta', 'TEACHER'),
       ).rejects.toThrow(NotFoundException);
 
       expect(mockPrisma.student.findFirst).toHaveBeenCalledWith(

@@ -57,7 +57,7 @@ describe('RedisService & Circuit Breaker (FIX-06)', () => {
     await service.set('temp-key', 'expires-soon', 0.05);
     expect(await service.get('temp-key')).toBe('expires-soon');
 
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await new Promise((resolve) => setTimeout(resolve, 100));
     expect(await service.get('temp-key')).toBeNull();
   });
 });

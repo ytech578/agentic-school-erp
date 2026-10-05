@@ -90,7 +90,9 @@ const buildPrismaMock = () => {
       findFirst: jest.fn().mockResolvedValue(null),
     },
     school: {
-      findUnique: jest.fn().mockResolvedValue({ id: 'school-1', isActive: true }),
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ id: 'school-1', isActive: true }),
     },
     assignment: {
       findUnique: jest.fn(),
@@ -276,7 +278,7 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         },
         {
           provide: TimetableService,
-          useValue: new TimetableService(prisma as any),
+          useValue: new TimetableService(prisma as any, { resolveActiveYear: jest.fn().mockResolvedValue('ay-1') } as any),
         },
         {
           provide: ExamsService,
@@ -2300,9 +2302,11 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
             academicYear: { id: 'ay-2026', name: '2026-27' },
           },
         ]);
-        prisma.academicYear.findMany = jest.fn().mockResolvedValue([
-          { id: 'ay-2026', name: '2026-27', isActive: true },
-        ]);
+        prisma.academicYear.findMany = jest
+          .fn()
+          .mockResolvedValue([
+            { id: 'ay-2026', name: '2026-27', isActive: true },
+          ]);
         prisma.subject.findFirst.mockResolvedValue({
           id: 'sub-math',
           schoolId: 'school-1',
@@ -2369,7 +2373,9 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         // Action was NOT marked EXPIRED
         expect(prisma.agentAction.update).not.toHaveBeenCalledWith(
           expect.objectContaining({
-            data: expect.objectContaining({ status: AgentActionStatus.EXPIRED }),
+            data: expect.objectContaining({
+              status: AgentActionStatus.EXPIRED,
+            }),
           }),
         );
       });

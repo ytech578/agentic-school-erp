@@ -100,7 +100,7 @@ export default function FeePaymentSettingsPage() {
     reader.readAsDataURL(file);
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = async (e: React.SubmitEvent) => {
     e.preventDefault();
     if (!upiVpa || !upiVpa.includes("@")) {
       setErrorMessage("Please enter a valid UPI ID (e.g. schoolname@bank).");

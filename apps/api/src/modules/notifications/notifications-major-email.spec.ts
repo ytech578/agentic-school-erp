@@ -31,6 +31,8 @@ describe('NotificationsService - Major Email Filter & Dispatch', () => {
         NotificationsService,
         { provide: PrismaService, useValue: prisma },
         { provide: EmailService, useValue: emailService },
+        { provide: require('@nestjs/config').ConfigService, useValue: { get: jest.fn() } },
+        { provide: require('./notifications.gateway').NotificationsGateway, useValue: { sendToUser: jest.fn() } },
       ],
     }).compile();
 

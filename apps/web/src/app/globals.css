@@ -86,8 +86,8 @@
   --bg-surface-hover:   #F8FAFC;
   --bg-elevated:        #FFFFFF;
   --bg-input:           #FFFFFF;
-  --bg-overlay:         rgba(15, 23, 42, 0.75);
-  --modal-backdrop-blur: blur(12px);
+  --bg-overlay:         rgba(15, 23, 42, 0.55);
+  --modal-backdrop-blur: none;
   --modal-shadow:       0 25px 50px -12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1);
   --bg-sidebar:         #0D1B36;
   --bg-sidebar-item:    rgba(255,255,255,0.06);
@@ -185,8 +185,8 @@
   --bg-surface-hover:   #162040;
   --bg-elevated:        #1A2847;
   --bg-input:           #0B1528;
-  --bg-overlay:         rgba(6, 14, 31, 0.85);
-  --modal-backdrop-blur: blur(14px);
+  --bg-overlay:         rgba(6, 14, 31, 0.75);
+  --modal-backdrop-blur: none;
   --modal-shadow:       0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08);
   --bg-sidebar:         #07101F;
   --bg-sidebar-item:    rgba(255,255,255,0.05);
@@ -266,7 +266,8 @@ body {
   display: flex;
   flex-direction: column;
   transition: width var(--transition-normal);
-  z-index: 20;
+  z-index: 100001;
+  position: relative;
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -377,7 +378,7 @@ h4 { font-size: var(--text-lg); }
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 99999;
   padding: 1rem;
   animation: fadeIn 0.2s ease-out;
 }
@@ -855,10 +856,10 @@ h4 { font-size: var(--text-lg); }
 }
 
 /* ============================================================
-   ANIMATIONS
+   ENTERPRISE ANIMATIONS & MICRO-INTERACTIONS
    ============================================================ */
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 @keyframes fadeInDown {
@@ -866,16 +867,20 @@ h4 { font-size: var(--text-lg); }
   to   { opacity: 1; transform: translate(-50%, 0); }
 }
 @keyframes slideInRight {
-  from { opacity: 0; transform: translateX(16px); }
+  from { opacity: 0; transform: translateX(14px); }
   to   { opacity: 1; transform: translateX(0); }
 }
+@keyframes scaleUp {
+  0%   { opacity: 0; transform: scale(0.97) translateY(4px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
 @keyframes shimmer {
-  0%   { background-position: -1000px 0; }
-  100% { background-position:  1000px 0; }
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
 }
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; transform: scale(1); }
-  50%       { opacity: 0.5; transform: scale(0.75); }
+  50%       { opacity: 0.45; transform: scale(0.75); }
 }
 @keyframes typing {
   0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
@@ -883,9 +888,30 @@ h4 { font-size: var(--text-lg); }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+@keyframes agenticPulseGlow {
+  0%, 100% {
+    box-shadow: 0 4px 20px rgba(37, 99, 235, 0.35), 0 0 0 0 rgba(6, 182, 212, 0.35);
+  }
+  50% {
+    box-shadow: 0 6px 28px rgba(37, 99, 235, 0.5), 0 0 0 8px rgba(6, 182, 212, 0);
+  }
+}
+
+@keyframes bellWiggle {
+  0%, 100% { transform: rotate(0deg); }
+  15%      { transform: rotate(12deg); }
+  30%      { transform: rotate(-12deg); }
+  45%      { transform: rotate(8deg); }
+  60%      { transform: rotate(-8deg); }
+  75%      { transform: rotate(0deg); }
+}
+
 /* Animation utility classes */
-.animate-fade-in    { animation: fadeInUp 0.45s var(--ease-out) forwards; opacity: 0; }
-.animate-slide-in   { animation: slideInRight 0.35s var(--ease-out) forwards; opacity: 0; }
+.animate-fade-in    { animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; }
+.animate-slide-in   { animation: slideInRight 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; }
+.animate-scale-up   { animation: scaleUp 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.bell-active        { animation: bellWiggle 3s infinite ease-in-out; transform-origin: top center; }
+
 .delay-50  { animation-delay: 50ms; }
 .delay-100 { animation-delay: 100ms; }
 .delay-150 { animation-delay: 150ms; }
@@ -893,16 +919,108 @@ h4 { font-size: var(--text-lg); }
 .delay-300 { animation-delay: 300ms; }
 .delay-400 { animation-delay: 400ms; }
 
-/* ── Skeleton Shimmer ── */
+/* ── Skeleton Shimmer (Ultra-smooth 2-pass gradient) ── */
 .skeleton {
-  background: linear-gradient(90deg,
-    var(--bg-surface-hover) 25%,
-    var(--bg-elevated) 50%,
-    var(--bg-surface-hover) 75%
+  background: linear-gradient(
+    90deg,
+    var(--bg-surface-hover) 0%,
+    var(--bg-elevated) 35%,
+    var(--bg-surface-hover) 70%
   );
-  background-size: 1000px 100%;
+  background-size: 200% 100%;
   animation: shimmer 1.8s infinite linear;
   border-radius: var(--radius-md);
+}
+
+/* ── Floating Agentic AI Action Button ── */
+.agentic-fab {
+  animation: agenticPulseGlow 3.5s infinite ease-in-out;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease;
+}
+.agentic-fab:hover {
+  transform: scale(1.08) translateY(-2px);
+  box-shadow: 0 8px 30px rgba(37, 99, 235, 0.65), 0 0 20px rgba(6, 182, 212, 0.4);
+}
+.agentic-fab:active {
+  transform: scale(0.96);
+}
+
+/* ── Premium Glass & KPI Cards ── */
+.glass-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-e1);
+  overflow: hidden;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease;
+}
+.glass-card:hover {
+  box-shadow: var(--shadow-e2), 0 10px 28px -4px rgba(37, 99, 235, 0.08);
+  border-color: var(--border-default);
+  transform: translateY(-2px);
+}
+
+/* ── Premium Stat Card ── */
+.stat-card-premium {
+  background: var(--bg-surface);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--border-default);
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+.stat-card-premium:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-e2), 0 12px 28px -6px rgba(0, 0, 0, 0.08);
+  border-color: var(--border-strong);
+}
+.stat-card-premium .stat-icon-wrapper {
+  padding: 0.75rem;
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), filter 0.25s ease;
+}
+.stat-card-premium:hover .stat-icon-wrapper {
+  transform: scale(1.08);
+  filter: brightness(1.1);
+}
+
+/* ── Interactive Table Rows ── */
+.data-table-row {
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background-color 0.18s ease, transform 0.18s ease;
+  animation: fadeInUp 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.data-table-row:hover td {
+  background: var(--bg-surface-hover);
+}
+.data-table-row:hover td:first-child {
+  box-shadow: inset 3px 0 0 var(--brand-blue);
+}
+.skeleton-row td {
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0.875rem 1rem;
+}
+
+/* ── Global Scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+  transition: background 0.2s ease;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
 }
 
 /* ── Typing Indicator ── */
@@ -952,12 +1070,136 @@ h4 { font-size: var(--text-lg); }
 .w-full { width: 100%; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ── Page Transition ── */
+/* ── Enterprise Smooth Page Transition ── */
 @keyframes pageFadeIn {
-  0% { opacity: 0; transform: translateY(16px) scale(0.98); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .page-transition {
-  animation: pageFadeIn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  animation: pageFadeIn 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   will-change: opacity, transform;
+}
+
+/* ============================================================
+   MASTER ENTERPRISE PRINT ENGINE
+   Ensures 100% full-page, unclipped rendering for all ERP documents:
+   Payslips, Fee Invoices/Receipts, Certificates, Lesson Plans, Exam Papers
+   ============================================================ */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm;
+  }
+
+  html, body {
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 11pt !important;
+  }
+
+  /* Unconstrain and flatten all layout containers in print mode */
+  .app-layout,
+  .main-content,
+  .page-content,
+  .modal-backdrop,
+  .modal-dialog,
+  .modal-dialog > div,
+  .card {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    inset: auto !important;
+    transform: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  /* Hide UI navigation, buttons, controls, and floating tools */
+  body * {
+    visibility: hidden;
+  }
+
+  .no-print,
+  .btn,
+  button,
+  header,
+  aside,
+  .sidebar,
+  .header,
+  .btn-icon,
+  .ai-chat-widget,
+  [data-floating],
+  [aria-label="Close modal"] {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Make printable sheets and documents 100% visible and unclipped */
+  .printable-document,
+  .printable-document *,
+  .printable-sheet,
+  .printable-sheet *,
+  #enterprise-payslip-sheet,
+  #enterprise-payslip-sheet *,
+  #printable-invoice,
+  #printable-invoice *,
+  #printable-certificate,
+  #printable-certificate *,
+  #printable-transcript,
+  #printable-transcript *,
+  #printable-admission-letter,
+  #printable-admission-letter *,
+  #printable-hall-ticket,
+  #printable-hall-ticket *,
+  .official-certificate-sheet,
+  .official-certificate-sheet * {
+    visibility: visible !important;
+  }
+
+  .printable-document,
+  .printable-sheet,
+  #enterprise-payslip-sheet,
+  #printable-invoice,
+  #printable-certificate,
+  #printable-transcript,
+  #printable-admission-letter,
+  #printable-hall-ticket,
+  .official-certificate-sheet {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    border: none !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
 }

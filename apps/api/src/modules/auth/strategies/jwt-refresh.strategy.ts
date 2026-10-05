@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
+import * as jwt from 'jsonwebtoken';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { hashRefreshToken } from '../utils/refresh-token.util';
 
@@ -15,6 +16,9 @@ export class JwtRefreshStrategy extends PassportStrategy(
     config: ConfigService,
     private prisma: PrismaService,
   ) {
+    const refreshSecret = config.getOrThrow<string>('jwt.refreshSecret');
+    const refreshSecretPrev = config.get<string>('jwt.refreshSecretPrev');
+
     super({
       // Extract refresh token from HttpOnly cookie, request body, or custom header
       jwtFromRequest: (req: Request) => {
@@ -27,7 +31,26 @@ export class JwtRefreshStrategy extends PassportStrategy(
         return null;
       },
       ignoreExpiration: true, // We manually check session expiry
-      secretOrKey: config.getOrThrow<string>('jwt.refreshSecret'),
+      secretOrKeyProvider: (
+        _req: Request,
+        rawJwtToken: any,
+        done: (err: any, secretOrKey?: string) => void,
+      ) => {
+        if (!refreshSecretPrev) {
+          return done(null, refreshSecret);
+        }
+        try {
+          jwt.verify(rawJwtToken, refreshSecret, { ignoreExpiration: true });
+          return done(null, refreshSecret);
+        } catch {
+          try {
+            jwt.verify(rawJwtToken, refreshSecretPrev, { ignoreExpiration: true });
+            return done(null, refreshSecretPrev);
+          } catch {
+            return done(null, refreshSecret);
+          }
+        }
+      },
       passReqToCallback: true,
     } as any);
   }

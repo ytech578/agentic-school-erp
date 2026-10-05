@@ -130,10 +130,12 @@ describe('Academic Year Locking & Integrity Enforcement', () => {
   describe('Locked Academic Year Mutation Enforcement', () => {
     beforeEach(() => {
       prisma.academicYear.findFirst.mockImplementation(({ where }: any) => {
-        if (
-          where.id === lockedYearId ||
-          (where.isActive && where.schoolId === schoolId)
-        ) {
+        // resolveActiveAcademicYear uses OR: [{id}, {name}] structure
+        // Check if this is a direct id lookup via OR clause
+        const requestedId = where?.OR?.[0]?.id ?? where?.id;
+        const isActiveLookup = !!where?.isActive;
+
+        if (requestedId === lockedYearId || isActiveLookup) {
           return Promise.resolve({
             id: lockedYearId,
             schoolId,

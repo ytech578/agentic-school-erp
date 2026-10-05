@@ -30,7 +30,7 @@ export default function StaffProfilePage({ params }: { params: Promise<{ id: str
   const fetchStaffDetails = async () => {
     try {
       const response = await apiClient.get(`/staff/${id}`);
-      setStaff(response.data.data);
+      setStaff(response.data?.data || response.data || null);
     } catch (error) {
       console.error("Failed to load staff details", error);
     } finally {

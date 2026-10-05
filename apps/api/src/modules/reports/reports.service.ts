@@ -5,19 +5,6 @@ import { requireSchoolId } from '../../core/tenant/tenant.util';
 @Injectable()
 export class ReportsService {
   constructor(private prisma: PrismaService) {}
-
-  private async resolveActiveYear(
-    schoolId: string,
-    academicYearId?: string,
-  ): Promise<string | undefined> {
-    const validSchoolId = requireSchoolId(schoolId, 'Resolve active year');
-    if (academicYearId) return academicYearId;
-    const ay = await this.prisma.academicYear.findFirst({
-      where: { schoolId: validSchoolId, isActive: true },
-    });
-    return ay?.id;
-  }
-
   // ── Attendance Reports ────────────────────────────────────────────────
 
   async getDailyAttendance(schoolId: string, date?: string) {

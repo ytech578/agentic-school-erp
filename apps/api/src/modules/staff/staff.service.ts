@@ -9,10 +9,19 @@ import { CreateStaffInput, UpdateStaffInput } from '@school-erp/shared';
 import * as bcrypt from 'bcryptjs';
 import { Prisma, EmploymentType, Gender, BloodGroup } from '@prisma/client';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
+import { TenantCacheService } from '../../core/cache/tenant-cache.service';
 
 @Injectable()
 export class StaffService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cache: TenantCacheService,
+  ) {}
+
+  async getDefaultSchoolId(): Promise<string | null> {
+    const school = await this.prisma.school.findFirst({ select: { id: true } });
+    return school?.id || null;
+  }
 
   async createStaff(schoolId: string, data: CreateStaffInput) {
     const validSchoolId = requireSchoolId(schoolId, 'Create staff');
@@ -114,15 +123,19 @@ export class StaffService {
   async getStaffList(
     schoolId: string,
     page = 1,
-    limit = 10,
+    limit = 100,
     search?: string,
     includeSubjects = false,
+    departmentId?: string,
+    isActive?: boolean,
   ) {
     const validSchoolId = requireSchoolId(schoolId, 'List staff');
     const skip = (page - 1) * limit;
 
     const where: Prisma.StaffWhereInput = {
       schoolId: validSchoolId,
+      ...(departmentId ? { departmentId } : {}),
+      ...(isActive !== undefined ? { isActive } : {}),
       ...(search
         ? {
             OR: [
@@ -131,6 +144,7 @@ export class StaffService {
                 user: { firstName: { contains: search, mode: 'insensitive' } },
               },
               { user: { lastName: { contains: search, mode: 'insensitive' } } },
+              { user: { email: { contains: search, mode: 'insensitive' } } },
             ],
           }
         : {}),
@@ -153,10 +167,10 @@ export class StaffService {
             },
           },
           department: {
-            select: { name: true },
+            select: { id: true, name: true },
           },
           designation: {
-            select: { name: true },
+            select: { id: true, name: true },
           },
           ...(includeSubjects
             ? { teacherAssignments: { include: { subject: true } } }
@@ -171,7 +185,7 @@ export class StaffService {
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
+      totalPages: Math.max(1, Math.ceil(total / limit)),
     };
   }
 
@@ -204,18 +218,12 @@ export class StaffService {
 
   async getDepartments(schoolId: string) {
     const validSchoolId = requireSchoolId(schoolId, 'Get departments');
-    return this.prisma.department.findMany({
-      where: { schoolId: validSchoolId },
-      orderBy: { name: 'asc' },
-    });
+    return this.cache.getDepartments(validSchoolId);
   }
 
   async getDesignations(schoolId: string) {
     const validSchoolId = requireSchoolId(schoolId, 'Get designations');
-    return this.prisma.designation.findMany({
-      where: { schoolId: validSchoolId, isActive: true },
-      orderBy: { name: 'asc' },
-    });
+    return this.cache.getDesignations(validSchoolId);
   }
 
   async updateStaff(schoolId: string, id: string, data: UpdateStaffInput) {

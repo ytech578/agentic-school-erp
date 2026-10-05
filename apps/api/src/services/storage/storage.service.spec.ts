@@ -40,6 +40,29 @@ describe('StorageService - Multi-Provider Driver (Part 2)', () => {
     expect(result.fileSize).toBe(fileBuffer.length);
   });
 
+  it('streams an uploaded local file successfully', async () => {
+    const fileBuffer = Buffer.from('Streaming test content');
+    const uploaded = await service.uploadFile(
+      fileBuffer,
+      'stream_test.pdf',
+      'application/pdf',
+      'documents',
+    );
+
+    const streamResult = await service.getFileStream(uploaded.url);
+    expect(streamResult.fileName).toBe(uploaded.fileName);
+    expect(streamResult.mimeType).toBe('application/pdf');
+    expect(streamResult.fileSize).toBe(fileBuffer.length);
+    expect(streamResult.stream).toBeDefined();
+
+    const chunks: Buffer[] = [];
+    for await (const chunk of streamResult.stream) {
+      chunks.push(Buffer.from(chunk));
+    }
+    const retrievedBuffer = Buffer.concat(chunks);
+    expect(retrievedBuffer.toString()).toBe('Streaming test content');
+  });
+
   it('deletes a locally stored file without errors', async () => {
     const fileBuffer = Buffer.from('Deletable content');
     const result = await service.uploadFile(
