@@ -35,7 +35,7 @@ import {
   SendAnnouncementInput,
   AutomationInput,
 } from './agent-types';
-import { AgentActionStatus, Prisma, RiskLevel } from '@prisma/client';
+import { AgentAction, AgentActionStatus, Prisma, RiskLevel } from '@prisma/client';
 
 // ─── Inline audit helper ───────────────────────────────────────────────────────
 interface AuditPayload {
@@ -281,7 +281,7 @@ export class AgentControlPlaneService {
       .slice(0, 32);
 
     // 14. Persist AgentAction with concurrent proposal race handling
-    let action: any;
+    let action: AgentAction;
     try {
       action = await this.prisma.agentAction.create({
         data: {
@@ -301,11 +301,12 @@ export class AgentControlPlaneService {
           correlationId,
         },
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Step 6: Safe concurrent proposal race handling for Prisma P2002 error
+      const prismaErr = err as { code?: string; message?: string };
       if (
-        err?.code === 'P2002' ||
-        err?.message?.includes('Unique constraint failed')
+        prismaErr?.code === 'P2002' ||
+        prismaErr?.message?.includes('Unique constraint failed')
       ) {
         // Race on scoped idempotency key
         if (clientRequestKey && idempotencyScope) {

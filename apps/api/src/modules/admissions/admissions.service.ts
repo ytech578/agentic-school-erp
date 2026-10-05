@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
-import { AdmissionStatus, EnquiryStatus, Gender } from '@prisma/client';
+import { AdmissionStatus, EnquiryStatus, Gender, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
 import { generateNextSequence, SequencePrismaClient } from '../../core/database/sequence.util';
@@ -361,9 +361,10 @@ export class AdmissionsService {
     const tempPassword = `Std@${birthYear}!${Math.random().toString(36).slice(-4)}`;
     const passwordHash = await bcrypt.hash(tempPassword, 12);
 
-    return this.prisma.$transaction(async (tx: any) => {
-      // 1. Resolve Target Class and Section
-      let targetSection: TargetSectionInfo | null = null;
+    return this.prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        // 1. Resolve Target Class and Section
+        let targetSection: TargetSectionInfo | null = null;
 
       if (options?.sectionId) {
         targetSection = await tx.section.findFirst({
@@ -493,7 +494,7 @@ export class AdmissionsService {
 
       // 3. Atomically generate continuous sequential admission number matching school pattern
       const admissionNumber = await generateNextSequence(
-        tx as unknown as SequencePrismaClient,
+        tx,
         validSchoolId,
         'ADM',
       );

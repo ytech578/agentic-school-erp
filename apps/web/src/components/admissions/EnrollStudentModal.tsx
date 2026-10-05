@@ -29,7 +29,7 @@ interface EnrollStudentModalProps {
     classApplied: string;
     parentName?: string;
     parentPhone?: string;
-    interviewNotes?: string;
+    interviewNotes?: string | null;
   } | null;
   onSuccess: () => void;
 }

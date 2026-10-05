@@ -79,10 +79,10 @@ export default function AdmissionsPage() {
   const [showAppForm, setShowAppForm] = useState(false);
   
   // Document Vault & Offer Letter Modals
-  const [vaultApplication, setVaultApplication] = useState<any | null>(null);
-  const [offerApplication, setOfferApplication] = useState<any | null>(null);
-  const [enrollApplication, setEnrollApplication] = useState<any | null>(null);
-  const [rejectApplication, setRejectApplication] = useState<any | null>(null);
+  const [vaultApplication, setVaultApplication] = useState<AdmissionApplication | null>(null);
+  const [offerApplication, setOfferApplication] = useState<AdmissionApplication | null>(null);
+  const [enrollApplication, setEnrollApplication] = useState<AdmissionApplication | null>(null);
+  const [rejectApplication, setRejectApplication] = useState<AdmissionApplication | null>(null);
 
   // Search states
   const [enquirySearch, setEnquirySearch] = useState("");
@@ -93,7 +93,18 @@ export default function AdmissionsPage() {
   const [appForm, setAppForm] = useState({ studentName: "", dateOfBirth: "", gender: "MALE", classApplied: "", parentName: "", parentPhone: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [workflowState, setWorkflowState] = useState<{ appId: string; loading: boolean } | null>(null);
-  const [workflowResult, setWorkflowResult] = useState<{ appId: string; appName: string; results: any[] } | null>(null);
+  const [workflowResult, setWorkflowResult] = useState<{
+    appId: string;
+    appName: string;
+    results: Array<{
+      agent: string;
+      status: 'success' | 'error';
+      output?: string;
+      result?: { summary?: string; [key: string]: unknown };
+      error?: string;
+      [key: string]: unknown;
+    }>;
+  } | null>(null);
 
 
   useEffect(() => {
@@ -598,7 +609,7 @@ export default function AdmissionsPage() {
               </button>
             </div>
             <div style={{ padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1rem", maxHeight: "60vh", overflowY: "auto" }}>
-              {workflowResult.results.map((r: any, idx: number) => (
+              {workflowResult.results.map((r, idx: number) => (
                 <div key={idx} style={{
                   padding: "1.25rem", borderRadius: "var(--radius-lg)",
                   border: `1px solid ${r.status === 'error' ? 'rgba(239,68,68,0.3)' : 'rgba(99,102,241,0.3)'}`,

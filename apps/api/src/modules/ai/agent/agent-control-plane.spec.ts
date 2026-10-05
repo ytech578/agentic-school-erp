@@ -28,6 +28,7 @@ import { AssignmentsService } from '../../assignments/assignments.service';
 import { MessagesService } from '../../messages/messages.service';
 import { TimetableService } from '../../timetable/timetable.service';
 import { ExamsService } from '../../exams/exams.service';
+import { TenantCacheService } from '../../../core/cache/tenant-cache.service';
 import { AGENT_ERRORS } from './agent-types';
 import {
   PERMISSIONS,
@@ -216,7 +217,7 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         { provide: PrismaService, useValue: prisma },
         {
           provide: HRService,
-          useValue: new HRService(prisma as any),
+          useValue: new HRService(prisma as unknown as PrismaService),
         },
         { provide: AssignmentsService, useValue: assignmentsService },
         {
@@ -279,8 +280,10 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         {
           provide: TimetableService,
           useValue: new TimetableService(
-            prisma as any,
-            { resolveActiveYear: jest.fn().mockResolvedValue('ay-1') } as any,
+            prisma as unknown as PrismaService,
+            {
+              resolveActiveYear: jest.fn().mockResolvedValue('ay-1'),
+            } as unknown as TenantCacheService,
           ),
         },
         {
@@ -1578,8 +1581,7 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
   // ── AgentPolicyService ─────────────────────────────────────────────────────
 
   describe('AgentPolicyService', () => {
-    const { TOOL_REGISTRY } = require('./tool-registry');
-    const approveLeave = TOOL_REGISTRY.get('approve_leave');
+    const approveLeave = TOOL_REGISTRY.get('approve_leave')!;
 
     it('denies when no schoolId (tenant missing)', () => {
       const ctx = { userId: 'u1', role: 'SCHOOL_ADMIN', schoolId: '' };
@@ -1602,8 +1604,8 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
     it('returns ALLOW for LOW risk, no confirmation tool', () => {
       const dailyDigest = TOOL_REGISTRY.get('automation_daily_digest');
       // Override requiresConfirmation for test
-      const tool = {
-        ...dailyDigest,
+      const tool: ToolDefinition = {
+        ...dailyDigest!,
         riskLevel: 'LOW',
         requiresConfirmation: false,
       };
@@ -1615,7 +1617,7 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
     // ─── Hardening Test: send_announcement is REQUEST_KEY, not NONE ──────────
 
     it('[H-registry] send_announcement uses REQUEST_KEY strategy (not NONE)', () => {
-      const sendAnnouncement = TOOL_REGISTRY.get('send_announcement');
+      const sendAnnouncement = TOOL_REGISTRY.get('send_announcement')!;
       expect(sendAnnouncement.idempotencyStrategy).toBe('REQUEST_KEY');
     });
 

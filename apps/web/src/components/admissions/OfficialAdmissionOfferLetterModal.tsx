@@ -12,7 +12,7 @@ export interface AdmissionOfferData {
   classApplied: string;
   parentName?: string;
   parentPhone?: string;
-  createdAt?: string;
+  createdAt?: string | Date;
 }
 
 interface OfficialAdmissionOfferLetterModalProps {
