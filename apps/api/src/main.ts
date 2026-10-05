@@ -16,7 +16,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     bufferLogs: true, // Buffer logs until Pino is ready
   });
-  
+
   app.useLogger(app.get(PinoLogger));
 
   const port = process.env.PORT || 4000;
@@ -182,4 +182,7 @@ async function bootstrap() {
   }
 }
 
-bootstrap();
+bootstrap().catch((err: unknown) => {
+  new Logger('Bootstrap').error('Fatal bootstrap failure', err);
+  process.exit(1);
+});

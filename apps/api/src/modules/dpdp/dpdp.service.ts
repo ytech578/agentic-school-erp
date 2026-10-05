@@ -28,9 +28,11 @@ export class DpdpService {
   // ─── GDPR/DPDP DATA RETENTION POLICY (Auto-Purge Scheduler) ───────────────
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async purgeOldAuditLogs() {
-    this.logger.log('Running GDPR/DPDP data retention policy: purging old activity logs...');
+    this.logger.log(
+      'Running GDPR/DPDP data retention policy: purging old activity logs...',
+    );
     try {
-      // DPDP guidelines suggest limiting retention unless legally required. 
+      // DPDP guidelines suggest limiting retention unless legally required.
       // We auto-purge audit logs older than 3 years (1095 days) by default.
       const retentionDays = 1095;
       const cutoffDate = new Date();
@@ -44,7 +46,9 @@ export class DpdpService {
         },
       });
 
-      this.logger.log(`Purged ${result.count} outdated activity logs older than ${retentionDays} days.`);
+      this.logger.log(
+        `Purged ${result.count} outdated activity logs older than ${retentionDays} days.`,
+      );
     } catch (error) {
       this.logger.error('Failed to execute DPDP data retention purge', error);
     }
@@ -292,7 +296,10 @@ export class DpdpService {
 
     try {
       // 1. Gather all personal data
-      const exportedData = await this.exportUserData(validSchoolId, request.userId);
+      const exportedData = await this.exportUserData(
+        validSchoolId,
+        request.userId,
+      );
 
       // 2. Package into a ZIP archive using JSZip
       const zip = new JSZip();
@@ -371,7 +378,8 @@ Archive Contents:
             userId: request.userId,
             type: 'GENERAL',
             title: 'Personal Data Archive Ready',
-            message: 'Your personal data export request has been processed. The ZIP archive is ready for download.',
+            message:
+              'Your personal data export request has been processed. The ZIP archive is ready for download.',
             actionUrl: uploadResult.url,
             metadata: {
               requestId: request.id,
@@ -380,7 +388,9 @@ Archive Contents:
           },
         });
       } catch (err: any) {
-        this.logger.warn(`Failed to notify user for DPDP export completion: ${err.message}`);
+        this.logger.warn(
+          `Failed to notify user for DPDP export completion: ${err.message}`,
+        );
       }
 
       return completed;
@@ -412,11 +422,9 @@ Archive Contents:
       throw new NotFoundException(`Data privacy request not found.`);
     }
 
-    const isElevated = [
-      'SUPER_ADMIN',
-      'SCHOOL_ADMIN',
-      'PRINCIPAL',
-    ].includes(requestingUserRole);
+    const isElevated = ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'].includes(
+      requestingUserRole,
+    );
 
     if (!isElevated && request.userId !== requestingUserId) {
       throw new ForbiddenException(
@@ -590,24 +598,45 @@ Archive Contents:
   async getComplianceStats(schoolId: string | null) {
     const validSchoolId = requireSchoolId(schoolId);
 
-    const [totalConsents, activeConsents, totalRequests, pendingErasure, completedExports, school] =
-      await Promise.all([
-        this.prisma.dataConsent.count({ where: { schoolId: validSchoolId } }),
-        this.prisma.dataConsent.count({ where: { schoolId: validSchoolId, isGranted: true } }),
-        this.prisma.dataPrivacyRequest.count({ where: { schoolId: validSchoolId } }),
-        this.prisma.dataPrivacyRequest.count({
-          where: { schoolId: validSchoolId, requestType: 'DATA_ERASURE', status: { not: 'COMPLETED' } },
-        }),
-        this.prisma.dataPrivacyRequest.count({
-          where: { schoolId: validSchoolId, requestType: 'DATA_EXPORT', status: 'COMPLETED' },
-        }),
-        this.prisma.school.findUnique({
-          where: { id: validSchoolId },
-          select: { name: true, email: true, phone: true, principalName: true },
-        }),
-      ]);
+    const [
+      totalConsents,
+      activeConsents,
+      totalRequests,
+      pendingErasure,
+      completedExports,
+      school,
+    ] = await Promise.all([
+      this.prisma.dataConsent.count({ where: { schoolId: validSchoolId } }),
+      this.prisma.dataConsent.count({
+        where: { schoolId: validSchoolId, isGranted: true },
+      }),
+      this.prisma.dataPrivacyRequest.count({
+        where: { schoolId: validSchoolId },
+      }),
+      this.prisma.dataPrivacyRequest.count({
+        where: {
+          schoolId: validSchoolId,
+          requestType: 'DATA_ERASURE',
+          status: { not: 'COMPLETED' },
+        },
+      }),
+      this.prisma.dataPrivacyRequest.count({
+        where: {
+          schoolId: validSchoolId,
+          requestType: 'DATA_EXPORT',
+          status: 'COMPLETED',
+        },
+      }),
+      this.prisma.school.findUnique({
+        where: { id: validSchoolId },
+        select: { name: true, email: true, phone: true, principalName: true },
+      }),
+    ]);
 
-    const consentRate = totalConsents > 0 ? Math.round((activeConsents / totalConsents) * 100) : 100;
+    const consentRate =
+      totalConsents > 0
+        ? Math.round((activeConsents / totalConsents) * 100)
+        : 100;
 
     return {
       totalConsents,

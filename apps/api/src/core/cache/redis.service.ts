@@ -49,7 +49,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         this.logger.log('Connected to Redis cache cluster successfully');
       });
 
-      this.client.on('error', (err) => {
+      this.client.on('error', (err: Error) => {
         if (this.isConnected) {
           this.logger.warn(
             `Redis disconnected: ${err.message}. Engaging circuit-breaker memory fallback.`,
@@ -61,10 +61,11 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       this.client.on('close', () => {
         this.isConnected = false;
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
       this.isConnected = false;
       this.logger.warn(
-        `Failed to initialize Redis client: ${err.message}. Operating in resilient memory mode.`,
+        `Failed to initialize Redis client: ${message}. Operating in resilient memory mode.`,
       );
     }
   }
@@ -83,9 +84,10 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     if (this.isConnected && this.client) {
       try {
         return await this.client.get(key);
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
         this.logger.warn(
-          `Redis GET failed for "${key}", checking memory fallback: ${err.message}`,
+          `Redis GET failed for "${key}", checking memory fallback: ${message}`,
         );
       }
     }
@@ -109,17 +111,20 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
           await this.client.set(key, value);
         }
         return;
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
         this.logger.warn(
-          `Redis SET failed for "${key}", writing to memory fallback: ${err.message}`,
+          `Redis SET failed for "${key}", writing to memory fallback: ${message}`,
         );
       }
     }
 
     // Enforce memory store bound
     if (this.fallbackStore.size >= this.maxMemoryKeys) {
-      const oldestKey = this.fallbackStore.keys().next().value;
-      if (oldestKey) this.fallbackStore.delete(oldestKey);
+      const iter = this.fallbackStore.keys().next();
+      if (!iter.done && typeof iter.value === 'string') {
+        this.fallbackStore.delete(iter.value);
+      }
     }
 
     const expiresAt =
@@ -131,8 +136,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     if (this.isConnected && this.client) {
       try {
         await this.client.del(key);
-      } catch (err: any) {
-        this.logger.warn(`Redis DEL failed for "${key}": ${err.message}`);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Redis DEL failed for "${key}": ${message}`);
       }
     }
     this.fallbackStore.delete(key);

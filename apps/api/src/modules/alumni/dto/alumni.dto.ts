@@ -143,4 +143,3 @@ export class AlumniSelfRegisterDto {
   @IsOptional()
   country?: string;
 }
-

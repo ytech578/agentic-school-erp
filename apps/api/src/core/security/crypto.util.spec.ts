@@ -56,7 +56,7 @@ describe('CryptoUtil - AES-256-GCM Aadhaar & PII Encryption', () => {
   it('decrypts ciphertext encrypted with old key using AADHAAR_ENCRYPTION_KEY_PREV during secret rotation', () => {
     const oldKey = 'old-key-prior-to-secret-rotation-32-bytes-long!';
     const newKey = 'new-rotated-key-after-secret-rotation-32bytes!';
-    
+
     // Encrypt with old key
     process.env.AADHAAR_ENCRYPTION_KEY = oldKey;
     delete process.env.AADHAAR_ENCRYPTION_KEY_PREV;

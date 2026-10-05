@@ -228,7 +228,11 @@ export class StudentsService {
     };
   }
 
-  async getStudentById(schoolId: string, id: string, userRole: string = 'TEACHER') {
+  async getStudentById(
+    schoolId: string,
+    id: string,
+    userRole: string = 'TEACHER',
+  ) {
     const validSchoolId = requireSchoolId(schoolId, 'Get student');
     const student = await this.prisma.student.findFirst({
       where: { id, schoolId: validSchoolId },
@@ -251,14 +255,22 @@ export class StudentsService {
     }
 
     // RBAC Column-level permissions
-    const canViewSensitiveData = ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'].includes(userRole);
+    const canViewSensitiveData = [
+      'SUPER_ADMIN',
+      'SCHOOL_ADMIN',
+      'PRINCIPAL',
+    ].includes(userRole);
 
     return {
       ...student,
-      aadhaarNumber: canViewSensitiveData ? student.aadhaarNumber : maskAadhaarNumber(student.aadhaarNumber),
+      aadhaarNumber: canViewSensitiveData
+        ? student.aadhaarNumber
+        : maskAadhaarNumber(student.aadhaarNumber),
       guardians: student.guardians.map((g) => ({
         ...g,
-        aadhaarNumber: canViewSensitiveData ? g.aadhaarNumber : maskAadhaarNumber(g.aadhaarNumber),
+        aadhaarNumber: canViewSensitiveData
+          ? g.aadhaarNumber
+          : maskAadhaarNumber(g.aadhaarNumber),
       })),
     };
   }

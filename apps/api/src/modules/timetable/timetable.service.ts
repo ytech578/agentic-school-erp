@@ -35,7 +35,6 @@ export class TimetableService {
     return hours * 60 + minutes;
   }
 
-
   async getTimetable(
     schoolId: string,
     query: { classId?: string; sectionId?: string; academicYearId?: string },
@@ -76,7 +75,10 @@ export class TimetableService {
     academicYearId?: string,
   ) {
     const validSchoolId = requireSchoolId(schoolId, 'Get teacher timetable');
-    const ayId = await this.cache.resolveActiveYear(validSchoolId, academicYearId);
+    const ayId = await this.cache.resolveActiveYear(
+      validSchoolId,
+      academicYearId,
+    );
     return this.prisma.timetableSlot.findMany({
       where: {
         schoolId: validSchoolId,
@@ -99,7 +101,10 @@ export class TimetableService {
     academicYearId?: string,
   ) {
     const validSchoolId = requireSchoolId(schoolId, 'Get today schedule');
-    const ayId = await this.cache.resolveActiveYear(validSchoolId, academicYearId);
+    const ayId = await this.cache.resolveActiveYear(
+      validSchoolId,
+      academicYearId,
+    );
     const dayOfWeek = new Date().getDay() || 7; // Convert 0 (Sunday) to 7 if using 1=Mon..7=Sun, or adjust per your week standard
 
     return this.prisma.timetableSlot.findMany({
@@ -266,7 +271,10 @@ export class TimetableService {
     academicYearId?: string,
   ) {
     const validSchoolId = requireSchoolId(schoolId, 'Auto generate timetable');
-    const ayId = await this.cache.resolveActiveYear(validSchoolId, academicYearId);
+    const ayId = await this.cache.resolveActiveYear(
+      validSchoolId,
+      academicYearId,
+    );
 
     const assignments = await this.prisma.teacherAssignment.findMany({
       where: { sectionId, academicYearId: ayId },

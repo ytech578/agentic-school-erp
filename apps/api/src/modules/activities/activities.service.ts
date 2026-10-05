@@ -63,7 +63,11 @@ export class ActivitiesService {
     };
   }
 
-  async updateActivity(schoolId: string, activityId: string, dto: UpdateActivityDto) {
+  async updateActivity(
+    schoolId: string,
+    activityId: string,
+    dto: UpdateActivityDto,
+  ) {
     const validSchoolId = requireSchoolId(schoolId);
     const activity = await this.prisma.activity.findFirst({
       where: { id: activityId, schoolId: validSchoolId },

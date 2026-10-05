@@ -138,4 +138,3 @@ export class BulkIssueCertificateDto {
   @IsOptional()
   remarks?: string;
 }
-

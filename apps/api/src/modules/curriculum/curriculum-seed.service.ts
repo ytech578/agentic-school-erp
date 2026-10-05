@@ -18,7 +18,9 @@ export class CurriculumSeedService implements OnApplicationBootstrap {
       try {
         const boardCount = await this.prisma.board.count();
         if (boardCount >= 4) {
-          this.logger.log('Curriculum baseline already seeded. Skipping redundant upserts.');
+          this.logger.log(
+            'Curriculum baseline already seeded. Skipping redundant upserts.',
+          );
           return;
         }
         await this.seedAll();

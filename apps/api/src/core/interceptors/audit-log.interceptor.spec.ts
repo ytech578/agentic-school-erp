@@ -3,6 +3,8 @@ import { of } from 'rxjs';
 import { AuditLogInterceptor } from './audit-log.interceptor';
 import { AuditAction } from '@prisma/client';
 
+import { PrismaService } from '../database/prisma.service';
+
 describe('AuditLogInterceptor (E-001)', () => {
   let interceptor: AuditLogInterceptor;
   let mockPrisma: any;

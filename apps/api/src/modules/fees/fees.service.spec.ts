@@ -47,10 +47,7 @@ describe('FeesService', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        FeesService,
-        { provide: PrismaService, useValue: prisma },
-      ],
+      providers: [FeesService, { provide: PrismaService, useValue: prisma }],
     }).compile();
 
     service = module.get<FeesService>(FeesService);
@@ -65,7 +62,9 @@ describe('FeesService', () => {
     it('should map ONLINE, UPI, and CARD to ONLINE_UPI', () => {
       expect(normalizeFeePaymentMode('UPI')).toBe(FeePaymentMode.ONLINE_UPI);
       expect(normalizeFeePaymentMode('online')).toBe(FeePaymentMode.ONLINE_UPI);
-      expect(normalizeFeePaymentMode('RAZORPAY')).toBe(FeePaymentMode.ONLINE_UPI);
+      expect(normalizeFeePaymentMode('RAZORPAY')).toBe(
+        FeePaymentMode.ONLINE_UPI,
+      );
     });
 
     it('should map CHEQUE, NEFT, and RTGS', () => {

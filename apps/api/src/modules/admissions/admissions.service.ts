@@ -349,7 +349,8 @@ export class AdmissionsService {
 
       // If not explicitly provided, heuristically resolve from classApplied and interviewNotes
       if (!targetSection && tx.class?.findMany) {
-        const textToAnalyze = `${app.classApplied || ''} ${app.interviewNotes || ''}`.toLowerCase();
+        const textToAnalyze =
+          `${app.classApplied || ''} ${app.interviewNotes || ''}`.toLowerCase();
 
         let targetLevel: number | null = null;
         const numMatch = textToAnalyze.match(
@@ -388,11 +389,15 @@ export class AdmissionsService {
         const candidateClasses = await tx.class.findMany({
           where: {
             schoolId: validSchoolId,
-            ...(app.academicYearId ? { academicYearId: app.academicYearId } : {}),
+            ...(app.academicYearId
+              ? { academicYearId: app.academicYearId }
+              : {}),
             ...(targetLevel !== null
               ? {
                   OR: [
-                    { name: { contains: `${targetLevel}`, mode: 'insensitive' } },
+                    {
+                      name: { contains: `${targetLevel}`, mode: 'insensitive' },
+                    },
                     { numericLevel: targetLevel },
                     { numericLevel: targetLevel + 2 },
                   ],

@@ -43,9 +43,13 @@ export function validateJwtConfig(
   const refreshSecret: string =
     typeof rawRefresh === 'string' ? rawRefresh.trim() : '';
   const accessSecretPrev: string | undefined =
-    typeof rawAccessPrev === 'string' && rawAccessPrev.trim() ? rawAccessPrev.trim() : undefined;
+    typeof rawAccessPrev === 'string' && rawAccessPrev.trim()
+      ? rawAccessPrev.trim()
+      : undefined;
   const refreshSecretPrev: string | undefined =
-    typeof rawRefreshPrev === 'string' && rawRefreshPrev.trim() ? rawRefreshPrev.trim() : undefined;
+    typeof rawRefreshPrev === 'string' && rawRefreshPrev.trim()
+      ? rawRefreshPrev.trim()
+      : undefined;
 
   // 1. Existence check
   if (!accessSecret) {

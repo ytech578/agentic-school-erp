@@ -120,7 +120,8 @@ export class AdmissionsController {
   convertApplicationToStudent(
     @Request() req: any,
     @Param('id') id: string,
-    @Body() body?: { classId?: string; sectionId?: string; rollNumber?: string },
+    @Body()
+    body?: { classId?: string; sectionId?: string; rollNumber?: string },
   ) {
     return this.admissionsService.convertApplicationToStudent(
       req.user.schoolId,

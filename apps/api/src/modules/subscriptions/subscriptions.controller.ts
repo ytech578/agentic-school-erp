@@ -31,9 +31,7 @@ export class SubscriptionsController {
   })
   getCurrentSubscription(@Request() req: any) {
     const targetSchoolId =
-      req.user?.schoolId ||
-      req.headers?.['x-school-id'] ||
-      req.query?.schoolId;
+      req.user?.schoolId || req.headers?.['x-school-id'] || req.query?.schoolId;
     return this.subscriptionsService.getSubscription(targetSchoolId);
   }
 
@@ -55,17 +53,14 @@ export class SubscriptionsController {
     @Body() dto: UpdateSubscriptionDto,
   ) {
     const targetSchoolId =
-      req.user?.schoolId ||
-      req.headers?.['x-school-id'] ||
-      req.query?.schoolId;
+      req.user?.schoolId || req.headers?.['x-school-id'] || req.query?.schoolId;
     return this.subscriptionsService.updateSubscription(targetSchoolId, dto);
   }
 
   @Put(':schoolId')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({
-    summary:
-      'Upgrade or update school subscription tier and quotas',
+    summary: 'Upgrade or update school subscription tier and quotas',
   })
   updateSubscription(
     @Request() req: any,
@@ -73,7 +68,9 @@ export class SubscriptionsController {
     @Body() dto: UpdateSubscriptionDto,
   ) {
     if (req.user.role !== 'SUPER_ADMIN' && req.user.schoolId !== schoolId) {
-      throw new ForbiddenException('You can only manage your own school subscription.');
+      throw new ForbiddenException(
+        'You can only manage your own school subscription.',
+      );
     }
     return this.subscriptionsService.updateSubscription(schoolId, dto);
   }

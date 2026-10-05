@@ -8,7 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { 
   Lock, AlertCircle, Loader2, CheckCircle2, Eye, EyeOff, 
-  ShieldCheck, ArrowLeft, Check, X, Building2, KeyRound 
+  ShieldCheck, ArrowLeft, Check 
 } from "lucide-react";
 import { ResetPasswordSchema } from "@school-erp/shared/src/schemas/auth.schema";
 import { apiClient } from "@/lib/axios";
@@ -31,7 +31,7 @@ function ResetPasswordForm() {
     watch,
     formState: { errors, isSubmitting },
   } = useForm<ResetPasswordFormData>({
-    resolver: zodResolver(ResetPasswordSchema) as any,
+    resolver: zodResolver(ResetPasswordSchema),
     defaultValues: {
       token,
       password: "",
@@ -70,8 +70,9 @@ function ResetPasswordForm() {
       setTimeout(() => {
         router.push("/login");
       }, 2500);
-    } catch (error: any) {
-      const msg = error.response?.data?.message;
+    } catch (error: unknown) {
+      const axiosError = error as { response?: { data?: { message?: string } } };
+      const msg = axiosError.response?.data?.message;
       if (msg) {
         setGlobalError(msg);
       } else {

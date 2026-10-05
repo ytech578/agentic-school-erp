@@ -14,7 +14,7 @@ describe('RedisService & Circuit Breaker (FIX-06)', () => {
           useValue: {
             get: jest
               .fn()
-              .mockImplementation((key: string, defaultVal: any) => {
+              .mockImplementation((key: string, defaultVal?: unknown) => {
                 if (key === 'redis.url')
                   return 'redis://invalid-host-for-testing:6379';
                 return defaultVal;
@@ -33,7 +33,7 @@ describe('RedisService & Circuit Breaker (FIX-06)', () => {
     await service.onModuleDestroy();
   });
 
-  it('operates in circuit-breaker in-memory fallback mode when Redis host is unreachable', async () => {
+  it('operates in circuit-breaker in-memory fallback mode when Redis host is unreachable', () => {
     const status = service.getStatus();
     expect(status.mode).toBe('CIRCUIT_BREAKER_MEMORY');
     expect(status.connected).toBe(false);

@@ -178,7 +178,10 @@ export class PtmService {
           new Set(
             students
               .flatMap((s: any) => s.guardians.map((g: any) => g.userId))
-              .filter((id: any): id is string => typeof id === 'string' && id.length > 0),
+              .filter(
+                (id: any): id is string =>
+                  typeof id === 'string' && id.length > 0,
+              ),
           ),
         );
 
@@ -202,7 +205,9 @@ export class PtmService {
           });
         }
       } catch (err: any) {
-        this.logger.warn(`Failed to broadcast PTM session notifications: ${err.message}`);
+        this.logger.warn(
+          `Failed to broadcast PTM session notifications: ${err.message}`,
+        );
       }
     }
 
@@ -374,11 +379,11 @@ export class PtmService {
     });
 
     // 4. Trigger Notifications to Parent & Teacher
-    const studentDisplayName = (
-      student.user
+    const studentDisplayName =
+      (student.user
         ? `${student.user.firstName} ${student.user.lastName || ''}`
         : `${(student as any).firstName || ''} ${(student as any).lastName || ''}`
-    ).trim() || 'Student';
+      ).trim() || 'Student';
 
     const teacherDisplayName = bookedSlot.teacher?.user
       ? `${bookedSlot.teacher.user.firstName} ${bookedSlot.teacher.user.lastName || ''}`.trim()
@@ -413,7 +418,9 @@ export class PtmService {
         },
       });
     } catch (err: any) {
-      this.logger.warn(`Failed to send PTM notification to parent: ${err.message}`);
+      this.logger.warn(
+        `Failed to send PTM notification to parent: ${err.message}`,
+      );
     }
 
     // 4b. Notify Teacher
@@ -436,7 +443,9 @@ export class PtmService {
           },
         });
       } catch (err: any) {
-        this.logger.warn(`Failed to send PTM notification to teacher: ${err.message}`);
+        this.logger.warn(
+          `Failed to send PTM notification to teacher: ${err.message}`,
+        );
       }
     }
 
@@ -659,4 +668,3 @@ export class PtmService {
     }
   }
 }
-

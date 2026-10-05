@@ -1,4 +1,4 @@
-﻿import {
+import {
   Controller,
   Get,
   Post,
@@ -10,53 +10,88 @@
   Query,
   UseGuards,
   Request,
-} from "@nestjs/common";
-import { ApiTags, ApiBearerAuth, ApiOperation } from "@nestjs/swagger";
-import { ActivitiesService } from "./activities.service";
-import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
-import { RolesGuard } from "../../core/guards/roles.guard";
-import { Roles } from "../../core/decorators/roles.decorator";
-import { CreateActivityDto, UpdateActivityDto, ActivityQueryDto } from "./dto/activity.dto";
+} from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ActivitiesService } from './activities.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../core/guards/roles.guard';
+import { Roles } from '../../core/decorators/roles.decorator';
+import {
+  CreateActivityDto,
+  UpdateActivityDto,
+  ActivityQueryDto,
+} from './dto/activity.dto';
 
-@ApiTags("Activities")
-@ApiBearerAuth("JWT-auth")
+interface AuthenticatedRequest {
+  user: {
+    schoolId: string;
+    [key: string]: unknown;
+  };
+}
+
+@ApiTags('Activities')
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Controller("activities")
+@Controller('activities')
 export class ActivitiesController {
   constructor(private service: ActivitiesService) {}
 
   @Get()
-  @ApiOperation({ summary: "List activities" })
-  @Roles("SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER", "PARENT", "STUDENT")
-  listActivities(@Request() req: any, @Query() query: ActivityQueryDto) {
+  @ApiOperation({ summary: 'List activities' })
+  @Roles(
+    'SUPER_ADMIN',
+    'SCHOOL_ADMIN',
+    'PRINCIPAL',
+    'TEACHER',
+    'PARENT',
+    'STUDENT',
+  )
+  listActivities(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: ActivityQueryDto,
+  ) {
     return this.service.listActivities(req.user.schoolId, query.studentId);
   }
 
   @Post()
-  @ApiOperation({ summary: "Log a student activity/achievement" })
-  @Roles("SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER")
-  createActivity(@Request() req: any, @Body() dto: CreateActivityDto) {
+  @ApiOperation({ summary: 'Log a student activity/achievement' })
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
+  createActivity(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: CreateActivityDto,
+  ) {
     return this.service.createActivity(req.user.schoolId, dto);
   }
 
-  @Patch(":id")
-  @ApiOperation({ summary: "Update an activity (partial)" })
-  @Roles("SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER")
-  updateActivityPatch(@Request() req: any, @Param("id") id: string, @Body() dto: UpdateActivityDto) {
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update an activity (partial)' })
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
+  updateActivityPatch(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: UpdateActivityDto,
+  ) {
     return this.service.updateActivity(req.user.schoolId, id, dto);
   }
 
-  @Put(":id")
-  @ApiOperation({ summary: "Update an activity (full replace)" })
-  @Roles("SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL", "TEACHER")
-  updateActivityPut(@Request() req: any, @Param("id") id: string, @Body() dto: UpdateActivityDto) {
+  @Put(':id')
+  @ApiOperation({ summary: 'Update an activity (full replace)' })
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
+  updateActivityPut(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: UpdateActivityDto,
+  ) {
     return this.service.updateActivity(req.user.schoolId, id, dto);
   }
 
-  @Delete(":id")
-  @ApiOperation({ summary: "Delete an activity" })
-  @Roles("SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL")
-  deleteActivity(@Request() req: any, @Param("id") id: string) {
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete an activity' })
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
+  deleteActivity(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
     return this.service.deleteActivity(req.user.schoolId, id);
   }
 }

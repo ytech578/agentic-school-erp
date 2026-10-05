@@ -92,8 +92,7 @@ export class CertificatesService {
           dto.includeQrCode !== undefined
             ? dto.includeQrCode
             : template.includeQrCode,
-        isActive:
-          dto.isActive !== undefined ? dto.isActive : template.isActive,
+        isActive: dto.isActive !== undefined ? dto.isActive : template.isActive,
       },
     });
   }
@@ -258,7 +257,7 @@ export class CertificatesService {
 
     // 2. Determine Certificate Number
     const count = await this.prisma.issuedCertificate.count({
-      where: { schoolId: validSchoolId, type: resolvedType as any },
+      where: { schoolId: validSchoolId, type: resolvedType },
     });
     const currentYear = new Date().getFullYear();
     const prefix = resolvedType === 'TRANSFER_CERTIFICATE' ? 'TC' : 'CERT';
@@ -362,7 +361,7 @@ export class CertificatesService {
         studentId: student.id,
         templateId: dto.templateId,
         certificateNumber,
-        type: resolvedType as any,
+        type: resolvedType,
         reason: dto.reason,
         leavingReason: dto.leavingReason,
         conductRemark: dto.conductRemark || 'Good',
@@ -387,11 +386,11 @@ export class CertificatesService {
     });
 
     // 8. Trigger Notifications to Student & Parents
-    const studentDisplayName = (
-      student.user
+    const studentDisplayName =
+      (student.user
         ? `${student.user.firstName} ${student.user.lastName || ''}`
         : `${(student as any).firstName || ''} ${(student as any).lastName || ''}`
-    ).trim() || 'Student';
+      ).trim() || 'Student';
 
     // 8a. Notify student account if linked
     if (student.userId) {
@@ -413,7 +412,9 @@ export class CertificatesService {
           },
         });
       } catch (err: any) {
-        this.logger.warn(`Failed to notify student ${student.userId} about certificate issuance: ${err.message}`);
+        this.logger.warn(
+          `Failed to notify student ${student.userId} about certificate issuance: ${err.message}`,
+        );
       }
     }
 
@@ -446,7 +447,9 @@ export class CertificatesService {
           },
         });
       } catch (err: any) {
-        this.logger.warn(`Failed to notify parent ${parentUid} about certificate issuance: ${err.message}`);
+        this.logger.warn(
+          `Failed to notify parent ${parentUid} about certificate issuance: ${err.message}`,
+        );
       }
     }
 
@@ -469,14 +472,18 @@ export class CertificatesService {
 
     for (const sId of dto.studentIds) {
       try {
-        const cert = await this.issueCertificate(validSchoolId, issuedByUserId, {
-          studentId: sId,
-          templateId: dto.templateId,
-          type: dto.type,
-          reason: dto.reason,
-          conductRemark: dto.conductRemark,
-          remarks: dto.remarks,
-        });
+        const cert = await this.issueCertificate(
+          validSchoolId,
+          issuedByUserId,
+          {
+            studentId: sId,
+            templateId: dto.templateId,
+            type: dto.type,
+            reason: dto.reason,
+            conductRemark: dto.conductRemark,
+            remarks: dto.remarks,
+          },
+        );
         results.push(cert);
       } catch (err: any) {
         errors.push({ studentId: sId, error: err.message });

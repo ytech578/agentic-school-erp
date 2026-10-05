@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -255,7 +260,9 @@ export class StorageService {
     expiresIn = 900,
   ): Promise<{ uploadUrl: string; fileKey: string }> {
     if (!this.s3Client || !this.s3Bucket) {
-      throw new InternalServerErrorException('S3 driver is not configured for presigned uploads');
+      throw new InternalServerErrorException(
+        'S3 driver is not configured for presigned uploads',
+      );
     }
 
     const key = `${folder}/${Date.now()}-${fileName}`;

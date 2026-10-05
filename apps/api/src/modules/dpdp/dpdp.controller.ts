@@ -25,7 +25,10 @@ export class DpdpController {
 
   @Get('stats')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  @ApiOperation({ summary: 'Get DPDP Act statutory compliance metrics and DPO contact details' })
+  @ApiOperation({
+    summary:
+      'Get DPDP Act statutory compliance metrics and DPO contact details',
+  })
   getComplianceStats(@Request() req: any) {
     return this.dpdpService.getComplianceStats(req.user.schoolId);
   }
@@ -86,13 +89,17 @@ export class DpdpController {
 
   @Post('requests/:id/process')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  @ApiOperation({ summary: 'Manually process DPDP export request and generate ZIP' })
+  @ApiOperation({
+    summary: 'Manually process DPDP export request and generate ZIP',
+  })
   processPrivacyRequest(@Request() req: any, @Param('id') id: string) {
     return this.dpdpService.processExportRequest(req.user.schoolId, id);
   }
 
   @Get('requests/:id/download')
-  @ApiOperation({ summary: 'Download completed personal data export ZIP archive' })
+  @ApiOperation({
+    summary: 'Download completed personal data export ZIP archive',
+  })
   async downloadExportArchive(
     @Request() req: any,
     @Param('id') id: string,

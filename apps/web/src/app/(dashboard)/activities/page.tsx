@@ -27,6 +27,38 @@ const getCat = (id: string) => CATEGORIES.find(c => c.id === id) || CATEGORIES[6
 
 // ─── Form Modal ───────────────────────────────────────────────────────────
 
+interface ActivityItem {
+  id?: string;
+  studentId?: string;
+  student?: { id: string; firstName?: string; lastName?: string; [key: string]: unknown };
+  title?: string;
+  event?: string;
+  category?: string;
+  date?: string | Date;
+  description?: string;
+  [key: string]: unknown;
+}
+
+interface StudentRecord {
+  id: string;
+  admissionNumber?: string;
+  admissionNo?: string;
+  rollNumber?: string | number;
+  user?: { firstName?: string; lastName?: string; [key: string]: unknown };
+  firstName?: string;
+  lastName?: string;
+  enrollment?: { status?: string; sectionId?: string; section?: { id?: string; classId?: string; class?: { id?: string; name?: string } } };
+  enrollments?: Array<{ status?: string; sectionId?: string; section?: { id?: string; classId?: string; class?: { id?: string; name?: string } } }>;
+  [key: string]: unknown;
+}
+
+interface ClassRecord {
+  id: string;
+  name: string;
+  sections?: Array<{ id: string; name: string; classId?: string }>;
+  [key: string]: unknown;
+}
+
 function ActivityModal({
   mode,
   activity,
@@ -36,25 +68,25 @@ function ActivityModal({
   onSaved,
 }: {
   mode: "create" | "edit";
-  activity?: any;
-  students: any[];
-  classes?: any[];
+  activity?: ActivityItem;
+  students: StudentRecord[];
+  classes?: ClassRecord[];
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const getEnrollment = (s: any) => {
+  const getEnrollment = (s: StudentRecord | null | undefined) => {
     if (!s) return null;
     const enrs = s.enrollments || (s.enrollment ? [s.enrollment] : []);
     if (!Array.isArray(enrs) || enrs.length === 0) return null;
-    return enrs.find((e: any) => e.status === "ACTIVE") || enrs[0] || null;
+    return enrs.find(e => e.status === "ACTIVE") || enrs[0] || null;
   };
 
   const allStudentsList = useMemo(() => {
-    return Array.isArray(students) ? students : (students as any)?.items || [];
+    return Array.isArray(students) ? students : (students as unknown as { items?: StudentRecord[] })?.items || [];
   }, [students]);
 
-  const initialStudentId = activity?.studentId || activity?.student?.id || "";
-  const existingStudent = allStudentsList.find((s: any) => s.id === initialStudentId) || activity?.student;
+  const initialStudentId = activity?.studentId || (activity?.student as { id?: string })?.id || "";
+  const existingStudent = allStudentsList.find(s => s.id === initialStudentId) || (activity?.student as StudentRecord | undefined);
   const existingEnrollment = getEnrollment(existingStudent);
   const initialClassId = existingEnrollment?.section?.classId || existingEnrollment?.section?.class?.id || "";
   const initialSectionId = existingEnrollment?.sectionId || existingEnrollment?.section?.id || "";
@@ -71,16 +103,15 @@ function ActivityModal({
   const [selectedClassId, setSelectedClassId] = useState<string>(initialClassId);
   const [selectedSectionId, setSelectedSectionId] = useState<string>(initialSectionId);
   const [studentSearch, setStudentSearch] = useState<string>("");
-  const [localClasses, setLocalClasses] = useState<any[]>(classes);
+  const [fetchedClasses, setFetchedClasses] = useState<ClassRecord[]>([]);
+  const localClasses = classes && classes.length > 0 ? classes : fetchedClasses;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (classes && classes.length > 0) {
-      setLocalClasses(classes);
-    } else {
+    if (!classes || classes.length === 0) {
       apiClient.get("/classes").then(res => {
-        setLocalClasses(res.data?.data || res.data || []);
+        setFetchedClasses(res.data?.data || res.data || []);
       }).catch(console.error);
     }
   }, [classes]);
@@ -88,7 +119,7 @@ function ActivityModal({
   useEffect(() => {
     if (activity) {
       const sId = activity.studentId || activity.student?.id || "";
-      const stu = allStudentsList.find((s: any) => s.id === sId) || activity.student;
+      const stu = allStudentsList.find((s: StudentRecord) => s.id === sId) || (activity.student as StudentRecord | undefined);
       const enr = getEnrollment(stu);
       if (enr) {
         setSelectedClassId(enr.section?.classId || enr.section?.class?.id || "");
@@ -110,13 +141,13 @@ function ActivityModal({
     setForm(prev => ({ ...prev, studentId: "" }));
   };
 
-  const selectedClass = localClasses.find((c: any) => c.id === selectedClassId);
-  const availableSections: any[] = selectedClass?.sections || [];
+  const selectedClass = localClasses.find((c: ClassRecord) => c.id === selectedClassId);
+  const availableSections = selectedClass?.sections || [];
 
   const filteredStudents = useMemo(() => {
     if (!selectedClassId) return [];
 
-    return allStudentsList.filter((s: any) => {
+    return allStudentsList.filter((s: StudentRecord) => {
       const enr = getEnrollment(s);
       if (!enr) return false;
       const sClassId = enr.section?.classId || enr.section?.class?.id;
@@ -135,14 +166,14 @@ function ActivityModal({
         }
       }
       return true;
-    }).sort((a: any, b: any) => {
+    }).sort((a: StudentRecord, b: StudentRecord) => {
       const nameA = `${a.user?.firstName || ""} ${a.user?.lastName || ""}`.trim();
       const nameB = `${b.user?.firstName || ""} ${b.user?.lastName || ""}`.trim();
       return nameA.localeCompare(nameB);
     });
   }, [allStudentsList, selectedClassId, selectedSectionId, studentSearch]);
 
-  const selectedStudentObj = allStudentsList.find((s: any) => s.id === form.studentId);
+  const selectedStudentObj = allStudentsList.find((s: StudentRecord) => s.id === form.studentId);
 
   const inputStyle: React.CSSProperties = {
     width: "100%", padding: "0.625rem 0.875rem",
@@ -174,16 +205,15 @@ function ActivityModal({
     try {
       if (mode === "create") {
         await apiClient.post("/activities", form);
-      } else {
+      } else if (activity?.id) {
         await apiClient.patch(`/activities/${activity.id}`, form);
       }
       onSaved();
-    } catch (err: any) {
-      setError(err?.response?.data?.message || "Failed to save activity.");
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      setError(axiosErr?.response?.data?.message || "Failed to save activity.");
     } finally { setSaving(false); }
   };
-
-  const selectedCat = getCat(form.category);
 
   return (
     <div
@@ -305,7 +335,7 @@ function ActivityModal({
                     ? "No students match selection"
                     : `-- Select Student (${filteredStudents.length} available) --`}
                 </option>
-                {filteredStudents.map((s: any) => (
+                {filteredStudents.map((s: StudentRecord) => (
                   <option key={s.id} value={s.id}>
                     {s.user?.firstName} {s.user?.lastName} {s.rollNumber ? `• Roll: ${s.rollNumber}` : ""} {s.admissionNumber ? `(${s.admissionNumber})` : ""}
                   </option>

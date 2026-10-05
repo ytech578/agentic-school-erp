@@ -16,7 +16,9 @@ describe('DpdpService', () => {
 
   beforeEach(async () => {
     storage = {
-      uploadFile: jest.fn().mockResolvedValue({ url: 'https://storage.local/file.zip' }),
+      uploadFile: jest
+        .fn()
+        .mockResolvedValue({ url: 'https://storage.local/file.zip' }),
       getFileStream: jest.fn(),
     };
 

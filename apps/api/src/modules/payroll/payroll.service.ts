@@ -20,7 +20,7 @@ import PDFDocument from 'pdfkit';
 export class PayrollService {
   private readonly logger = new Logger(PayrollService.name);
 
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   // ─── 1. SALARY STRUCTURE MANAGEMENT ────────────────────────────────────────
 
@@ -395,8 +395,9 @@ export class PayrollService {
             leave.startDate < cycleStart ? cycleStart : leave.startDate;
           const end = leave.endDate > cycleEnd ? cycleEnd : leave.endDate;
           const diffDays =
-            Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) +
-            1;
+            Math.ceil(
+              (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
+            ) + 1;
           lopDays += Math.max(0, diffDays);
         }
       }
@@ -557,7 +558,9 @@ export class PayrollService {
       ...payslip,
       month: payslip.cycle?.month,
       year: payslip.cycle?.year,
-      workingDays: payslip.cycle?.workingDays || (payslip.presentDays + payslip.lossOfPayDays),
+      workingDays:
+        payslip.cycle?.workingDays ||
+        payslip.presentDays + payslip.lossOfPayDays,
       unpaidLeaveDays: payslip.lossOfPayDays,
       conveyance,
       medicalAllowance,
@@ -591,7 +594,9 @@ export class PayrollService {
       where.OR = [
         { payslipNumber: { contains: q, mode: 'insensitive' } },
         { staff: { employeeId: { contains: q, mode: 'insensitive' } } },
-        { staff: { user: { firstName: { contains: q, mode: 'insensitive' } } } },
+        {
+          staff: { user: { firstName: { contains: q, mode: 'insensitive' } } },
+        },
         { staff: { user: { lastName: { contains: q, mode: 'insensitive' } } } },
       ];
     }
@@ -698,7 +703,7 @@ export class PayrollService {
         ...p,
         month: p.cycle?.month,
         year: p.cycle?.year,
-        workingDays: p.cycle?.workingDays || (p.presentDays + p.lossOfPayDays),
+        workingDays: p.cycle?.workingDays || p.presentDays + p.lossOfPayDays,
         unpaidLeaveDays: p.lossOfPayDays,
         conveyance,
         medicalAllowance,
@@ -828,11 +833,13 @@ export class PayrollService {
       'November',
       'December',
     ];
-    const monthName = monthNames[payslip.cycle.month] || `Month ${payslip.cycle.month}`;
+    const monthName =
+      monthNames[payslip.cycle.month] || `Month ${payslip.cycle.month}`;
     const employeeName = payslip.staff.user
       ? `${payslip.staff.user.firstName} ${payslip.staff.user.lastName || ''}`.trim()
       : 'Staff Member';
-    const employeeId = payslip.staff.employeeId || payslip.staff.id.substring(0, 8);
+    const employeeId =
+      payslip.staff.employeeId || payslip.staff.id.substring(0, 8);
 
     const buffer = await new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({
@@ -870,10 +877,15 @@ export class PayrollService {
         .font('Helvetica-Bold')
         .fontSize(16)
         .fillColor('#0f172a')
-        .text((school?.name || 'AGENTIC INTERNATIONAL SCHOOL').toUpperCase(), 35, y, {
-          width: contentWidth,
-          align: 'center',
-        });
+        .text(
+          (school?.name || 'AGENTIC INTERNATIONAL SCHOOL').toUpperCase(),
+          35,
+          y,
+          {
+            width: contentWidth,
+            align: 'center',
+          },
+        );
 
       y += 20;
       const locationParts = [
@@ -897,7 +909,8 @@ export class PayrollService {
       const contactParts: string[] = [];
       if (school?.phone) contactParts.push(`Phone: ${school.phone}`);
       if (school?.email) contactParts.push(`Email: ${school.email}`);
-      if (school?.affiliationNo) contactParts.push(`Affiliation No: ${school.affiliationNo}`);
+      if (school?.affiliationNo)
+        contactParts.push(`Affiliation No: ${school.affiliationNo}`);
 
       if (contactParts.length > 0) {
         doc
@@ -913,10 +926,7 @@ export class PayrollService {
 
       // ── Title Banner ──
       y += 4;
-      doc
-        .rect(35, y, contentWidth, 22)
-        .fillColor('#1e293b')
-        .fill();
+      doc.rect(35, y, contentWidth, 22).fillColor('#1e293b').fill();
 
       doc
         .font('Helvetica-Bold')
@@ -946,12 +956,23 @@ export class PayrollService {
           { label: 'Employee Name:', value: employeeName },
         ],
         [
-          { label: 'Designation:', value: payslip.staff.designation?.name || 'Faculty' },
-          { label: 'Department:', value: payslip.staff.department?.name || 'Academics' },
+          {
+            label: 'Designation:',
+            value: payslip.staff.designation?.name || 'Faculty',
+          },
+          {
+            label: 'Department:',
+            value: payslip.staff.department?.name || 'Academics',
+          },
         ],
         [
           { label: 'Bank Name:', value: payslip.staff.bankName || 'N/A' },
-          { label: 'Bank A/C No:', value: payslip.staff.bankAccountNo ? `••••${payslip.staff.bankAccountNo.slice(-4)}` : 'N/A' },
+          {
+            label: 'Bank A/C No:',
+            value: payslip.staff.bankAccountNo
+              ? `••••${payslip.staff.bankAccountNo.slice(-4)}`
+              : 'N/A',
+          },
         ],
         [
           { label: 'PAN Number:', value: payslip.staff.panNumber || 'N/A' },
@@ -1008,26 +1029,43 @@ export class PayrollService {
         .fontSize(8.5)
         .fillColor('#0f172a')
         .text('EARNINGS', leftColX + 8, y + 5)
-        .text('AMOUNT (₹)', leftColX + tblW - 75, y + 5, { width: 65, align: 'right' });
+        .text('AMOUNT (₹)', leftColX + tblW - 75, y + 5, {
+          width: 65,
+          align: 'right',
+        });
 
       doc
         .font('Helvetica-Bold')
         .fontSize(8.5)
         .fillColor('#0f172a')
         .text('DEDUCTIONS', rightColX + 8, y + 5)
-        .text('AMOUNT (₹)', rightColX + tblW - 75, y + 5, { width: 65, align: 'right' });
+        .text('AMOUNT (₹)', rightColX + tblW - 75, y + 5, {
+          width: 65,
+          align: 'right',
+        });
 
       // Body Outlines
-      doc.rect(leftColX, y + 18, tblW, tblH - 18).strokeColor('#cbd5e1').stroke();
-      doc.rect(rightColX, y + 18, tblW, tblH - 18).strokeColor('#cbd5e1').stroke();
+      doc
+        .rect(leftColX, y + 18, tblW, tblH - 18)
+        .strokeColor('#cbd5e1')
+        .stroke();
+      doc
+        .rect(rightColX, y + 18, tblW, tblH - 18)
+        .strokeColor('#cbd5e1')
+        .stroke();
 
       const fmt = (n: number) =>
-        n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        n.toLocaleString('en-IN', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
 
       const struct = (payslip.staff as any)?.salaryStructure;
       const conv = struct?.conveyance || 0;
       const med = struct?.medicalAllowance || 0;
-      const spl = struct?.specialAllowance ?? Math.max(0, payslip.allowances - (conv + med));
+      const spl =
+        struct?.specialAllowance ??
+        Math.max(0, payslip.allowances - (conv + med));
 
       const earningsItems: [string, string][] = [
         ['Basic Salary', fmt(payslip.basicSalary)],
@@ -1036,7 +1074,11 @@ export class PayrollService {
       ];
       if (conv > 0) earningsItems.push(['Conveyance Allowance', fmt(conv)]);
       if (med > 0) earningsItems.push(['Medical Allowance', fmt(med)]);
-      if (spl > 0 || (conv === 0 && med === 0)) earningsItems.push(['Special Allowance', fmt(spl > 0 ? spl : payslip.allowances)]);
+      if (spl > 0 || (conv === 0 && med === 0))
+        earningsItems.push([
+          'Special Allowance',
+          fmt(spl > 0 ? spl : payslip.allowances),
+        ]);
 
       const deductionsItems: [string, string][] = [
         ['Provident Fund (EPF 12%)', fmt(payslip.epfDeduction)],
@@ -1045,26 +1087,45 @@ export class PayrollService {
         ['TDS / Income Tax', fmt(payslip.tdsDeduction)],
       ];
       if (payslip.otherDeductions > 0 || payslip.lossOfPayDays > 0) {
-        deductionsItems.push(['Loss of Pay (LOP)', fmt(payslip.otherDeductions)]);
+        deductionsItems.push([
+          'Loss of Pay (LOP)',
+          fmt(payslip.otherDeductions),
+        ]);
       }
 
       let rowY = y + 24;
       for (const item of earningsItems) {
-        doc.font('Helvetica').fontSize(8).fillColor('#334155').text(item[0], leftColX + 8, rowY);
-        doc.font('Helvetica').fontSize(8).fillColor('#0f172a').text(item[1], leftColX + tblW - 75, rowY, {
-          width: 65,
-          align: 'right',
-        });
+        doc
+          .font('Helvetica')
+          .fontSize(8)
+          .fillColor('#334155')
+          .text(item[0], leftColX + 8, rowY);
+        doc
+          .font('Helvetica')
+          .fontSize(8)
+          .fillColor('#0f172a')
+          .text(item[1], leftColX + tblW - 75, rowY, {
+            width: 65,
+            align: 'right',
+          });
         rowY += 18;
       }
 
       rowY = y + 24;
       for (const item of deductionsItems) {
-        doc.font('Helvetica').fontSize(8).fillColor('#334155').text(item[0], rightColX + 8, rowY);
-        doc.font('Helvetica').fontSize(8).fillColor('#0f172a').text(item[1], rightColX + tblW - 75, rowY, {
-          width: 65,
-          align: 'right',
-        });
+        doc
+          .font('Helvetica')
+          .fontSize(8)
+          .fillColor('#334155')
+          .text(item[0], rightColX + 8, rowY);
+        doc
+          .font('Helvetica')
+          .fontSize(8)
+          .fillColor('#0f172a')
+          .text(item[1], rightColX + tblW - 75, rowY, {
+            width: 65,
+            align: 'right',
+          });
         rowY += 18;
       }
 
@@ -1078,20 +1139,30 @@ export class PayrollService {
         .fontSize(8.5)
         .fillColor('#0f172a')
         .text('TOTAL GROSS EARNINGS', leftColX + 8, totalY + 6)
-        .text(`₹ ${fmt(payslip.grossSalary)}`, leftColX + tblW - 90, totalY + 6, {
-          width: 80,
-          align: 'right',
-        });
+        .text(
+          `₹ ${fmt(payslip.grossSalary)}`,
+          leftColX + tblW - 90,
+          totalY + 6,
+          {
+            width: 80,
+            align: 'right',
+          },
+        );
 
       doc
         .font('Helvetica-Bold')
         .fontSize(8.5)
         .fillColor('#0f172a')
         .text('TOTAL DEDUCTIONS', rightColX + 8, totalY + 6)
-        .text(`₹ ${fmt(payslip.totalDeductions)}`, rightColX + tblW - 90, totalY + 6, {
-          width: 80,
-          align: 'right',
-        });
+        .text(
+          `₹ ${fmt(payslip.totalDeductions)}`,
+          rightColX + tblW - 90,
+          totalY + 6,
+          {
+            width: 80,
+            align: 'right',
+          },
+        );
 
       y += tblH + 12;
 
@@ -1106,21 +1177,13 @@ export class PayrollService {
         .font('Helvetica-Bold')
         .fontSize(12)
         .fillColor('#047857')
-        .text(
-          `NET SALARY PAYABLE:  ₹ ${fmt(payslip.netSalary)}`,
-          48,
-          y + 10,
-        );
+        .text(`NET SALARY PAYABLE:  ₹ ${fmt(payslip.netSalary)}`, 48, y + 10);
 
       doc
         .font('Helvetica-Oblique')
         .fontSize(8.5)
         .fillColor('#1e293b')
-        .text(
-          `(${numberToWords(Math.round(payslip.netSalary))})`,
-          48,
-          y + 28,
-        );
+        .text(`(${numberToWords(Math.round(payslip.netSalary))})`, 48, y + 28);
 
       y += netBoxH + 12;
 
@@ -1452,7 +1515,6 @@ export class PayrollService {
   }
 }
 
-
 // ─── UTILITY HELPERS ────────────────────────────────────────────────────────
 
 function numberToWords(num: number): string {
@@ -1494,7 +1556,8 @@ function numberToWords(num: number): string {
 
   const inWords = (n: number): string => {
     if (n < 20) return a[n];
-    if (n < 100) return b[Math.floor(n / 10)] + (n % 10 !== 0 ? ' ' + a[n % 10] : '');
+    if (n < 100)
+      return b[Math.floor(n / 10)] + (n % 10 !== 0 ? ' ' + a[n % 10] : '');
     if (n < 1000)
       return (
         a[Math.floor(n / 100)] +

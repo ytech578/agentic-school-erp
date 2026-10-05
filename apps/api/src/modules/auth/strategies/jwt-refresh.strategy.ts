@@ -44,7 +44,9 @@ export class JwtRefreshStrategy extends PassportStrategy(
           return done(null, refreshSecret);
         } catch {
           try {
-            jwt.verify(rawJwtToken, refreshSecretPrev, { ignoreExpiration: true });
+            jwt.verify(rawJwtToken, refreshSecretPrev, {
+              ignoreExpiration: true,
+            });
             return done(null, refreshSecretPrev);
           } catch {
             return done(null, refreshSecret);

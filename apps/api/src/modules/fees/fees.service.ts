@@ -1180,7 +1180,9 @@ export class FeesService {
           receipt: true,
           student: {
             include: {
-              user: { select: { firstName: true, lastName: true, email: true } },
+              user: {
+                select: { firstName: true, lastName: true, email: true },
+              },
               enrollments: {
                 where: { status: 'ACTIVE' },
                 include: { section: { include: { class: true } } },
@@ -1256,7 +1258,7 @@ export class FeesService {
         const heads = [
           { name: 'Tuition Fee', ratio: 0.55 },
           { name: 'Development Fee', ratio: 0.15 },
-          { name: 'Examination Fee', ratio: 0.10 },
+          { name: 'Examination Fee', ratio: 0.1 },
           { name: 'Computer & Lab Fee', ratio: 0.08 },
           { name: 'Library Fee', ratio: 0.06 },
           { name: 'Sports & Activities', ratio: 0.06 },

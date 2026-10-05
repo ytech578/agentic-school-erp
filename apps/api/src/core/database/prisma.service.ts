@@ -15,8 +15,9 @@ export class PrismaService
 
   constructor() {
     const isProd = process.env.NODE_ENV === 'production';
-    const connectionLimit = process.env.PRISMA_CONNECTION_LIMIT || (isProd ? '20' : '5');
-    
+    const connectionLimit =
+      process.env.PRISMA_CONNECTION_LIMIT || (isProd ? '20' : '5');
+
     // Ensure the connection URL has a connection limit
     let url = process.env.DATABASE_URL || '';
     if (url && !url.includes('connection_limit')) {

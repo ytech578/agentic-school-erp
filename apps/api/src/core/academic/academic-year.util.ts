@@ -15,8 +15,16 @@ export interface ResolveAcademicYearOptions {
 export async function resolveActiveAcademicYear(
   prisma: PrismaService,
   options: ResolveAcademicYearOptions,
-): Promise<{ id: string; name: string; isLocked: boolean; [key: string]: any }> {
-  const validSchoolId = requireSchoolId(options.schoolId, 'Resolve academic year');
+): Promise<{
+  id: string;
+  name: string;
+  isLocked: boolean;
+  [key: string]: any;
+}> {
+  const validSchoolId = requireSchoolId(
+    options.schoolId,
+    'Resolve academic year',
+  );
   const { requestedId, isMutation = false } = options;
 
   if (
@@ -35,7 +43,9 @@ export async function resolveActiveAcademicYear(
     });
     if (year) {
       if (isMutation && year.isLocked) {
-        throw new BadRequestException('Academic year is locked against modifications');
+        throw new BadRequestException(
+          'Academic year is locked against modifications',
+        );
       }
       return year;
     }
@@ -48,7 +58,9 @@ export async function resolveActiveAcademicYear(
   });
   if (activeYear) {
     if (isMutation && activeYear.isLocked) {
-      throw new BadRequestException('Active academic year is locked against modifications');
+      throw new BadRequestException(
+        'Active academic year is locked against modifications',
+      );
     }
     return activeYear;
   }
@@ -69,5 +81,7 @@ export async function resolveActiveAcademicYear(
     return latestYear;
   }
 
-  throw new BadRequestException('No active academic year found for this school');
+  throw new BadRequestException(
+    'No active academic year found for this school',
+  );
 }

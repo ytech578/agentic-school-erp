@@ -278,7 +278,10 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
         },
         {
           provide: TimetableService,
-          useValue: new TimetableService(prisma as any, { resolveActiveYear: jest.fn().mockResolvedValue('ay-1') } as any),
+          useValue: new TimetableService(
+            prisma as any,
+            { resolveActiveYear: jest.fn().mockResolvedValue('ay-1') } as any,
+          ),
         },
         {
           provide: ExamsService,

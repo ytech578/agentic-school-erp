@@ -15,6 +15,8 @@ import { apiClient } from "@/lib/axios";
 import { useAuthStore } from "@/store/auth.store";
 import { getAuthorizedRedirect } from "@/lib/role-routes";
 
+type LoginFormValues = z.input<typeof LoginSchema>;
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -32,8 +34,8 @@ function LoginForm() {
     handleSubmit,
     setValue,
     formState: { errors, isSubmitting },
-  } = useForm<z.infer<typeof LoginSchema>>({
-    resolver: zodResolver(LoginSchema) as any,
+  } = useForm<LoginFormValues>({
+    resolver: zodResolver(LoginSchema),
     defaultValues: {
       email: "",
       password: "",
@@ -47,7 +49,7 @@ function LoginForm() {
       const savedEmail = localStorage.getItem("erp_remembered_email");
       if (savedEmail) {
         setValue("email", savedEmail);
-        setRememberMe(true);
+        queueMicrotask(() => setRememberMe(true));
       }
     } catch {
       // localStorage may be restricted
@@ -59,7 +61,7 @@ function LoginForm() {
     setCapsLockActive(e.getModifierState("CapsLock"));
   };
 
-  const onSubmit = async (data: z.infer<typeof LoginSchema>) => {
+  const onSubmit = async (data: LoginFormValues) => {
     try {
       setGlobalError(null);
       const response = await apiClient.post("/auth/login", data);
@@ -79,9 +81,10 @@ function LoginForm() {
       setAuth(user, accessToken, refreshToken);
       const destination = getAuthorizedRedirect(rawReturnUrl, user?.role);
       router.push(destination);
-    } catch (error: any) {
-      const rawMsg = error.response?.data?.message;
-      const status = error.response?.status;
+    } catch (error: unknown) {
+      const axiosError = error as { response?: { status?: number; data?: { message?: string } } };
+      const rawMsg = axiosError.response?.data?.message;
+      const status = axiosError.response?.status;
 
       if (status === 401 || rawMsg === "Unauthorized") {
         setGlobalError("Invalid email or password. Please verify your school credentials and try again.");

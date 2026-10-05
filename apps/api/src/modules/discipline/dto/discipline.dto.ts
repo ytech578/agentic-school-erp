@@ -134,4 +134,3 @@ export class UpdateDisciplineIncidentDto {
   @IsOptional()
   isConfidential?: boolean;
 }
-

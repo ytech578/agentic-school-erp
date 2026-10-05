@@ -20,8 +20,14 @@ describe('NotificationsService (FIX-05)', () => {
       providers: [
         NotificationsService,
         { provide: PrismaService, useValue: prisma },
-        { provide: require('@nestjs/config').ConfigService, useValue: { get: jest.fn() } },
-        { provide: require('./notifications.gateway').NotificationsGateway, useValue: { sendToUser: jest.fn() } },
+        {
+          provide: require('@nestjs/config').ConfigService,
+          useValue: { get: jest.fn() },
+        },
+        {
+          provide: require('./notifications.gateway').NotificationsGateway,
+          useValue: { sendToUser: jest.fn() },
+        },
       ],
     }).compile();
 

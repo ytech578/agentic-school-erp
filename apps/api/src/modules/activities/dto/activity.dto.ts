@@ -24,14 +24,19 @@ export class CreateActivityDto {
   @IsNotEmpty()
   studentId: string;
 
-  @ApiProperty({ description: 'Title of the activity or achievement', maxLength: 255 })
+  @ApiProperty({
+    description: 'Title of the activity or achievement',
+    maxLength: 255,
+  })
   @IsString()
   @IsNotEmpty()
   @MinLength(2)
   @MaxLength(255)
   title: string;
 
-  @ApiProperty({ description: 'Event name or type (e.g. Science Olympiad, PTM)' })
+  @ApiProperty({
+    description: 'Event name or type (e.g. Science Olympiad, PTM)',
+  })
   @IsString()
   @IsNotEmpty()
   @MaxLength(255)

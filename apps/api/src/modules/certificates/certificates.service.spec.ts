@@ -97,8 +97,8 @@ describe('CertificatesService', () => {
       });
 
       prisma.issuedCertificate.count.mockResolvedValue(4);
-      prisma.issuedCertificate.create.mockImplementation(({ data }: { data: any }) =>
-        Promise.resolve({ id: 'cert-1', ...data }),
+      prisma.issuedCertificate.create.mockImplementation(
+        ({ data }: { data: any }) => Promise.resolve({ id: 'cert-1', ...data }),
       );
 
       const res = await service.issueCertificate(mockSchoolId, 'admin-user', {

@@ -93,8 +93,9 @@ describe('DisciplineService', () => {
         guardians: [],
       });
       prisma.disciplineIncident.count.mockResolvedValue(0);
-      prisma.disciplineIncident.create.mockImplementation(({ data }: { data: any }) =>
-        Promise.resolve({ id: 'inc-auto-1', ...data }),
+      prisma.disciplineIncident.create.mockImplementation(
+        ({ data }: { data: any }) =>
+          Promise.resolve({ id: 'inc-auto-1', ...data }),
       );
 
       const res = await service.createIncident(mockSchoolId, 'admin-user-01', {
@@ -127,8 +128,8 @@ describe('DisciplineService', () => {
         guardians: [{ userId: 'parent-uid-1' }],
       });
       prisma.disciplineIncident.count.mockResolvedValue(0);
-      prisma.disciplineIncident.create.mockImplementation(({ data }: { data: any }) =>
-        Promise.resolve({ id: 'inc-1', ...data }),
+      prisma.disciplineIncident.create.mockImplementation(
+        ({ data }: { data: any }) => Promise.resolve({ id: 'inc-1', ...data }),
       );
 
       const res = await service.createIncident(mockSchoolId, mockStaffUserId, {
@@ -164,10 +165,12 @@ describe('DisciplineService', () => {
       });
       prisma.disciplineIncident.count.mockResolvedValue(2);
       let createdPayload: any = null;
-      prisma.disciplineIncident.create.mockImplementation(({ data }: { data: any }) => {
-        createdPayload = data;
-        return Promise.resolve({ id: 'inc-2', ...data });
-      });
+      prisma.disciplineIncident.create.mockImplementation(
+        ({ data }: { data: any }) => {
+          createdPayload = data;
+          return Promise.resolve({ id: 'inc-2', ...data });
+        },
+      );
 
       const res = await service.createIncident(mockSchoolId, mockStaffUserId, {
         studentId: mockStudentId,
@@ -273,8 +276,8 @@ describe('DisciplineService', () => {
         schoolId: mockSchoolId,
         actionTaken: null,
       });
-      prisma.disciplineIncident.update.mockImplementation(({ data }: { data: any }) =>
-        Promise.resolve({ id: 'inc-2', ...data }),
+      prisma.disciplineIncident.update.mockImplementation(
+        ({ data }: { data: any }) => Promise.resolve({ id: 'inc-2', ...data }),
       );
 
       const res = await service.updateIncidentStatus(mockSchoolId, 'inc-2', {

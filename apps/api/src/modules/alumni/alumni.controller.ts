@@ -159,8 +159,8 @@ export class AlumniController {
     @Body() dto: AlumniSelfRegisterDto,
     @Query('schoolId') querySchoolId?: string,
   ) {
-    const schoolId = req?.user?.schoolId || querySchoolId || (dto as any).schoolId;
+    const schoolId =
+      req?.user?.schoolId || querySchoolId || (dto as any).schoolId;
     return this.alumniService.selfRegisterAlumni(schoolId, dto);
   }
 }
-

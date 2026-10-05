@@ -16,12 +16,14 @@ import { JwtService } from '@nestjs/jwt';
   },
   namespace: '/notifications',
 })
-export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class NotificationsGateway
+  implements OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer()
   server: Server;
-  
+
   private readonly logger = new Logger(NotificationsGateway.name);
-  
+
   // Mapping userId to socket ID
   private userSockets: Map<string, string[]> = new Map();
 
@@ -33,22 +35,27 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
   async handleConnection(client: Socket) {
     try {
       // Expect token in handshake auth or headers
-      const token = client.handshake.auth.token || client.handshake.headers.authorization?.split(' ')[1];
+      const token =
+        client.handshake.auth.token ||
+        client.handshake.headers.authorization?.split(' ')[1];
       if (!token) {
         client.disconnect();
         return;
       }
-      
-      const secret = this.configService.get<string>('jwt.secret', process.env.JWT_SECRET || 'secret');
+
+      const secret = this.configService.get<string>(
+        'jwt.secret',
+        process.env.JWT_SECRET || 'secret',
+      );
       const decoded = this.jwtService.verify(token, { secret });
-      
+
       const userId = decoded.sub;
       client.data.userId = userId;
-      
+
       const sockets = this.userSockets.get(userId) || [];
       sockets.push(client.id);
       this.userSockets.set(userId, sockets);
-      
+
       this.logger.debug(`Client connected: ${client.id} (User: ${userId})`);
     } catch (e) {
       client.disconnect();
@@ -59,7 +66,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
     const userId = client.data.userId;
     if (userId) {
       const sockets = this.userSockets.get(userId) || [];
-      const updatedSockets = sockets.filter(id => id !== client.id);
+      const updatedSockets = sockets.filter((id) => id !== client.id);
       if (updatedSockets.length === 0) {
         this.userSockets.delete(userId);
       } else {
@@ -73,7 +80,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
   sendToUser(userId: string, payload: any) {
     const sockets = this.userSockets.get(userId);
     if (sockets && sockets.length > 0) {
-      sockets.forEach(socketId => {
+      sockets.forEach((socketId) => {
         this.server.to(socketId).emit('notification', payload);
       });
     }

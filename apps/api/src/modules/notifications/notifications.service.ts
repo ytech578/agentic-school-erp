@@ -1,4 +1,10 @@
-import { Injectable, Logger, MessageEvent, Optional, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  MessageEvent,
+  Optional,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { Observable, Subject } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -30,12 +36,23 @@ export class NotificationsService implements OnModuleDestroy {
     @Optional() private emailService?: EmailService,
     @Optional() private fcmService?: FcmService,
   ) {
-    const isTest = process.env.NODE_ENV === 'test' || this.config?.get<string>('NODE_ENV') === 'test';
+    const isTest =
+      process.env.NODE_ENV === 'test' ||
+      this.config?.get<string>('NODE_ENV') === 'test';
     if (!isTest) {
-      const redisUrl = this.config?.get<string>('redis.url') || process.env.REDIS_URL || 'redis://localhost:6379';
+      const redisUrl =
+        this.config?.get<string>('redis.url') ||
+        process.env.REDIS_URL ||
+        'redis://localhost:6379';
       try {
-        this.redisPub = new Redis(redisUrl, { maxRetriesPerRequest: 1, enableOfflineQueue: false });
-        this.redisSub = new Redis(redisUrl, { maxRetriesPerRequest: 1, enableOfflineQueue: false });
+        this.redisPub = new Redis(redisUrl, {
+          maxRetriesPerRequest: 1,
+          enableOfflineQueue: false,
+        });
+        this.redisSub = new Redis(redisUrl, {
+          maxRetriesPerRequest: 1,
+          enableOfflineQueue: false,
+        });
 
         this.redisPub.on('error', (err) => {
           this.logger.warn(`Redis pub client error: ${err.message}`);
@@ -60,7 +77,9 @@ export class NotificationsService implements OnModuleDestroy {
           }
         });
       } catch (e) {
-        this.logger.warn('Redis Pub/Sub not available, falling back to local events');
+        this.logger.warn(
+          'Redis Pub/Sub not available, falling back to local events',
+        );
       }
     }
   }
@@ -80,15 +99,17 @@ export class NotificationsService implements OnModuleDestroy {
 
   emitEvent(userId: string, schoolId: string, notification: any) {
     const payload = { userId, schoolId, notification };
-    
+
     // Fallback: Send over WebSockets via Gateway
     this.gateway.sendToUser(userId, notification);
 
     if (this.redisPub && this.redisPub.status === 'ready') {
-      this.redisPub.publish('erp_notifications_channel', JSON.stringify(payload)).catch(e => {
-        this.logger.warn('Failed to publish to Redis', e);
-        this.events$.next(payload); // Fallback
-      });
+      this.redisPub
+        .publish('erp_notifications_channel', JSON.stringify(payload))
+        .catch((e) => {
+          this.logger.warn('Failed to publish to Redis', e);
+          this.events$.next(payload); // Fallback
+        });
     } else {
       this.events$.next(payload);
     }

@@ -8,7 +8,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => {
         // Parse the redis URL (e.g. redis://localhost:6379)
-        const redisUrl = configService.get<string>('redis.url', 'redis://localhost:6379');
+        const redisUrl = configService.get<string>(
+          'redis.url',
+          'redis://localhost:6379',
+        );
         const url = new URL(redisUrl);
         return {
           connection: {

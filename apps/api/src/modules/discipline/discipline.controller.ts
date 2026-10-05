@@ -93,11 +93,7 @@ export class DisciplineController {
     @Param('id') id: string,
     @Body() dto: UpdateDisciplineIncidentDto,
   ) {
-    return this.disciplineService.updateIncident(
-      req.user.schoolId,
-      id,
-      dto,
-    );
+    return this.disciplineService.updateIncident(req.user.schoolId, id, dto);
   }
 
   @Post('incidents/:id/notify-parent')

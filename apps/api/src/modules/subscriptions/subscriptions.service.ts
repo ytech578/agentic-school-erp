@@ -107,7 +107,9 @@ export class SubscriptionsService {
   async getSubscription(schoolId?: string | null) {
     let validSchoolId = schoolId;
     if (!validSchoolId) {
-      const primarySchool = await this.prisma.school.findFirst({ select: { id: true } });
+      const primarySchool = await this.prisma.school.findFirst({
+        select: { id: true },
+      });
       if (!primarySchool) {
         throw new NotFoundException('No schools configured in fleet.');
       }
@@ -326,16 +328,23 @@ export class SubscriptionsService {
    */
   @Cron(CronExpression.EVERY_1ST_DAY_OF_MONTH_AT_MIDNIGHT)
   async resetMonthlyAiTokens() {
-    this.logger.log('Executing monthly reset of AI token usage counters across all schools...');
+    this.logger.log(
+      'Executing monthly reset of AI token usage counters across all schools...',
+    );
     try {
       const result = await this.prisma.schoolSubscription.updateMany({
         data: {
           currentAiTokensUsed: 0,
         },
       });
-      this.logger.log(`Successfully reset AI token counters for ${result.count} subscriptions.`);
+      this.logger.log(
+        `Successfully reset AI token counters for ${result.count} subscriptions.`,
+      );
     } catch (err: any) {
-      this.logger.error(`Failed to reset monthly AI tokens: ${err.message}`, err.stack);
+      this.logger.error(
+        `Failed to reset monthly AI tokens: ${err.message}`,
+        err.stack,
+      );
     }
   }
 
@@ -360,7 +369,10 @@ export class SubscriptionsService {
         this.logger.warn(`Marked ${result.count} subscriptions as PAST_DUE.`);
       }
     } catch (err: any) {
-      this.logger.error(`Failed to check subscription expirations: ${err.message}`, err.stack);
+      this.logger.error(
+        `Failed to check subscription expirations: ${err.message}`,
+        err.stack,
+      );
     }
   }
 }

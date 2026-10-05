@@ -32,7 +32,7 @@ export default function ForgotPasswordPage() {
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<ForgotPasswordDto>({
-    resolver: zodResolver(ForgotPasswordSchema) as any,
+    resolver: zodResolver(ForgotPasswordSchema),
     defaultValues: { email: "" },
   });
 
@@ -46,8 +46,9 @@ export default function ForgotPasswordPage() {
         setDevData(response.data.data);
       }
       setIsSuccess(true);
-    } catch (error: any) {
-      const msg = error.response?.data?.message;
+    } catch (error: unknown) {
+      const axiosError = error as { response?: { data?: { message?: string } } };
+      const msg = axiosError.response?.data?.message;
       if (msg) {
         setGlobalError(msg);
       } else {

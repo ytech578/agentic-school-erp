@@ -59,18 +59,18 @@ export async function generateNextSequence(
         for (const s of students) {
           const adm = s.admissionNumber || '';
           const mCompact = adm.match(/^ADM26(\d+)$/i);
-          if (mCompact) {
-            const n = parseInt(mCompact[1], 10);
-            if (n > maxNum) {
+          if (mCompact && mCompact[1]) {
+            const n = parseInt(String(mCompact[1]), 10);
+            if (!isNaN(n) && n > maxNum) {
               maxNum = n;
               useCompactAdmPattern = true;
             }
             continue;
           }
           const mDash = adm.match(/^ADM-(?:\d{4})-(\d+)$/i);
-          if (mDash) {
-            const n = parseInt(mDash[1], 10);
-            if (n > maxNum && !useCompactAdmPattern) {
+          if (mDash && mDash[1]) {
+            const n = parseInt(String(mDash[1]), 10);
+            if (!isNaN(n) && n > maxNum && !useCompactAdmPattern) {
               maxNum = n;
             }
           }
@@ -142,7 +142,9 @@ export async function generateNextSequence(
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       if (typeof prisma.$transaction === 'function') {
-        return await prisma.$transaction(async (tx: any) => executeOperation(tx));
+        return await prisma.$transaction(async (tx: any) =>
+          executeOperation(tx),
+        );
       } else {
         // prisma is already an active interactive transaction
         return await executeOperation(prisma);

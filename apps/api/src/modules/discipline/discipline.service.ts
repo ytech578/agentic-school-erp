@@ -40,7 +40,12 @@ export class DisciplineService {
         where: { id: reportingUserId },
       });
 
-      const authorizedRoles = ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER'];
+      const authorizedRoles = [
+        'SUPER_ADMIN',
+        'SCHOOL_ADMIN',
+        'PRINCIPAL',
+        'TEACHER',
+      ];
       if (user && authorizedRoles.includes(user.role)) {
         // Check if staff profile already exists for this user in any school
         staff = await this.prisma.staff.findUnique({
@@ -483,16 +488,22 @@ export class DisciplineService {
       data: {
         title: dto.title !== undefined ? dto.title : incident.title,
         description:
-          dto.description !== undefined ? dto.description : incident.description,
+          dto.description !== undefined
+            ? dto.description
+            : incident.description,
         category: dto.category !== undefined ? dto.category : incident.category,
         severity:
-          dto.severity !== undefined ? (dto.severity as any) : incident.severity,
+          dto.severity !== undefined
+            ? (dto.severity as any)
+            : incident.severity,
         incidentDate: dto.incidentDate
           ? new Date(dto.incidentDate)
           : incident.incidentDate,
         location: dto.location !== undefined ? dto.location : incident.location,
         actionTaken:
-          dto.actionTaken !== undefined ? dto.actionTaken : incident.actionTaken,
+          dto.actionTaken !== undefined
+            ? dto.actionTaken
+            : incident.actionTaken,
         actionExpiryDate: dto.actionExpiryDate
           ? new Date(dto.actionExpiryDate)
           : incident.actionExpiryDate,
@@ -553,4 +564,3 @@ export class DisciplineService {
     }
   }
 }
-

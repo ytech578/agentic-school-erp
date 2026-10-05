@@ -30,7 +30,11 @@ export class StaffController {
     const headerSchoolId = req.headers?.['x-school-id'];
     const querySchoolId = req.query?.schoolId;
     const targetSchoolId = headerSchoolId || querySchoolId;
-    if (targetSchoolId && typeof targetSchoolId === 'string' && targetSchoolId.trim()) {
+    if (
+      targetSchoolId &&
+      typeof targetSchoolId === 'string' &&
+      targetSchoolId.trim()
+    ) {
       return targetSchoolId.trim();
     }
     const defaultSchool = await this.service.getDefaultSchoolId();

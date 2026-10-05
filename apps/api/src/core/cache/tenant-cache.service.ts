@@ -1,6 +1,9 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { RedisService } from './redis.service';
 import { PrismaService } from '../database/prisma.service';
+import { Department, Designation, Class, Section } from '@prisma/client';
+
+export type ClassWithSections = Class & { sections: Section[] };
 
 @Injectable()
 export class TenantCacheService {
@@ -86,10 +89,10 @@ export class TenantCacheService {
 
   // ─── Reference Data Caching ──────────────────────────────────────────────────
 
-  async getDepartments(schoolId: string) {
+  async getDepartments(schoolId: string): Promise<Department[]> {
     const cacheKey = `school:${schoolId}:departments`;
     const cached = await this.redis.get(cacheKey);
-    if (cached) return JSON.parse(cached);
+    if (cached) return JSON.parse(cached) as Department[];
 
     const depts = await this.prisma.department.findMany({
       where: { schoolId },
@@ -104,10 +107,10 @@ export class TenantCacheService {
     await this.redis.del(`school:${schoolId}:departments`);
   }
 
-  async getDesignations(schoolId: string) {
+  async getDesignations(schoolId: string): Promise<Designation[]> {
     const cacheKey = `school:${schoolId}:designations`;
     const cached = await this.redis.get(cacheKey);
-    if (cached) return JSON.parse(cached);
+    if (cached) return JSON.parse(cached) as Designation[];
 
     const designations = await this.prisma.designation.findMany({
       where: { schoolId, isActive: true },
@@ -122,10 +125,10 @@ export class TenantCacheService {
     await this.redis.del(`school:${schoolId}:designations`);
   }
 
-  async getClassesAndSections(schoolId: string) {
+  async getClassesAndSections(schoolId: string): Promise<ClassWithSections[]> {
     const cacheKey = `school:${schoolId}:classes_sections`;
     const cached = await this.redis.get(cacheKey);
-    if (cached) return JSON.parse(cached);
+    if (cached) return JSON.parse(cached) as ClassWithSections[];
 
     const classes = await this.prisma.class.findMany({
       where: { schoolId },

@@ -480,7 +480,9 @@ export class AlumniService {
 
     const verificationHash = crypto
       .createHash('sha256')
-      .update(`${validSchoolId}:${request.studentId}:${requestNo}:${Date.now()}`)
+      .update(
+        `${validSchoolId}:${request.studentId}:${requestNo}:${Date.now()}`,
+      )
       .digest('hex');
 
     const buffer: Buffer = await new Promise((resolve, reject) => {
@@ -559,15 +561,26 @@ export class AlumniService {
       const details = [
         ['Student Name:', studentName],
         ['Admission / Reg No:', admNo],
-        ['Purpose of Transcript:', request.purpose || 'Official Verification / Higher Studies'],
+        [
+          'Purpose of Transcript:',
+          request.purpose || 'Official Verification / Higher Studies',
+        ],
         ['Delivery Mode:', request.deliveryMode || 'DIGITAL'],
         ['Status:', request.status || 'COMPLETED'],
       ];
 
       let curY = doc.y;
       for (const [lbl, val] of details) {
-        doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#1e293b').text(lbl, 50, curY);
-        doc.font('Helvetica').fontSize(9.5).fillColor('#334155').text(val, 200, curY);
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(9.5)
+          .fillColor('#1e293b')
+          .text(lbl, 50, curY);
+        doc
+          .font('Helvetica')
+          .fontSize(9.5)
+          .fillColor('#334155')
+          .text(val, 200, curY);
         curY += 18;
       }
 
@@ -607,38 +620,58 @@ export class AlumniService {
         }
       } else {
         doc.font('Helvetica').fontSize(8.5).fillColor('#64748b');
-        doc.text('Completed All Prescribed Academic Requirements & Examinations', 60, rowY);
+        doc.text(
+          'Completed All Prescribed Academic Requirements & Examinations',
+          60,
+          rowY,
+        );
         rowY += 18;
       }
 
       // Certification Text
       doc.y = rowY + 30;
-      doc.font('Helvetica').fontSize(9.5).fillColor('#1e293b').text(
-        'This is to officially certify that the student mentioned above has completed all required coursework, standard examinations, and institutional requirements in good standing. This document represents a certified true copy of the official academic archive.',
-        50,
-        doc.y,
-        { width: pageWidth - 100, align: 'justify' },
-      );
+      doc
+        .font('Helvetica')
+        .fontSize(9.5)
+        .fillColor('#1e293b')
+        .text(
+          'This is to officially certify that the student mentioned above has completed all required coursework, standard examinations, and institutional requirements in good standing. This document represents a certified true copy of the official academic archive.',
+          50,
+          doc.y,
+          { width: pageWidth - 100, align: 'justify' },
+        );
 
       // Signatures
       const sigY = pageHeight - 140;
       doc.font('Helvetica-Bold').fontSize(9).fillColor('#1e293b');
       doc.text('Prepared By', 60, sigY);
-      doc.text('Controller of Examinations', pageWidth / 2 - 60, sigY, { align: 'center' });
-      doc.text('Principal / Head of Institution', pageWidth - 200, sigY, { align: 'right' });
+      doc.text('Controller of Examinations', pageWidth / 2 - 60, sigY, {
+        align: 'center',
+      });
+      doc.text('Principal / Head of Institution', pageWidth - 200, sigY, {
+        align: 'right',
+      });
 
       doc.font('Helvetica').fontSize(8).fillColor('#64748b');
       doc.text('(Registry & Records)', 60, sigY + 12);
-      doc.text('(Official Seal)', pageWidth / 2 - 60, sigY + 12, { align: 'center' });
-      doc.text('(Authorized Signatory)', pageWidth - 200, sigY + 12, { align: 'right' });
+      doc.text('(Official Seal)', pageWidth / 2 - 60, sigY + 12, {
+        align: 'center',
+      });
+      doc.text('(Authorized Signatory)', pageWidth - 200, sigY + 12, {
+        align: 'right',
+      });
 
       // Hash Footer
-      doc.font('Helvetica').fontSize(7).fillColor('#94a3b8').text(
-        `Digital Verification Hash: ${verificationHash} | System-certified by Agentic ERP`,
-        50,
-        pageHeight - 45,
-        { width: pageWidth - 100, align: 'center' },
-      );
+      doc
+        .font('Helvetica')
+        .fontSize(7)
+        .fillColor('#94a3b8')
+        .text(
+          `Digital Verification Hash: ${verificationHash} | System-certified by Agentic ERP`,
+          50,
+          pageHeight - 45,
+          { width: pageWidth - 100, align: 'center' },
+        );
 
       doc.end();
     });
@@ -700,4 +733,3 @@ export class AlumniService {
     });
   }
 }
-

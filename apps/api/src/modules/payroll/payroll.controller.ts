@@ -105,7 +105,9 @@ export class PayrollController {
 
   @Get('payslips')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  @ApiOperation({ summary: 'List all payslips across the school with filtering' })
+  @ApiOperation({
+    summary: 'List all payslips across the school with filtering',
+  })
   listAllPayslips(
     @Request() req: any,
     @Query('month') month?: string,
@@ -162,10 +164,7 @@ export class PayrollController {
     );
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${fileName}"`,
-    );
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.setHeader('Content-Length', buffer.length);
     return res.end(buffer);
   }
@@ -209,8 +208,8 @@ export class PayrollController {
     return this.payrollService.generateForm16Summary(
       req.user.schoolId,
       staffId,
-      financialYear || `${new Date().getFullYear() - 1}-${new Date().getFullYear()}`,
+      financialYear ||
+        `${new Date().getFullYear() - 1}-${new Date().getFullYear()}`,
     );
   }
 }
-

@@ -10,11 +10,8 @@ import {
   Sparkles, 
   Loader2, 
   X, 
-  MessageSquare,
   FileText,
-  Award,
-  Search,
-  FolderOpen
+  Award
 } from "lucide-react";
 import AdmissionsHelpdeskWidget from "@/components/admissions/AdmissionsHelpdeskWidget";
 import { AdmissionDocumentVaultModal } from "@/components/admissions/AdmissionDocumentVaultModal";
@@ -78,7 +75,7 @@ export default function AdmissionsPage() {
     try {
       const res = await apiClient.get("/admissions/enquiries");
       setEnquiries(res.data.data || res.data || []);
-    } catch (e) {} finally { setIsLoading(false); }
+    } catch { } finally { setIsLoading(false); }
   };
 
   const fetchApplications = async () => {
@@ -86,7 +83,7 @@ export default function AdmissionsPage() {
     try {
       const res = await apiClient.get("/admissions/applications");
       setApplications(res.data.data || res.data || []);
-    } catch (e) {} finally { setIsLoading(false); }
+    } catch { } finally { setIsLoading(false); }
   };
 
   const runAgenticWorkflow = async (appId: string, appName: string) => {
@@ -110,7 +107,7 @@ export default function AdmissionsPage() {
       setShowEnquiryForm(false);
       setEnquiryForm({ studentName: "", classApplied: "", parentName: "", phone: "", source: "WALK_IN" });
       fetchEnquiries();
-    } catch (e) {} finally { setIsSubmitting(false); }
+    } catch { } finally { setIsSubmitting(false); }
   };
 
   const submitApplication = async () => {
@@ -120,7 +117,7 @@ export default function AdmissionsPage() {
       setShowAppForm(false);
       setAppForm({ studentName: "", dateOfBirth: "", gender: "MALE", classApplied: "", parentName: "", parentPhone: "" });
       fetchApplications();
-    } catch (e) {} finally { setIsSubmitting(false); }
+    } catch { } finally { setIsSubmitting(false); }
   };
 
   const updateAppStatus = async (id: string, status: string) => {
