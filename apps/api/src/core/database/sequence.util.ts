@@ -1,6 +1,16 @@
 import { Logger } from '@nestjs/common';
+import { PrismaClient, Prisma } from '@prisma/client';
 
 const logger = new Logger('SequenceUtil');
+
+export type SequencePrismaClient =
+  | PrismaClient
+  | Prisma.TransactionClient
+  | {
+      $transaction: (
+        fn: (tx: Prisma.TransactionClient) => Promise<unknown>,
+      ) => Promise<unknown>;
+    };
 
 /**
  * Atomically generates the next strictly sequential, collision-free identifier
@@ -10,7 +20,7 @@ const logger = new Logger('SequenceUtil');
  * concurrency race conditions under burst admission traffic.
  */
 export async function generateNextSequence(
-  prisma: any,
+  prisma: SequencePrismaClient,
   schoolId: string,
   prefix: 'APP' | 'ADM' | 'STU' | 'RCT',
   year: number = new Date().getFullYear(),
@@ -19,7 +29,7 @@ export async function generateNextSequence(
   const key = `seq_${prefix.toLowerCase()}_${year}`;
   const maxRetries = 5;
 
-  const executeOperation = async (tx: any) => {
+  const executeOperation = async (tx: Prisma.TransactionClient) => {
     const config = await tx.systemConfig.findUnique({
       where: {
         schoolId_key: { schoolId, key },
@@ -141,17 +151,18 @@ export async function generateNextSequence(
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      if (typeof prisma.$transaction === 'function') {
-        return await prisma.$transaction(async (tx: any) =>
+      if (typeof (prisma as PrismaClient).$transaction === 'function') {
+        return await (prisma as PrismaClient).$transaction(async (tx: Prisma.TransactionClient) =>
           executeOperation(tx),
         );
       } else {
         // prisma is already an active interactive transaction
-        return await executeOperation(prisma);
+        return await executeOperation(prisma as Prisma.TransactionClient);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
       logger.warn(
-        `Sequence generation retry ${attempt + 1}/${maxRetries}: ${err.message}`,
+        `Sequence generation retry ${attempt + 1}/${maxRetries}: ${message}`,
       );
       if (attempt === maxRetries - 1) {
         // Fallback to high-entropy unique identifier if transaction persistently rolled back

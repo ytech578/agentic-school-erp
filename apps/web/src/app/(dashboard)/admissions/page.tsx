@@ -21,11 +21,55 @@ import { RejectApplicationModal } from "@/components/admissions/RejectApplicatio
 
 type Tab = "dashboard" | "enquiries" | "applications" | "concierge";
 
+interface AdmissionApplication {
+  id: string;
+  applicationNo: string;
+  studentName: string;
+  parentName?: string;
+  parentPhone?: string;
+  classApplied: string;
+  status: string;
+  score?: number;
+  aiRiskScore?: number;
+  flaggedReasons?: string[];
+  convertedStudentId?: string | null;
+  interviewNotes?: string | null;
+  createdAt: string | Date;
+}
+
+interface AdmissionEnquiry {
+  id: string;
+  studentName: string;
+  parentName: string;
+  phone: string;
+  email?: string;
+  classApplied: string;
+  status: string;
+  leadScore?: number | null;
+  nextAction?: string | null;
+  notes?: string | null;
+  createdAt: string | Date;
+}
+
+interface StatusCountItem {
+  status: string;
+  _count: number;
+}
+
+interface AdmissionAnalytics {
+  applications?: StatusCountItem[];
+  enquiries?: StatusCountItem[];
+  totalEnquiries?: number;
+  totalApplications?: number;
+  conversionRate?: number;
+  recentApplications?: AdmissionApplication[];
+}
+
 export default function AdmissionsPage() {
   const [tab, setTab] = useState<Tab>("dashboard");
-  const [analytics, setAnalytics] = useState<any>(null);
-  const [enquiries, setEnquiries] = useState<any[]>([]);
-  const [applications, setApplications] = useState<any[]>([]);
+  const [analytics, setAnalytics] = useState<AdmissionAnalytics | null>(null);
+  const [enquiries, setEnquiries] = useState<AdmissionEnquiry[]>([]);
+  const [applications, setApplications] = useState<AdmissionApplication[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const inputStyle = { padding: "0.625rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-default)" };
@@ -124,14 +168,14 @@ export default function AdmissionsPage() {
     try {
       await apiClient.patch(`/admissions/applications/${id}/status`, { status });
       fetchApplications();
-    } catch (e) {}
+    } catch { }
   };
 
   const updateEnquiryStatus = async (id: string, status: string) => {
     try {
       await apiClient.patch(`/admissions/enquiries/${id}/status`, { status });
       fetchEnquiries();
-    } catch (e) {}
+    } catch { }
   };
 
   const calculateLeadScores = async () => {
@@ -139,17 +183,7 @@ export default function AdmissionsPage() {
     try {
       await apiClient.post("/admissions/enquiries/calculate-scores");
       fetchEnquiries();
-    } catch (e) {} finally { setIsSubmitting(false); }
-  };
-
-  const convertToStudent = async (id: string) => {
-    try {
-      await apiClient.post(`/admissions/applications/${id}/convert`);
-      fetchApplications();
-      alert("Successfully converted to student!");
-    } catch (e: any) {
-      alert(e.response?.data?.message || "Error converting");
-    }
+    } catch { } finally { setIsSubmitting(false); }
   };
 
   return (
@@ -211,32 +245,32 @@ export default function AdmissionsPage() {
                 <div style={{ background: "var(--bg-surface)", padding: "1.5rem", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-default)" }}>
                   <p style={{ color: "var(--text-secondary)", fontSize: "var(--text-sm)", marginBottom: "0.5rem" }}>Total Applications</p>
                   <h2 style={{ fontSize: "var(--text-3xl)", fontWeight: "var(--font-bold)" }}>
-                    {analytics?.applications?.reduce((acc: number, curr: any) => acc + curr._count, 0) || 0}
+                    {analytics?.applications?.reduce((acc: number, curr: StatusCountItem) => acc + curr._count, 0) || 0}
                   </h2>
                 </div>
                 <div style={{ background: "var(--bg-surface)", padding: "1.5rem", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-default)" }}>
                   <p style={{ color: "var(--text-secondary)", fontSize: "var(--text-sm)", marginBottom: "0.5rem" }}>Accepted</p>
                   <h2 style={{ fontSize: "var(--text-3xl)", fontWeight: "var(--font-bold)", color: "var(--status-success)" }}>
-                    {analytics?.applications?.find((a: any) => a.status === 'ACCEPTED')?._count || 0}
+                    {analytics?.applications?.find((a: StatusCountItem) => a.status === 'ACCEPTED')?._count || 0}
                   </h2>
                 </div>
                 <div style={{ background: "var(--bg-surface)", padding: "1.5rem", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-default)" }}>
                   <p style={{ color: "var(--text-secondary)", fontSize: "var(--text-sm)", marginBottom: "0.5rem" }}>Rejected</p>
                   <h2 style={{ fontSize: "var(--text-3xl)", fontWeight: "var(--font-bold)", color: "var(--status-danger)" }}>
-                    {analytics?.applications?.find((a: any) => a.status === 'REJECTED')?._count || 0}
+                    {analytics?.applications?.find((a: StatusCountItem) => a.status === 'REJECTED')?._count || 0}
                   </h2>
                 </div>
                 <div style={{ background: "var(--bg-surface)", padding: "1.5rem", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-default)" }}>
                   <p style={{ color: "var(--text-secondary)", fontSize: "var(--text-sm)", marginBottom: "0.5rem" }}>Total Enquiries</p>
                   <h2 style={{ fontSize: "var(--text-3xl)", fontWeight: "var(--font-bold)", color: "var(--brand-primary)" }}>
-                    {analytics?.enquiries?.reduce((acc: number, curr: any) => acc + curr._count, 0) || 0}
+                    {analytics?.enquiries?.reduce((acc: number, curr: StatusCountItem) => acc + curr._count, 0) || 0}
                   </h2>
                 </div>
               </div>
 
               <div style={{ background: "var(--bg-surface)", borderRadius: "var(--radius-lg)", border: "1px solid var(--border-default)", padding: "1.5rem" }}>
                 <h3 style={{ fontSize: "var(--text-lg)", fontWeight: "var(--font-semibold)", marginBottom: "1rem" }}>Recent Applications</h3>
-                {analytics?.recentApplications?.length > 0 ? (
+                {(analytics?.recentApplications?.length ?? 0) > 0 ? (
                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ borderBottom: "1px solid var(--border-default)", textAlign: "left", color: "var(--text-secondary)", fontSize: "var(--text-sm)" }}>
@@ -247,7 +281,7 @@ export default function AdmissionsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {analytics.recentApplications.map((app: any) => (
+                      {analytics?.recentApplications?.map((app: AdmissionApplication) => (
                         <tr key={app.id} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
                           <td style={{ padding: "1rem 0", fontWeight: "var(--font-medium)" }}>{app.applicationNo}</td>
                           <td style={{ padding: "1rem 0" }}>{app.studentName}</td>
@@ -333,7 +367,7 @@ export default function AdmissionsPage() {
                           <h5 style={{ fontSize: "var(--text-base)", fontWeight: "var(--font-semibold)" }}>{e.studentName}</h5>
                           <span style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>Class: {e.classApplied}</span>
                         </div>
-                        {e.leadScore !== null && (
+                        {typeof e.leadScore === "number" && (
                           <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", padding: "0.25rem 0.5rem", borderRadius: "var(--radius-full)", background: e.leadScore >= 80 ? "rgba(16, 185, 129, 0.1)" : e.leadScore >= 50 ? "rgba(245, 158, 11, 0.1)" : "rgba(239, 68, 68, 0.1)", color: e.leadScore >= 80 ? "var(--status-success)" : e.leadScore >= 50 ? "var(--status-warning)" : "var(--status-danger)", fontWeight: "var(--font-bold)", fontSize: "var(--text-xs)" }}>
                             🔥 {e.leadScore}
                           </div>

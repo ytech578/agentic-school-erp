@@ -1,11 +1,11 @@
 import { generateNextSequence } from './sequence.util';
 
 describe('SequenceUtil (FIX-02)', () => {
-  let mockPrisma: any;
+  let mockPrisma: { $transaction: jest.Mock };
 
   beforeEach(() => {
     mockPrisma = {
-      $transaction: jest.fn(async (cb: any) => {
+      $transaction: jest.fn((cb: (tx: typeof mockTx) => Promise<unknown>) => {
         return cb(mockTx);
       }),
     };

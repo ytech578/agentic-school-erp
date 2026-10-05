@@ -476,6 +476,7 @@ export default function AIFullPage() {
                                 }}
                               >
                                 {att.previewUrl ? (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
                                   <img
                                     src={att.previewUrl}
                                     alt={att.name}

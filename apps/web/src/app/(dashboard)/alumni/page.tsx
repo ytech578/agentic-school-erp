@@ -10,14 +10,10 @@ import { useAuthStore } from "@/store/auth.store";
 import { 
   BookUser, 
   Plus, 
-  GraduationCap, 
-  Briefcase, 
   FileText, 
   CheckCircle2, 
   Clock, 
-  Building, 
   ExternalLink,
-  Search,
   Send,
   Download,
   Eye,
@@ -63,7 +59,6 @@ interface AlumniStats {
 }
 
 export default function AlumniManagementPage() {
-  const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<"directory" | "transcripts">("directory");
   const [profiles, setProfiles] = useState<AlumniProfile[]>([]);
   const [transcripts, setTranscripts] = useState<TranscriptRequest[]>([]);

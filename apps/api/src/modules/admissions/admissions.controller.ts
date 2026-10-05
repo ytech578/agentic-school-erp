@@ -21,6 +21,15 @@ import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
 import { AdmissionStatus, EnquiryStatus } from '@prisma/client';
 
+interface AuthenticatedRequest {
+  user: {
+    id: string;
+    schoolId: string;
+    role?: string;
+    [key: string]: unknown;
+  };
+}
+
 @ApiTags('Admissions')
 @Controller('admissions')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -31,20 +40,20 @@ export class AdmissionsController {
 
   @Post('enquiries')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  createEnquiry(@Request() req: any, @Body() data: any) {
+  createEnquiry(@Request() req: AuthenticatedRequest, @Body() data: any) {
     return this.admissionsService.createEnquiry(req.user.schoolId, data);
   }
 
   @Get('enquiries')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  findAllEnquiries(@Request() req: any) {
+  findAllEnquiries(@Request() req: AuthenticatedRequest) {
     return this.admissionsService.findAllEnquiries(req.user.schoolId);
   }
 
   @Patch('enquiries/:id/status')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   updateEnquiryStatus(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body('status') status: EnquiryStatus,
   ) {
@@ -57,7 +66,7 @@ export class AdmissionsController {
 
   @Post('enquiries/calculate-scores')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  calculateLeadScores(@Request() req: any) {
+  calculateLeadScores(@Request() req: AuthenticatedRequest) {
     return this.admissionsService.calculateLeadScores(req.user.schoolId);
   }
 
@@ -65,26 +74,26 @@ export class AdmissionsController {
 
   @Post('applications')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  createApplication(@Request() req: any, @Body() data: any) {
+  createApplication(@Request() req: AuthenticatedRequest, @Body() data: any) {
     return this.admissionsService.createApplication(req.user.schoolId, data);
   }
 
   @Get('applications')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  findAllApplications(@Request() req: any) {
+  findAllApplications(@Request() req: AuthenticatedRequest) {
     return this.admissionsService.findAllApplications(req.user.schoolId);
   }
 
   @Get('applications/:id')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  getApplicationById(@Request() req: any, @Param('id') id: string) {
+  getApplicationById(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
     return this.admissionsService.getApplicationById(req.user.schoolId, id);
   }
 
   @Patch('applications/:id/status')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   updateApplicationStatus(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body('status') status: AdmissionStatus,
   ) {
@@ -97,14 +106,14 @@ export class AdmissionsController {
 
   @Get('applications/:id/enrollment-preview')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  getEnrollmentPreview(@Request() req: any, @Param('id') id: string) {
+  getEnrollmentPreview(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
     return this.admissionsService.getEnrollmentPreview(req.user.schoolId, id);
   }
 
   @Post('applications/:id/reject')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   rejectApplication(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body('reason') reason?: string,
   ) {
@@ -118,7 +127,7 @@ export class AdmissionsController {
   @Post('applications/:id/convert')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   convertApplicationToStudent(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body()
     body?: { classId?: string; sectionId?: string; rollNumber?: string },
@@ -134,7 +143,7 @@ export class AdmissionsController {
 
   @Get('analytics')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  getAnalytics(@Request() req: any) {
+  getAnalytics(@Request() req: AuthenticatedRequest) {
     return this.admissionsService.getAnalytics(req.user.schoolId);
   }
 
@@ -158,7 +167,7 @@ export class AdmissionsController {
     },
   })
   async uploadApplicationDocument(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
     @Body('documentType') documentType: string,
@@ -175,7 +184,7 @@ export class AdmissionsController {
   @Get('applications/:id/documents')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'List documents for an admission application' })
-  async getApplicationDocuments(@Request() req: any, @Param('id') id: string) {
+  async getApplicationDocuments(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
     const schoolId = req.user.schoolId;
     return this.admissionsService.getApplicationDocuments(schoolId, id);
   }
@@ -186,7 +195,7 @@ export class AdmissionsController {
     summary: 'Download an authenticated admission application document',
   })
   async downloadApplicationDocument(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Param('docId') docId: string,
     @Res() res: Response,
@@ -218,7 +227,7 @@ export class AdmissionsController {
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Delete an admission application document' })
   async deleteApplicationDocument(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Param('docId') docId: string,
   ) {

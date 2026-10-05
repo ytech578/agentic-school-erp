@@ -7,7 +7,7 @@ import { PrismaService } from '../database/prisma.service';
 
 describe('AuditLogInterceptor (E-001)', () => {
   let interceptor: AuditLogInterceptor;
-  let mockPrisma: any;
+  let mockPrisma: { activityLog: { create: jest.Mock } };
 
   beforeEach(() => {
     mockPrisma = {
@@ -15,15 +15,15 @@ describe('AuditLogInterceptor (E-001)', () => {
         create: jest.fn().mockResolvedValue({ id: 'log-123' }),
       },
     };
-    interceptor = new AuditLogInterceptor(mockPrisma);
+    interceptor = new AuditLogInterceptor(mockPrisma as unknown as PrismaService);
   });
 
   const createMockContext = (
     method: string,
     url: string,
-    user: any = null,
-    params: any = {},
-    body: any = {},
+    user: unknown = null,
+    params: Record<string, unknown> = {},
+    body: Record<string, unknown> = {},
   ) => {
     const request = {
       method,
