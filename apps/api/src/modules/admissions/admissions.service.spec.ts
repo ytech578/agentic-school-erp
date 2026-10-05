@@ -172,7 +172,7 @@ describe('AdmissionsService', () => {
       // Verify the returned temporary password matches the generated hash
       const isMatch = await bcrypt.compare(
         result.temporaryPassword,
-        createdUserCall.data.passwordHash,
+        createdUserCall.data.passwordHash as string,
       );
       expect(isMatch).toBe(true);
 

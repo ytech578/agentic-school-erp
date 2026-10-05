@@ -152,8 +152,8 @@ export async function generateNextSequence(
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       if (typeof (prisma as PrismaClient).$transaction === 'function') {
-        return await (prisma as PrismaClient).$transaction(async (tx: Prisma.TransactionClient) =>
-          executeOperation(tx),
+        return await (prisma as PrismaClient).$transaction(
+          async (tx: Prisma.TransactionClient) => executeOperation(tx),
         );
       } else {
         // prisma is already an active interactive transaction

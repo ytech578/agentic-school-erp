@@ -15,7 +15,11 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
-import { AdmissionsService } from './admissions.service';
+import {
+  AdmissionsService,
+  CreateEnquiryDto,
+  CreateApplicationDto,
+} from './admissions.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
@@ -40,7 +44,10 @@ export class AdmissionsController {
 
   @Post('enquiries')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  createEnquiry(@Request() req: AuthenticatedRequest, @Body() data: any) {
+  createEnquiry(
+    @Request() req: AuthenticatedRequest,
+    @Body() data: CreateEnquiryDto,
+  ) {
     return this.admissionsService.createEnquiry(req.user.schoolId, data);
   }
 
@@ -74,7 +81,10 @@ export class AdmissionsController {
 
   @Post('applications')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  createApplication(@Request() req: AuthenticatedRequest, @Body() data: any) {
+  createApplication(
+    @Request() req: AuthenticatedRequest,
+    @Body() data: CreateApplicationDto,
+  ) {
     return this.admissionsService.createApplication(req.user.schoolId, data);
   }
 
@@ -86,7 +96,10 @@ export class AdmissionsController {
 
   @Get('applications/:id')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  getApplicationById(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
+  getApplicationById(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
     return this.admissionsService.getApplicationById(req.user.schoolId, id);
   }
 
@@ -106,7 +119,10 @@ export class AdmissionsController {
 
   @Get('applications/:id/enrollment-preview')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  getEnrollmentPreview(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
+  getEnrollmentPreview(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
     return this.admissionsService.getEnrollmentPreview(req.user.schoolId, id);
   }
 
@@ -184,7 +200,10 @@ export class AdmissionsController {
   @Get('applications/:id/documents')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'List documents for an admission application' })
-  async getApplicationDocuments(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
+  async getApplicationDocuments(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
     const schoolId = req.user.schoolId;
     return this.admissionsService.getApplicationDocuments(schoolId, id);
   }

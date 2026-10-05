@@ -23,7 +23,9 @@ export class PermissionsGuard implements CanActivate {
       return true;
     }
 
-    const { user } = context.switchToHttp().getRequest();
+    const { user } = context
+      .switchToHttp()
+      .getRequest<{ user?: { role?: UserRole } }>();
     if (!user) {
       throw new ForbiddenException('Authentication required');
     }
@@ -33,7 +35,9 @@ export class PermissionsGuard implements CanActivate {
       return true;
     }
 
-    const userPermissions = ROLE_PERMISSIONS[user.role as UserRole] ?? [];
+    const userPermissions = user.role
+      ? (ROLE_PERMISSIONS[user.role] ?? [])
+      : [];
     const hasAllPermissions = requiredPermissions.every((p) =>
       userPermissions.includes(p),
     );

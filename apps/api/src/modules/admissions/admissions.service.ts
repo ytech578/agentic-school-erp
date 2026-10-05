@@ -8,8 +8,45 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { AdmissionStatus, EnquiryStatus, Gender } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
-import { generateNextSequence } from '../../core/database/sequence.util';
+import { generateNextSequence, SequencePrismaClient } from '../../core/database/sequence.util';
 import { StorageService } from '../../services/storage/storage.service';
+
+export interface CreateEnquiryDto {
+  studentName: string;
+  dob?: string | number | Date | null;
+  classApplied: string;
+  parentName: string;
+  phone?: string;
+  email?: string;
+  source?: string;
+  notes?: string;
+  followUpDate?: string | number | Date | null;
+  status?: EnquiryStatus;
+  [key: string]: unknown;
+}
+
+export interface CreateApplicationDto {
+  studentName: string;
+  dateOfBirth: string | number | Date;
+  gender?: Gender;
+  religion?: string;
+  category?: string;
+  classApplied: string;
+  previousSchool?: string;
+  parentName: string;
+  parentEmail?: string;
+  parentPhone?: string;
+  address?: string;
+  [key: string]: unknown;
+}
+
+interface TargetSectionInfo {
+  id: string;
+  name?: string;
+  classId?: string;
+  class?: { id: string; name: string };
+  [key: string]: unknown;
+}
 
 @Injectable()
 export class AdmissionsService {
@@ -20,7 +57,7 @@ export class AdmissionsService {
 
   // ================= ENQUIRIES =================
 
-  async createEnquiry(schoolId: string, data: any) {
+  async createEnquiry(schoolId: string, data: CreateEnquiryDto) {
     const validSchoolId = requireSchoolId(schoolId, 'Create admission enquiry');
     const activeYear = await this.prisma.academicYear.findFirst({
       where: { schoolId: validSchoolId, isActive: true },
@@ -45,7 +82,7 @@ export class AdmissionsService {
         dob: data.dob ? new Date(data.dob) : null,
         classApplied: data.classApplied,
         parentName: data.parentName,
-        phone: data.phone,
+        phone: data.phone || '',
         email: data.email,
         source: data.source,
         notes: data.notes,
@@ -126,7 +163,7 @@ export class AdmissionsService {
 
   // ================= APPLICATIONS =================
 
-  async createApplication(schoolId: string, data: any) {
+  async createApplication(schoolId: string, data: CreateApplicationDto) {
     const validSchoolId = requireSchoolId(
       schoolId,
       'Create admission application',
@@ -157,7 +194,7 @@ export class AdmissionsService {
         previousSchool: data.previousSchool,
         parentName: data.parentName,
         parentEmail: data.parentEmail,
-        parentPhone: data.parentPhone,
+        parentPhone: data.parentPhone || '',
         address: data.address,
         status: AdmissionStatus.SUBMITTED,
       },
@@ -326,7 +363,7 @@ export class AdmissionsService {
 
     return this.prisma.$transaction(async (tx: any) => {
       // 1. Resolve Target Class and Section
-      let targetSection: any = null;
+      let targetSection: TargetSectionInfo | null = null;
 
       if (options?.sectionId) {
         targetSection = await tx.section.findFirst({
@@ -412,7 +449,7 @@ export class AdmissionsService {
           if (chosenClass.sections.length > 0) {
             targetSection = targetSectionName
               ? chosenClass.sections.find(
-                  (s: any) => s.name.toUpperCase() === targetSectionName,
+                  (s: { name: string; id?: string }) => s.name.toUpperCase() === targetSectionName,
                 ) || chosenClass.sections[0]
               : chosenClass.sections[0];
           }
@@ -433,7 +470,7 @@ export class AdmissionsService {
         let maxRoll = 0;
         for (const e of sectionEnrollments) {
           if (e.rollNumber) {
-            const parsed = parseInt(e.rollNumber, 10);
+            const parsed = parseInt(String(e.rollNumber), 10);
             if (!isNaN(parsed) && parsed > maxRoll) maxRoll = parsed;
           }
         }
@@ -456,7 +493,7 @@ export class AdmissionsService {
 
       // 3. Atomically generate continuous sequential admission number matching school pattern
       const admissionNumber = await generateNextSequence(
-        tx,
+        tx as unknown as SequencePrismaClient,
         validSchoolId,
         'ADM',
       );
@@ -478,7 +515,7 @@ export class AdmissionsService {
       });
 
       // 5. Create Active Student Enrollment
-      let enrollment: any = null;
+      let enrollment: unknown = null;
       if (targetSection && tx.studentEnrollment?.create) {
         enrollment = await tx.studentEnrollment.create({
           data: {

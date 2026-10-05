@@ -20,6 +20,11 @@ import {
   AutomationReportCardPublishHandler,
   AutomationDailyDigestHandler,
 } from './handlers';
+import type { HRService } from '../../hr/hr.service';
+import type { AssignmentsService } from '../../assignments/assignments.service';
+import type { MessagesService } from '../../messages/messages.service';
+import type { TimetableService } from '../../timetable/timetable.service';
+import type { ExamsService } from '../../exams/exams.service';
 
 describe('Change #8C — Agent Architecture & Decoupling Enforcement', () => {
   let controlPlane: AgentControlPlaneService;
@@ -171,11 +176,11 @@ describe('Change #8C — Agent Architecture & Decoupling Enforcement', () => {
 
   describe('Dispatcher & Handler Parity (Step 13 & 15)', () => {
     it('every tool marked realHandlerAvailable=true in TOOL_REGISTRY has an active registered handler', () => {
-      const mockHR = {} as any;
-      const mockAssignments = {} as any;
-      const mockMessages = {} as any;
-      const mockTimetable = {} as any;
-      const mockExams = {} as any;
+      const mockHR = {} as unknown as HRService;
+      const mockAssignments = {} as unknown as AssignmentsService;
+      const mockMessages = {} as unknown as MessagesService;
+      const mockTimetable = {} as unknown as TimetableService;
+      const mockExams = {} as unknown as ExamsService;
 
       const handlers = [
         new ApproveLeaveAgentHandler(mockHR),

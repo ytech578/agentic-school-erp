@@ -25,7 +25,12 @@ interface RequestLike {
   body?: Record<string, unknown>;
   params?: Record<string, string>;
   headers?: Record<string, string | string[] | undefined>;
-  user?: { id?: string; schoolId?: string; role?: string; [key: string]: unknown };
+  user?: {
+    id?: string;
+    schoolId?: string;
+    role?: string;
+    [key: string]: unknown;
+  };
   route?: { path?: string };
   ip?: string;
   socket?: { remoteAddress?: string };
@@ -96,7 +101,10 @@ export class AuditLogInterceptor implements NestInterceptor {
                 )
                   .toString()
                   .slice(0, 45),
-                userAgent: String(request.headers?.['user-agent'] || '').slice(0, 255),
+                userAgent: String(request.headers?.['user-agent'] || '').slice(
+                  0,
+                  255,
+                ),
                 before: beforeState
                   ? (beforeState as Prisma.InputJsonValue)
                   : Prisma.DbNull,
@@ -107,9 +115,7 @@ export class AuditLogInterceptor implements NestInterceptor {
             });
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
-            this.logger.warn(
-              `Failed to record audit activity log: ${message}`,
-            );
+            this.logger.warn(`Failed to record audit activity log: ${message}`);
           }
         },
       }),

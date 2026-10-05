@@ -30,7 +30,14 @@ const getCat = (id: string) => CATEGORIES.find(c => c.id === id) || CATEGORIES[6
 interface ActivityItem {
   id?: string;
   studentId?: string;
-  student?: { id: string; firstName?: string; lastName?: string; [key: string]: unknown };
+  student?: {
+    id: string;
+    firstName?: string;
+    lastName?: string;
+    user?: { firstName?: string; lastName?: string };
+    enrollments?: Array<{ section?: { name?: string; class?: { name?: string } } }>;
+    [key: string]: unknown;
+  };
   title?: string;
   event?: string;
   category?: string;
@@ -116,17 +123,7 @@ function ActivityModal({
     }
   }, [classes]);
 
-  useEffect(() => {
-    if (activity) {
-      const sId = activity.studentId || activity.student?.id || "";
-      const stu = allStudentsList.find((s: StudentRecord) => s.id === sId) || (activity.student as StudentRecord | undefined);
-      const enr = getEnrollment(stu);
-      if (enr) {
-        setSelectedClassId(enr.section?.classId || enr.section?.class?.id || "");
-        setSelectedSectionId(enr.sectionId || enr.section?.id || "");
-      }
-    }
-  }, [activity, allStudentsList]);
+
 
   const handleClassChange = (classId: string) => {
     setSelectedClassId(classId);
@@ -254,7 +251,7 @@ function ActivityModal({
                   onChange={e => handleClassChange(e.target.value)}
                 >
                   <option value="">Select Class...</option>
-                  {localClasses.map((c: any) => (
+                  {localClasses.map((c: ClassRecord) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
                     </option>
@@ -277,7 +274,7 @@ function ActivityModal({
                   <option value="">
                     {!selectedClassId ? "Select Class first" : "All Sections"}
                   </option>
-                  {availableSections.map((sec: any) => (
+                  {availableSections.map((sec: { id: string; name: string }) => (
                     <option key={sec.id} value={sec.id}>
                       Section {sec.name}
                     </option>
@@ -427,11 +424,11 @@ function ActivityModal({
 
 export default function ActivitiesAdminPage() {
   const [loading, setLoading] = useState(true);
-  const [activities, setActivities] = useState<any[]>([]);
-  const [students, setStudents] = useState<any[]>([]);
-  const [classes, setClasses] = useState<any[]>([]);
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [students, setStudents] = useState<StudentRecord[]>([]);
+  const [classes, setClasses] = useState<ClassRecord[]>([]);
   const [showModal, setShowModal] = useState(false);
-  const [editActivity, setEditActivity] = useState<any>(null);
+  const [editActivity, setEditActivity] = useState<ActivityItem | null>(null);
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("ALL");
 
@@ -478,6 +475,7 @@ export default function ActivitiesAdminPage() {
 
   // Stats
   const thisMonth = activities.filter(a => {
+    if (!a.date) return false;
     const d = new Date(a.date);
     const now = new Date();
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
@@ -512,7 +510,7 @@ export default function ActivitiesAdminPage() {
         <StatCard label="Total Activities" value={activities.length} icon={Award} color="var(--brand-primary)" />
         <StatCard label="This Month" value={thisMonth} icon={CalendarIcon} color="#10b981" />
         <StatCard label="Top Category" value={activities.length > 0 ? topCat.label : "—"} icon={TrendingUp} color="#f59e0b" />
-        <StatCard label="Students Recognized" value={new Set(activities.map((a: any) => a.studentId)).size} icon={Star} color="#8b5cf6" />
+        <StatCard label="Students Recognized" value={new Set(activities.map((a: ActivityItem) => a.studentId)).size} icon={Star} color="#8b5cf6" />
       </div>
 
       {/* Category Breakdown Pills */}
@@ -626,7 +624,7 @@ export default function ActivitiesAdminPage() {
                     <Pencil size={15} />
                   </button>
                   <button
-                    onClick={() => handleDelete(a.id)}
+                    onClick={() => a.id && handleDelete(a.id)}
                     title="Delete"
                     style={{ padding: "0.45rem", borderRadius: "var(--radius-sm)", border: "none", background: "transparent", cursor: "pointer", color: "var(--text-tertiary)", transition: "all 0.15s" }}
                     onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "#fef2f2"; (e.currentTarget as HTMLElement).style.color = "#dc2626"; }}

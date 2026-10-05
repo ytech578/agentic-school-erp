@@ -15,7 +15,9 @@ describe('AuditLogInterceptor (E-001)', () => {
         create: jest.fn().mockResolvedValue({ id: 'log-123' }),
       },
     };
-    interceptor = new AuditLogInterceptor(mockPrisma as unknown as PrismaService);
+    interceptor = new AuditLogInterceptor(
+      mockPrisma as unknown as PrismaService,
+    );
   });
 
   const createMockContext = (

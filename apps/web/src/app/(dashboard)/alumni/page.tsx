@@ -6,7 +6,6 @@ import { DataTable, Column } from "@/components/ui/DataTable";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
-import { useAuthStore } from "@/store/auth.store";
 import { 
   BookUser, 
   Plus, 
@@ -498,24 +497,24 @@ export default function AlumniManagementPage() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
         <div className="card" style={{ padding: "1.25rem" }}>
           <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>REGISTERED ALUMNI</span>
-          <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0" }}>{safeProfiles.length}</p>
+          <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0" }}>{stats?.totalAlumni ?? safeProfiles.length}</p>
         </div>
         <div className="card" style={{ padding: "1.25rem" }}>
           <span style={{ fontSize: "0.8rem", color: "var(--primary-600)", fontWeight: 600 }}>HIGHER EDUCATION</span>
           <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0", color: "var(--primary-700)" }}>
-            {safeProfiles.filter((p) => p.currentStatus === "HIGHER_STUDIES").length}
+            {stats?.higherEdCount ?? safeProfiles.filter((p) => p.currentStatus === "HIGHER_STUDIES").length}
           </p>
         </div>
         <div className="card" style={{ padding: "1.25rem" }}>
           <span style={{ fontSize: "0.8rem", color: "var(--success-dark)", fontWeight: 600 }}>EMPLOYED PROFESSIONALS</span>
           <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0", color: "var(--success-dark)" }}>
-            {safeProfiles.filter((p) => p.currentStatus === "EMPLOYED" || p.currentStatus === "ENTREPRENEUR").length}
+            {stats?.employedCount ?? safeProfiles.filter((p) => p.currentStatus === "EMPLOYED" || p.currentStatus === "ENTREPRENEUR").length}
           </p>
         </div>
         <div className="card" style={{ padding: "1.25rem" }}>
           <span style={{ fontSize: "0.8rem", color: "var(--warning-dark)", fontWeight: 600 }}>PENDING TRANSCRIPTS</span>
           <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0", color: "var(--warning-dark)" }}>
-            {safeTranscripts.filter((t) => t.status === "SUBMITTED" || t.status === "PROCESSING").length}
+            {stats?.pendingTranscripts ?? safeTranscripts.filter((t) => t.status === "SUBMITTED" || t.status === "PROCESSING").length}
           </p>
         </div>
       </div>

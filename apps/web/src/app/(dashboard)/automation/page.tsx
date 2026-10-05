@@ -8,10 +8,42 @@ import {
 } from "lucide-react";
 import { apiClient } from "@/lib/axios";
 
+interface AutomationItem {
+  id?: string;
+  studentName?: string;
+  outstandingAmount?: number;
+  guardianName?: string;
+  status?: string;
+  draftMessage?: string;
+  absenceDays?: number;
+  absentStaff?: string;
+  affectedPeriods?: number;
+  suggestedSubstitute?: string;
+  attendancePercent?: number;
+  staffName?: string;
+  recommendation?: string;
+  leaveType?: string;
+  totalDays?: number;
+  timetableConflicts?: number;
+  reasoning?: string;
+  examName?: string;
+  isComplete?: boolean;
+  marksEntered?: number;
+  totalSubjects?: number;
+  stats?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 interface AutomationTask {
   taskType: string;
   count: number;
-  items: any[];
+  items: AutomationItem[];
+}
+
+interface ExecutionResult {
+  actionsCount?: number;
+  taskType?: string;
+  [key: string]: unknown;
 }
 
 const AUTOMATIONS = [
@@ -87,14 +119,14 @@ const AUTOMATIONS = [
   },
 ];
 
-const ICONS: Record<string, any> = { DollarSign, Users, Calendar, AlertTriangle, ClipboardList, GraduationCap, FileText };
+const ICONS: Record<string, React.ComponentType<{ size?: number; color?: string }>> = { DollarSign, Users, Calendar, AlertTriangle, ClipboardList, GraduationCap, FileText };
 
 export default function AutomationHubPage() {
   const [activeTab, setActiveTab] = useState(0);
   const [previews, setPreviews] = useState<Record<string, AutomationTask | null>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [executing, setExecuting] = useState<Record<string, boolean>>({});
-  const [results, setResults] = useState<Record<string, any>>({});
+  const [results, setResults] = useState<Record<string, ExecutionResult | null>>({});
   const [error, setError] = useState<Record<string, string>>({});
   const [confirmOpen, setConfirmOpen] = useState<string | null>(null);
 
@@ -113,8 +145,9 @@ export default function AutomationHubPage() {
       const res = await apiClient.get(`/ai/automation/preview/${key}`);
       const data = res.data.data || res.data;
       setPreviews(p => ({ ...p, [key]: data }));
-    } catch (err: any) {
-      setError(e => ({ ...e, [key]: err?.response?.data?.message || "Failed to run scan." }));
+    } catch (err: unknown) {
+      const errorMsg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed to run scan.";
+      setError(e => ({ ...e, [key]: errorMsg }));
     } finally {
       setLoading(l => ({ ...l, [key]: false }));
     }
@@ -133,8 +166,9 @@ export default function AutomationHubPage() {
       const data = res.data.data || res.data;
       setResults(r => ({ ...r, [key]: data }));
       setPreviews(p => ({ ...p, [key]: null }));
-    } catch (err: any) {
-      setError(e => ({ ...e, [key]: err?.response?.data?.message || "Execution failed." }));
+    } catch (err: unknown) {
+      const errorMsg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Execution failed.";
+      setError(e => ({ ...e, [key]: errorMsg }));
     } finally {
       setExecuting(x => ({ ...x, [key]: false }));
     }
@@ -168,7 +202,7 @@ export default function AutomationHubPage() {
           <p style={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-tertiary)", padding: "0.25rem 0.5rem", marginBottom: "0.5rem" }}>Automations</p>
           {AUTOMATIONS.map((a, i) => {
             const Icon = ICONS[a.icon];
-            const hasResult = results[a.key];
+            const hasResult = Boolean(results[a.key]);
             const hasScan = previews[a.key];
             const count = hasScan?.count || 0;
             return (
@@ -260,7 +294,7 @@ export default function AutomationHubPage() {
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", maxHeight: "500px", overflowY: "auto" }}>
-                  {preview.items.map((item: any, idx: number) => (
+                  {preview.items.map((item: AutomationItem, idx: number) => (
                     <div key={item.id || idx} style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "var(--radius-lg)", padding: "1rem 1.25rem", borderLeft: `3px solid ${automation.color}` }}>
                       <PreviewCard item={item} taskType={automation.key} color={automation.color} />
                     </div>
@@ -280,7 +314,7 @@ export default function AutomationHubPage() {
             <div style={modalBoxStyle}>
               <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
                 <div style={{ width: "40px", height: "40px", borderRadius: "10px", background: conf.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <Zap size={20} color={conf.color} />
+                  <ConfIcon size={20} color={conf.color} />
                 </div>
                 <h3 style={{ fontWeight: 700, fontSize: "var(--text-lg)", color: "var(--text-primary)" }}>Confirm Execution</h3>
               </div>
@@ -303,7 +337,7 @@ export default function AutomationHubPage() {
   );
 }
 
-function PreviewCard({ item, taskType, color }: { item: any; taskType: string; color: string }) {
+function PreviewCard({ item, taskType, color }: { item: AutomationItem; taskType: string; color: string }) {
   if (taskType === "FEE_DEFAULTER") return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
@@ -369,7 +403,7 @@ function PreviewCard({ item, taskType, color }: { item: any; taskType: string; c
       <p style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.75rem" }}>Today School Summary</p>
       {item.stats && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.75rem", marginBottom: "1rem" }}>
-          {Object.entries(item.stats).map(([k, v]: any) => (
+          {Object.entries(item.stats || {}).map(([k, v]) => (
             <div key={k} style={{ background: "var(--bg-app)", borderRadius: "var(--radius-md)", padding: "0.6rem 0.75rem" }}>
               <p style={{ fontSize: "0.65rem", textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", marginBottom: "0.2rem" }}>{k.replace(/([A-Z])/g, " $1").trim()}</p>
               <p style={{ fontWeight: 700, color, fontSize: "var(--text-base)" }}>{String(v)}</p>

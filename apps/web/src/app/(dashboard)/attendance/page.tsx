@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { apiClient } from "@/lib/axios";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
-  Save, CheckCircle, AlertCircle, Clock, Users,
-  Calendar, Activity, Sparkles, TrendingUp
+  Save, CheckCircle, AlertCircle, Users, TrendingUp
 } from "lucide-react";
 
 const ATTENDANCE_COLORS = {
@@ -16,14 +15,34 @@ const ATTENDANCE_COLORS = {
   ABSENT: { bg: "var(--danger-50)", text: "var(--danger-700)", border: "var(--danger-200)" }
 };
 
+interface StudentAttendanceRecord {
+  id: string;
+  rollNumber?: string | number;
+  firstName?: string;
+  lastName?: string;
+  user?: { firstName?: string; lastName?: string };
+  attendance?: { status?: string };
+  [key: string]: unknown;
+}
+
+interface DailyAttendanceStats {
+  totalStudents?: number;
+  attendanceRate?: number;
+  PRESENT?: number;
+  LATE?: number;
+  ABSENT?: number;
+  EXCUSED?: number;
+  [key: string]: unknown;
+}
+
 export default function AttendancePage() {
-  const [classes, setClasses] = useState<any[]>([]);
+  const [classes, setClasses] = useState<Array<{ id: string; name: string; sections?: Array<{ id: string; name: string }> }>>([]);
   const [selectedClassId, setSelectedClassId] = useState("");
   const [selectedSectionId, setSelectedSectionId] = useState("");
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
-  const [dailyStats, setDailyStats] = useState<any>(null);
+  const [dailyStats, setDailyStats] = useState<DailyAttendanceStats | null>(null);
 
-  const [students, setStudents] = useState<any[]>([]);
+  const [students, setStudents] = useState<StudentAttendanceRecord[]>([]);
   const [isLoadingStudents, setIsLoadingStudents] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -46,7 +65,7 @@ export default function AttendancePage() {
       .catch(() => {});
   }, []);
 
-  const fetchStudents = async () => {
+  const fetchStudents = useCallback(async () => {
     if (!selectedSectionId || !selectedDate) return;
 
     setIsLoadingStudents(true);
@@ -55,11 +74,11 @@ export default function AttendancePage() {
       const res = await apiClient.get("/attendance/students", {
         params: { sectionId: selectedSectionId, date: selectedDate }
       });
-      const data = res.data.data || [];
+      const data: StudentAttendanceRecord[] = res.data.data || [];
       setStudents(data);
 
       const initialRecords: Record<string, string> = {};
-      data.forEach((student: any) => {
+      data.forEach((student) => {
         initialRecords[student.id] = student.attendance?.status || "PRESENT";
       });
       setAttendanceRecords(initialRecords);
@@ -70,13 +89,11 @@ export default function AttendancePage() {
     } finally {
       setIsLoadingStudents(false);
     }
-  };
+  }, [selectedSectionId, selectedDate]);
 
   useEffect(() => {
-    if (selectedSectionId && selectedDate) {
-      fetchStudents();
-    }
-  }, [selectedSectionId, selectedDate]);
+    fetchStudents();
+  }, [fetchStudents]);
 
   const handleStatusChange = (studentId: string, status: string) => {
     setAttendanceRecords(prev => ({
