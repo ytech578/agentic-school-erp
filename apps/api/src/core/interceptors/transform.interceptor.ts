@@ -4,6 +4,7 @@ import {
   ExecutionContext,
   CallHandler,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
@@ -11,7 +12,7 @@ export interface ApiResponse<T> {
   success: boolean;
   statusCode: number;
   data: T;
-  meta?: any;
+  meta?: unknown;
   message?: string;
   timestamp: string;
 }
@@ -25,10 +26,10 @@ export class TransformInterceptor<T> implements NestInterceptor<
     context: ExecutionContext,
     next: CallHandler,
   ): Observable<ApiResponse<T>> {
-    const response = context.switchToHttp().getResponse();
+    const response = context.switchToHttp().getResponse<Response>();
 
     return next.handle().pipe(
-      map((data) => {
+      map((data: unknown) => {
         // If the handler returned an object with a `data` key,
         // unwrap it to prevent double-wrapping while preserving pagination `meta`.
         if (
@@ -37,20 +38,22 @@ export class TransformInterceptor<T> implements NestInterceptor<
           !Array.isArray(data) &&
           'data' in data
         ) {
+          const payload = data as Record<string, unknown>;
           return {
             success: true,
-            statusCode: response.statusCode,
-            data: data.data,
-            meta: data.meta,
-            message: data.message,
+            statusCode: response?.statusCode ?? 200,
+            data: payload.data as T,
+            meta: payload.meta,
+            message:
+              typeof payload.message === 'string' ? payload.message : undefined,
             timestamp: new Date().toISOString(),
           };
         }
 
         return {
           success: true,
-          statusCode: response.statusCode,
-          data,
+          statusCode: response?.statusCode ?? 200,
+          data: data as T,
           timestamp: new Date().toISOString(),
         };
       }),

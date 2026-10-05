@@ -49,7 +49,7 @@ describe('AuditLogInterceptor (E-001)', () => {
   };
 
   const createMockCallHandler = (
-    responseData: any = { success: true },
+    responseData: unknown = { success: true },
   ): CallHandler => ({
     handle: () => of(responseData),
   });
@@ -99,18 +99,18 @@ describe('AuditLogInterceptor (E-001)', () => {
       next: () => {
         // Allow microtask queue to process the async tap
         setTimeout(() => {
-          expect(mockPrisma.activityLog.create).toHaveBeenCalledWith(
-            expect.objectContaining({
-              data: expect.objectContaining({
-                schoolId: 'school-1',
-                userId: 'user-admin',
-                action: AuditAction.DELETE,
-                module: 'STUDENTS',
-                resourceId: 'stud-123',
-                resourceType: 'Students',
-              }),
-            }),
-          );
+          expect(mockPrisma.activityLog.create).toHaveBeenCalled();
+          const callArgs = mockPrisma.activityLog.create.mock.calls[0]?.[0] as {
+            data: Record<string, unknown>;
+          };
+          expect(callArgs.data).toMatchObject({
+            schoolId: 'school-1',
+            userId: 'user-admin',
+            action: AuditAction.DELETE,
+            module: 'STUDENTS',
+            resourceId: 'stud-123',
+            resourceType: 'Students',
+          });
           done();
         }, 10);
       },
@@ -133,16 +133,16 @@ describe('AuditLogInterceptor (E-001)', () => {
     interceptor.intercept(context, handler).subscribe({
       next: () => {
         setTimeout(() => {
-          expect(mockPrisma.activityLog.create).toHaveBeenCalledWith(
-            expect.objectContaining({
-              data: expect.objectContaining({
-                schoolId: 'school-1',
-                userId: 'user-teacher',
-                action: AuditAction.CREATE,
-                module: 'STUDENTS',
-              }),
-            }),
-          );
+          expect(mockPrisma.activityLog.create).toHaveBeenCalled();
+          const callArgs = mockPrisma.activityLog.create.mock.calls[0]?.[0] as {
+            data: Record<string, unknown>;
+          };
+          expect(callArgs.data).toMatchObject({
+            schoolId: 'school-1',
+            userId: 'user-teacher',
+            action: AuditAction.CREATE,
+            module: 'STUDENTS',
+          });
           done();
         }, 10);
       },

@@ -1,5 +1,8 @@
 import { ForbiddenException, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AIService } from './ai.service';
+import { AgentControlPlaneService } from './agent/agent-control-plane.service';
+import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
 
 /**
@@ -47,23 +50,27 @@ describe('AI Service — Tenant Isolation & Security (Phase 7)', () => {
     subject: { findFirst: jest.fn() },
     academicYear: { findFirst: jest.fn() },
     message: { createMany: jest.fn() },
-  } as any;
+  };
 
   const mockConfig = {
-    get: jest.fn((key: string, def?: any) => def),
+    get: jest.fn((_key: string, def?: unknown) => def),
     getOrThrow: jest.fn(),
-  } as any;
+  };
 
   const mockControlPlane = {
     proposeAction: jest.fn(),
     confirmAndExecute: jest.fn(),
-  } as any;
+  };
 
   let service: AIService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new AIService(mockPrisma, mockConfig, mockControlPlane);
+    service = new AIService(
+      mockPrisma as unknown as PrismaService,
+      mockConfig as unknown as ConfigService,
+      mockControlPlane as unknown as AgentControlPlaneService,
+    );
   });
 
   // ─── Test 1: sendMessage must fail-closed when schoolId is missing ─────────
@@ -88,7 +95,7 @@ describe('AI Service — Tenant Isolation & Security (Phase 7)', () => {
       await expect(
         service.sendMessage({
           userId: 'user-1',
-          schoolId: undefined as any,
+          schoolId: undefined as unknown as string,
           user: {
             id: 'user-1',
             firstName: 'Test',
@@ -105,13 +112,13 @@ describe('AI Service — Tenant Isolation & Security (Phase 7)', () => {
       await expect(
         service.sendMessage({
           userId: 'user-1',
-          schoolId: null as any,
+          schoolId: null as unknown as string,
           user: {
             id: 'user-1',
             firstName: 'Test',
             lastName: 'User',
             role: 'SUPER_ADMIN',
-            schoolId: null as any,
+            schoolId: null as unknown as string,
           },
           message: 'Hello',
         }),

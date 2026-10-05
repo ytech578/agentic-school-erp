@@ -129,7 +129,7 @@ export default function AttendancePage() {
         .then(res => setDailyStats(res.data.data || res.data))
         .catch(() => {});
     } catch (err) {
-      console.error("Failed to save attendance", (err as any).response?.data || err);
+      console.error("Failed to save attendance", (err as { response?: { data?: unknown } })?.response?.data || err);
       setMessage({ text: "Failed to save attendance. Please try again.", type: "error" });
     } finally {
       setIsSaving(false);
@@ -176,7 +176,7 @@ export default function AttendancePage() {
             <div style={{ fontSize: "1.75rem", fontWeight: 800, marginTop: "0.4rem", color: "var(--status-success)" }}>
               {dailyStats.attendanceRate}%
             </div>
-            <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "0.25rem" }}>Today's Campus Presence</div>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "0.25rem" }}>Today&apos;s Campus Presence</div>
           </div>
 
           <div style={{ background: "var(--bg-surface)", padding: "1.25rem", borderRadius: "var(--radius-xl)", border: "1px solid var(--border-default)", boxShadow: "var(--shadow-sm)" }}>
@@ -254,7 +254,7 @@ export default function AttendancePage() {
               }}
             >
               <option value="">{selectedClassId ? "-- Select Section --" : "Select Class First"}</option>
-              {sections.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
 
@@ -277,7 +277,7 @@ export default function AttendancePage() {
             <div>
               <h3 style={{ marginBottom: "0.25rem" }}>Student Attendance Register</h3>
               <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-                {students.length} students enrolled in {selectedClass?.name} - {sections.find((s: any) => s.id === selectedSectionId)?.name}
+                {students.length} students enrolled in {selectedClass?.name} - {sections.find((s) => s.id === selectedSectionId)?.name}
               </p>
             </div>
             

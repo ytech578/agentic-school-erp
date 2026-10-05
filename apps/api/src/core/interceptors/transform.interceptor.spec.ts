@@ -3,7 +3,7 @@ import { of, firstValueFrom } from 'rxjs';
 import { TransformInterceptor } from './transform.interceptor';
 
 describe('TransformInterceptor', () => {
-  let interceptor: TransformInterceptor<any>;
+  let interceptor: TransformInterceptor<unknown>;
 
   beforeEach(() => {
     interceptor = new TransformInterceptor();

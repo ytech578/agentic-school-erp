@@ -21,6 +21,20 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
 
+interface RequestUser {
+  id: string;
+  schoolId: string;
+  role: UserRole;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  [key: string]: unknown;
+}
+
+interface AuthenticatedRequest {
+  user: RequestUser;
+}
+
 @ApiTags('AI')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -36,7 +50,7 @@ export class AIController {
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @ApiOperation({ summary: 'Send a message to the AI assistant' })
   async chat(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Body()
     body: {
       message: string;
@@ -52,7 +66,13 @@ export class AIController {
     return this.service.sendMessage({
       userId: req.user.id,
       schoolId: req.user.schoolId,
-      user: req.user,
+      user: {
+        id: req.user.id,
+        firstName: req.user.firstName || 'User',
+        lastName: req.user.lastName || '',
+        role: req.user.role,
+        schoolId: req.user.schoolId,
+      },
       conversationId: body.conversationId,
       message: body.message,
       attachments: body.attachments,
@@ -63,7 +83,10 @@ export class AIController {
   @Post('action/:id/confirm')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   @ApiOperation({ summary: 'Confirm and execute a proposed AI action' })
-  async confirmAction(@Param('id') id: string, @Request() req: any) {
+  async confirmAction(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
     // Server-authoritative: userId and schoolId from JWT — never from body
     return this.controlPlane.confirmAndExecute(
       id,
@@ -76,7 +99,10 @@ export class AIController {
   @Get('action/:id')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   @ApiOperation({ summary: 'Get status of an AI agent action' })
-  async getActionStatus(@Param('id') id: string, @Request() req: any) {
+  async getActionStatus(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
     // Tenant-isolated: server validates ownership inside service
     return this.controlPlane.getActionStatus(
       id,
@@ -89,7 +115,7 @@ export class AIController {
   @Post('alerts/run-monitoring')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Trigger proactive monitoring' })
-  async runMonitoring(@Request() req: any) {
+  async runMonitoring(@Request() req: AuthenticatedRequest) {
     await this.service.runProactiveMonitoring(req.user.schoolId);
     return { success: true, message: 'Monitoring complete.' };
   }
@@ -97,21 +123,24 @@ export class AIController {
   @Get('alerts')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Get proactive agent alerts' })
-  async getAlerts(@Request() req: any) {
+  async getAlerts(@Request() req: AuthenticatedRequest) {
     return this.service.getProactiveAlerts(req.user.schoolId);
   }
 
   @Patch('alerts/read-all')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Mark all alerts as read' })
-  async markAllRead(@Request() req: any) {
+  async markAllRead(@Request() req: AuthenticatedRequest) {
     return this.service.markAllAlertsRead(req.user.schoolId);
   }
 
   @Patch('alerts/:id/read')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Mark an alert as read' })
-  async markAlertRead(@Param('id') id: string, @Request() req: any) {
+  async markAlertRead(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
     return this.service.markAlertRead(id, req.user.schoolId);
   }
 
@@ -119,33 +148,42 @@ export class AIController {
   @Post('admissions/:id/workflow')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Run multi-agent admission workflow' })
-  async runAdmissionWorkflow(@Param('id') id: string, @Request() req: any) {
+  async runAdmissionWorkflow(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
     return this.service.runAdmissionWorkflow(id, req.user.schoolId);
   }
 
   // ─── Conversations ─────────────────────────────────────────────────────────
   @Get('conversations')
   @ApiOperation({ summary: 'List AI conversations' })
-  async getConversations(@Request() req: any) {
+  async getConversations(@Request() req: AuthenticatedRequest) {
     return this.service.getConversations(req.user.id);
   }
 
   @Get('conversations/:id')
   @ApiOperation({ summary: 'Get conversation with messages' })
-  async getConversation(@Param('id') id: string, @Request() req: any) {
+  async getConversation(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
     return this.service.getConversation(id, req.user.id);
   }
 
   @Delete('conversations/:id')
   @ApiOperation({ summary: 'Delete a conversation' })
-  async deleteConversation(@Param('id') id: string, @Request() req: any) {
+  async deleteConversation(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
     return this.service.deleteConversation(id, req.user.id);
   }
 
   // ─── Insights ─────────────────────────────────────────────────────────────
   @Get('insights')
   @ApiOperation({ summary: 'Get AI dashboard insights' })
-  async getInsights(@Request() req: any) {
+  async getInsights(@Request() req: AuthenticatedRequest) {
     const insights = await this.service.generateDashboardInsights(
       req.user.schoolId,
       req.user,
@@ -161,7 +199,7 @@ export class AIController {
   })
   async previewAutomation(
     @Param('taskType') taskType: string,
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
   ) {
     const { schoolId } = req.user;
     switch (taskType) {
@@ -207,7 +245,7 @@ export class AIController {
       taskType: string;
       payload: { items?: unknown[]; subject?: string };
     },
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
   ) {
     // Map taskType → tool name
     const toolNameMap: Record<string, string> = {
@@ -316,7 +354,7 @@ export class AIController {
         base64: string;
       }>;
     },
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
   ) {
     const result = await this.service.executeDataQuery(
       req.user.schoolId,
@@ -331,7 +369,7 @@ export class AIController {
   @Get('anomalies')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Get school anomalies' })
-  async getAnomalies(@Request() req: any) {
+  async getAnomalies(@Request() req: AuthenticatedRequest) {
     const anomalies = await this.service.getSchoolAnomalies(req.user.schoolId);
     return { anomalies };
   }
@@ -355,7 +393,7 @@ export class AIController {
       board?: string;
       schoolName?: string;
     },
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
   ) {
     const result = await this.service.generateQuestionPaper(
       req.user.schoolId,
@@ -373,9 +411,9 @@ export class AIController {
   async getEarlyWarningRiskStudents(
     @Query('classId') classId?: string,
     @Query('riskLevel') riskLevel?: string,
-    @Request() req?: any,
+    @Request() req?: AuthenticatedRequest,
   ) {
-    return this.service.getEarlyWarningRiskStudents(req.user.schoolId, {
+    return this.service.getEarlyWarningRiskStudents(req?.user.schoolId ?? '', {
       classId,
       riskLevel,
     });
@@ -388,7 +426,7 @@ export class AIController {
   })
   async generateInterventionPlan(
     @Body() body: { studentId: string },
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
   ) {
     return this.service.generateStudentInterventionPlan(
       req.user.schoolId,
@@ -413,7 +451,7 @@ export class AIController {
       classApplied?: string;
       studentName?: string;
     },
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
   ) {
     return this.service.chatHelpdesk(req.user.schoolId, body);
   }
@@ -431,7 +469,7 @@ export class AIController {
   @ApiOperation({
     summary: 'Get personalized student academic remedial plan & learning gaps',
   })
-  async getStudentRemedialPlan(@Request() req: any) {
+  async getStudentRemedialPlan(@Request() req: AuthenticatedRequest) {
     return this.service.getStudentRemedialPlan(req.user.schoolId, req.user.id);
   }
 
@@ -449,7 +487,7 @@ export class AIController {
   })
   async generateAdaptivePractice(
     @Body() body: { subject: string; topic: string },
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
   ) {
     return this.service.generateAdaptivePractice(
       req.user.schoolId,

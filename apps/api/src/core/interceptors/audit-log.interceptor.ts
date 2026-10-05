@@ -42,7 +42,7 @@ export class AuditLogInterceptor implements NestInterceptor {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const http = context.switchToHttp();
     const request = http.getRequest<RequestLike>();
 
@@ -65,58 +65,78 @@ export class AuditLogInterceptor implements NestInterceptor {
 
     return next.handle().pipe(
       tap({
-        next: async (responseBody) => {
-          try {
-            const user = request.user;
-            if (!user || !user.id) return;
+        next: (responseBody: unknown) => {
+          void (async () => {
+            try {
+              const user = request.user;
+              if (!user || !user.id) return;
 
-            let action: AuditAction = AuditAction.UPDATE;
-            if (request.method === 'POST') action = AuditAction.CREATE;
-            if (request.method === 'DELETE') action = AuditAction.DELETE;
+              let action: AuditAction = AuditAction.UPDATE;
+              if (request.method === 'POST') action = AuditAction.CREATE;
+              if (request.method === 'DELETE') action = AuditAction.DELETE;
 
-            const controllerName =
-              context.getClass()?.name?.replace(/Controller$/, '') || 'System';
-            const resourceId = request.params?.id || request.body?.id || null;
-            const schoolId =
-              user.schoolId || request.headers?.['x-school-id'] || null;
+              const controllerName =
+                context.getClass()?.name?.replace(/Controller$/, '') || 'System';
 
-            // Sanitize payload: strip passwords, secrets, tokens
-            const sanitizedAfter = this.sanitizeData(
-              responseBody?.data ?? responseBody,
-            );
+              let resourceId: string | null = null;
+              if (typeof request.params?.id === 'string') {
+                resourceId = request.params.id;
+              } else if (
+                typeof request.body?.id === 'string' ||
+                typeof request.body?.id === 'number'
+              ) {
+                resourceId = String(request.body.id);
+              }
 
-            await this.prisma.activityLog.create({
-              data: {
-                schoolId: typeof schoolId === 'string' ? schoolId : null,
-                userId: user.id,
-                action,
-                module: controllerName.toUpperCase(),
-                resourceId: resourceId ? String(resourceId) : null,
-                resourceType: controllerName,
-                description: `${request.method} ${request.route?.path || url} executed by ${user.role || 'USER'}`,
-                ipAddress: (
-                  request.ip ||
-                  request.headers?.['x-forwarded-for'] ||
-                  ''
-                )
-                  .toString()
-                  .slice(0, 45),
-                userAgent: String(request.headers?.['user-agent'] || '').slice(
-                  0,
-                  255,
-                ),
-                before: beforeState
-                  ? (beforeState as Prisma.InputJsonValue)
-                  : Prisma.DbNull,
-                after: sanitizedAfter
-                  ? (sanitizedAfter as unknown as Prisma.InputJsonValue)
-                  : Prisma.DbNull,
-              },
-            });
-          } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : String(err);
-            this.logger.warn(`Failed to record audit activity log: ${message}`);
-          }
+              const schoolId =
+                typeof user.schoolId === 'string'
+                  ? user.schoolId
+                  : typeof request.headers?.['x-school-id'] === 'string'
+                    ? request.headers['x-school-id']
+                    : null;
+
+              // Sanitize payload: strip passwords, secrets, tokens
+              const rawData =
+                responseBody &&
+                typeof responseBody === 'object' &&
+                'data' in responseBody
+                  ? (responseBody as Record<string, unknown>).data
+                  : responseBody;
+              const sanitizedAfter = this.sanitizeData(rawData);
+
+              await this.prisma.activityLog.create({
+                data: {
+                  schoolId,
+                  userId: user.id,
+                  action,
+                  module: controllerName.toUpperCase(),
+                  resourceId,
+                  resourceType: controllerName,
+                  description: `${request.method} ${request.route?.path || url} executed by ${user.role || 'USER'}`,
+                  ipAddress: (
+                    request.ip ||
+                    (typeof request.headers?.['x-forwarded-for'] === 'string'
+                      ? request.headers['x-forwarded-for']
+                      : '') ||
+                    ''
+                  ).slice(0, 45),
+                  userAgent: String(request.headers?.['user-agent'] || '').slice(
+                    0,
+                    255,
+                  ),
+                  before: beforeState
+                    ? (beforeState as Prisma.InputJsonValue)
+                    : Prisma.DbNull,
+                  after: sanitizedAfter
+                    ? (sanitizedAfter as unknown as Prisma.InputJsonValue)
+                    : Prisma.DbNull,
+                },
+              });
+            } catch (err: unknown) {
+              const message = err instanceof Error ? err.message : String(err);
+              this.logger.warn(`Failed to record audit activity log: ${message}`);
+            }
+          })();
         },
       }),
     );

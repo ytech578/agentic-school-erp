@@ -58,7 +58,7 @@ describe('AgentToolDispatcher', () => {
     });
 
     it('throws error when registering an invalid handler without key', () => {
-      expect(() => dispatcher.register({} as any)).toThrow(
+      expect(() => dispatcher.register({} as unknown as AgentToolHandler)).toThrow(
         'Invalid handler registration: handler and handler.key are required',
       );
     });
@@ -83,18 +83,12 @@ describe('AgentToolDispatcher', () => {
 
     it('throws NotFoundException with ACTION_HANDLER_NOT_FOUND for unregistered key', async () => {
       await expect(
-        dispatcher.dispatch('non_existent_key' as any, mockContext, {}),
+        dispatcher.dispatch('non_existent_key', mockContext, {}),
       ).rejects.toThrow(NotFoundException);
 
       await expect(
-        dispatcher.dispatch('non_existent_key' as any, mockContext, {}),
-      ).rejects.toThrow(
-        expect.objectContaining({
-          message: expect.stringContaining(
-            AGENT_ERRORS.ACTION_HANDLER_NOT_FOUND,
-          ),
-        }),
-      );
+        dispatcher.dispatch('non_existent_key', mockContext, {}),
+      ).rejects.toThrow(AGENT_ERRORS.ACTION_HANDLER_NOT_FOUND);
     });
 
     it('propagates handler exceptions without swallowing or converting to generic success', async () => {
@@ -152,7 +146,7 @@ describe('AgentToolDispatcher', () => {
 
     it('throws NotFoundException when verifying an unknown handler', async () => {
       await expect(
-        dispatcher.verify('unknown_key' as any, mockContext, {}, {}),
+        dispatcher.verify('unknown_key', mockContext, {}, {}),
       ).rejects.toThrow(NotFoundException);
     });
   });
