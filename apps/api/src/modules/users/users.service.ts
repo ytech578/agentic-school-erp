@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import * as bcrypt from 'bcryptjs';
@@ -10,6 +11,8 @@ import {
   requireSchoolId,
   assertSchoolAccess,
 } from '../../core/tenant/tenant.util';
+import type { AuthenticatedUser } from '../../core/types/auth-request.interface';
+import type { Prisma } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
@@ -55,7 +58,7 @@ export class UsersService {
       status?: string;
       search?: string;
     },
-    requestingUser?: any,
+    requestingUser?: AuthenticatedUser,
   ) {
     const { page = 1, limit = 20, role, status, search } = query;
     const skip = (page - 1) * limit;
@@ -66,9 +69,11 @@ export class UsersService {
         ? undefined
         : requireSchoolId(schoolId, 'List users');
 
-    const where: any = effectiveSchoolId ? { schoolId: effectiveSchoolId } : {};
-    if (role) where.role = role;
-    if (status) where.status = status;
+    const where: Prisma.UserWhereInput = effectiveSchoolId
+      ? { schoolId: effectiveSchoolId }
+      : {};
+    if (role) (where as Record<string, unknown>).role = role;
+    if (status) (where as Record<string, unknown>).status = status;
     if (search) {
       where.OR = [
         { firstName: { contains: search, mode: 'insensitive' } },
@@ -106,14 +111,16 @@ export class UsersService {
     };
   }
 
-  async getStats(schoolId: string, requestingUser?: any) {
+  async getStats(schoolId: string, requestingUser?: AuthenticatedUser) {
     const isGlobal = requestingUser?.role === 'SUPER_ADMIN';
     const effectiveSchoolId =
       isGlobal && !schoolId
         ? undefined
         : requireSchoolId(schoolId, 'Get user stats');
 
-    const where: any = effectiveSchoolId ? { schoolId: effectiveSchoolId } : {};
+    const where: Prisma.UserWhereInput = effectiveSchoolId
+      ? { schoolId: effectiveSchoolId }
+      : {};
 
     const [total, active, inactive, roles] = await Promise.all([
       this.prisma.user.count({ where }),
@@ -159,7 +166,7 @@ export class UsersService {
       phone?: string;
       password?: string;
     },
-    requestingUser?: any,
+    requestingUser?: AuthenticatedUser,
   ) {
     if (requestingUser?.role !== 'SUPER_ADMIN') {
       schoolId = requireSchoolId(schoolId, 'Create user');
@@ -189,7 +196,7 @@ export class UsersService {
         email: data.email.toLowerCase(),
         firstName: data.firstName,
         lastName: data.lastName,
-        role: data.role as any,
+        role: data.role as import('@prisma/client').UserRole,
         phone: data.phone,
         passwordHash,
         status: 'ACTIVE',
@@ -244,7 +251,7 @@ export class UsersService {
       phone?: string;
       role?: string;
     },
-    requestingUser?: any,
+    requestingUser?: AuthenticatedUser,
   ) {
     const targetUser = await this.prisma.user.findUnique({ where: { id } });
     if (!targetUser) throw new NotFoundException('User not found');
@@ -268,7 +275,7 @@ export class UsersService {
         firstName: data.firstName,
         lastName: data.lastName,
         phone: data.phone,
-        role: data.role as any,
+        role: data.role as import('@prisma/client').UserRole,
       },
       select: {
         id: true,
@@ -281,7 +288,11 @@ export class UsersService {
     });
   }
 
-  async updateStatus(id: string, status: string, requestingUser?: any) {
+  async updateStatus(
+    id: string,
+    status: string,
+    requestingUser?: AuthenticatedUser,
+  ) {
     const targetUser = await this.prisma.user.findUnique({ where: { id } });
     if (!targetUser) throw new NotFoundException('User not found');
 
@@ -291,12 +302,16 @@ export class UsersService {
 
     return this.prisma.user.update({
       where: { id },
-      data: { status: status as any },
+      data: { status: status as Prisma.UserUpdateInput['status'] },
       select: { id: true, status: true },
     });
   }
 
-  async resetPassword(id: string, newPassword: string, requestingUser?: any) {
+  async resetPassword(
+    id: string,
+    newPassword: string,
+    requestingUser?: AuthenticatedUser,
+  ) {
     const targetUser = await this.prisma.user.findUnique({ where: { id } });
     if (!targetUser) throw new NotFoundException('User not found');
 
@@ -304,12 +319,22 @@ export class UsersService {
       assertSchoolAccess(requestingUser?.schoolId, targetUser.schoolId);
     }
 
+    if (
+      !newPassword ||
+      typeof newPassword !== 'string' ||
+      newPassword.trim().length < 8
+    ) {
+      throw new BadRequestException(
+        'Password must be at least 8 characters long',
+      );
+    }
+
     const passwordHash = await bcrypt.hash(newPassword, 12);
     await this.prisma.user.update({ where: { id }, data: { passwordHash } });
     return { message: 'Password reset successfully' };
   }
 
-  async deactivateUser(id: string, requestingUser?: any) {
+  async deactivateUser(id: string, requestingUser?: AuthenticatedUser) {
     const targetUser = await this.prisma.user.findUnique({ where: { id } });
     if (!targetUser) throw new NotFoundException('User not found');
 

@@ -5,12 +5,18 @@ import {
 } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 
+interface TenantUser {
+  schoolId?: string;
+  role?: string;
+  [key: string]: unknown;
+}
+
 @Injectable()
 export class TenantMiddleware implements NestMiddleware {
   use(req: Request, res: Response, next: NextFunction) {
     const schoolId = req.headers['x-school-id'] || req.query.schoolId;
 
-    const user: any = req.user;
+    const user = req.user as TenantUser | undefined;
     // If we have a user (e.g., after AuthGuard), ensure the requested tenant matches their schoolId
     if (user && user.schoolId) {
       if (

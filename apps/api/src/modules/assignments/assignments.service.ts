@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
@@ -10,11 +11,20 @@ import {
   CreateAssignmentDto,
   UpdateAssignmentDto,
   SubmitAssignmentDto,
+  StudentSubmitAssignmentDto,
 } from './dto/assignment.dto';
+import {
+  PlagiarismService,
+  PeerSubmission,
+  OriginalityReport,
+} from './plagiarism.service';
 
 @Injectable()
 export class AssignmentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Optional() private plagiarismService?: PlagiarismService,
+  ) {}
 
   /**
    * Deterministically resolves and validates target academic year:
@@ -473,6 +483,23 @@ export class AssignmentsService {
       throw new NotFoundException('Student not found');
     }
 
+    const existing = await this.prisma.assignmentSubmission.findUnique({
+      where: { assignmentId_studentId: { assignmentId, studentId } },
+    });
+
+    let finalFeedback = data.feedback;
+    if (existing?.feedback && data.feedback !== undefined) {
+      try {
+        const parsed = JSON.parse(existing.feedback);
+        if (parsed && typeof parsed === 'object') {
+          parsed.teacherFeedback = data.feedback;
+          finalFeedback = JSON.stringify(parsed);
+        }
+      } catch {
+        // Was plain text feedback
+      }
+    }
+
     return this.prisma.assignmentSubmission.upsert({
       where: { assignmentId_studentId: { assignmentId, studentId } },
       create: {
@@ -483,7 +510,7 @@ export class AssignmentsService {
           data.marksObtained !== undefined && data.marksObtained !== null
             ? data.marksObtained
             : undefined,
-        feedback: data.feedback,
+        feedback: finalFeedback,
         submittedAt: new Date(),
       },
       update: {
@@ -492,7 +519,7 @@ export class AssignmentsService {
           data.marksObtained !== undefined && data.marksObtained !== null
             ? data.marksObtained
             : undefined,
-        feedback: data.feedback,
+        feedback: finalFeedback !== undefined ? finalFeedback : existing?.feedback,
       },
     });
   }
@@ -546,9 +573,38 @@ export class AssignmentsService {
     const seenStudentIds = new Set<string>();
     const roster: any[] = [];
 
+    const parseFeedbackData = (rawFeedback?: string | null) => {
+      let submissionText = '';
+      let attachmentUrl: string | null = null;
+      let originalityReport: OriginalityReport | null = null;
+      let teacherFeedback = rawFeedback || '';
+
+      if (rawFeedback) {
+        try {
+          const parsed = JSON.parse(rawFeedback);
+          if (parsed && typeof parsed === 'object') {
+            submissionText = parsed.submissionText || '';
+            attachmentUrl = parsed.attachmentUrl || null;
+            originalityReport = parsed.originalityReport || null;
+            teacherFeedback =
+              parsed.teacherFeedback ??
+              parsed.rawFeedback ??
+              parsed.feedback ??
+              '';
+          }
+        } catch {
+          teacherFeedback = rawFeedback;
+        }
+      }
+
+      return { submissionText, attachmentUrl, originalityReport, teacherFeedback };
+    };
+
     for (const e of enrollments) {
       seenStudentIds.add(e.studentId);
       const sub = subMap.get(e.studentId);
+      const parsed = parseFeedbackData(sub?.feedback);
+
       roster.push({
         studentId: e.studentId,
         rollNumber: e.rollNumber || null,
@@ -560,7 +616,11 @@ export class AssignmentsService {
           sub?.marksObtained !== null && sub?.marksObtained !== undefined
             ? Number(sub.marksObtained)
             : null,
-        feedback: sub?.feedback || '',
+        feedback: parsed.teacherFeedback,
+        rawFeedback: sub?.feedback || '',
+        submissionText: parsed.submissionText,
+        attachmentUrl: parsed.attachmentUrl,
+        originalityReport: parsed.originalityReport,
         submittedAt: sub?.submittedAt || null,
       });
     }
@@ -570,6 +630,8 @@ export class AssignmentsService {
       if (!seenStudentIds.has(sub.studentId)) {
         seenStudentIds.add(sub.studentId);
         const roll = sub.student?.enrollments?.[0]?.rollNumber || null;
+        const parsed = parseFeedbackData(sub.feedback);
+
         roster.push({
           studentId: sub.studentId,
           rollNumber: roll,
@@ -581,7 +643,11 @@ export class AssignmentsService {
             sub.marksObtained !== null && sub.marksObtained !== undefined
               ? Number(sub.marksObtained)
               : null,
-          feedback: sub.feedback || '',
+          feedback: parsed.teacherFeedback,
+          rawFeedback: sub.feedback || '',
+          submissionText: parsed.submissionText,
+          attachmentUrl: parsed.attachmentUrl,
+          originalityReport: parsed.originalityReport,
           submittedAt: sub.submittedAt || null,
         });
       }
@@ -678,4 +744,254 @@ export class AssignmentsService {
       },
     });
   }
+
+  /**
+   * Allows an enrolled student to submit their assignment content, document link,
+   * and automatically runs peer originality / plagiarism verification.
+   */
+  async submitStudentAssignment(
+    schoolId: string,
+    assignmentId: string,
+    userId: string,
+    dto: StudentSubmitAssignmentDto,
+  ) {
+    const validSchoolId = requireSchoolId(schoolId);
+
+    const assignment = await this.prisma.assignment.findFirst({
+      where: { id: assignmentId, schoolId: validSchoolId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('Assignment not found');
+    }
+
+    const student = await this.prisma.student.findFirst({
+      where: { userId, schoolId: validSchoolId },
+    });
+    if (!student) {
+      throw new BadRequestException(
+        'Authenticated student profile not found in this school',
+      );
+    }
+
+    let feedbackObj: any = {};
+    const existing = await this.prisma.assignmentSubmission.findUnique({
+      where: {
+        assignmentId_studentId: {
+          assignmentId,
+          studentId: student.id,
+        },
+      },
+    });
+
+    if (existing?.feedback) {
+      try {
+        feedbackObj = JSON.parse(existing.feedback);
+      } catch {
+        feedbackObj = { teacherFeedback: existing.feedback };
+      }
+    }
+
+    feedbackObj.submissionText = dto.content;
+    if (dto.attachmentUrl) {
+      feedbackObj.attachmentUrl = dto.attachmentUrl;
+    }
+    feedbackObj.submittedAt = new Date().toISOString();
+
+    let originalityReport: OriginalityReport | null = null;
+    if (this.plagiarismService) {
+      const peerSubmissionsRecords =
+        await this.prisma.assignmentSubmission.findMany({
+          where: {
+            assignmentId,
+            studentId: { not: student.id },
+          },
+          select: {
+            id: true,
+            studentId: true,
+            feedback: true,
+            student: {
+              select: {
+                user: {
+                  select: { firstName: true, lastName: true },
+                },
+              },
+            },
+          },
+        });
+
+      const peerSubmissions: PeerSubmission[] = [];
+      for (const peer of peerSubmissionsRecords) {
+        if (!peer.feedback) continue;
+        let text = peer.feedback;
+        try {
+          const parsed = JSON.parse(peer.feedback);
+          if (parsed.submissionText) {
+            text = parsed.submissionText;
+          }
+        } catch {}
+        if (text && text.trim().length > 0) {
+          const peerName =
+            `${peer.student?.user?.firstName || ''} ${peer.student?.user?.lastName || ''}`.trim() ||
+            'Peer Student';
+          peerSubmissions.push({
+            submissionId: peer.id,
+            studentId: peer.studentId,
+            studentName: peerName,
+            content: text,
+          });
+        }
+      }
+
+      originalityReport = this.plagiarismService.analyzeOriginality(
+        dto.content,
+        peerSubmissions,
+      );
+      feedbackObj.originalityReport = originalityReport;
+    }
+
+    const submission = await this.prisma.assignmentSubmission.upsert({
+      where: {
+        assignmentId_studentId: {
+          assignmentId,
+          studentId: student.id,
+        },
+      },
+      create: {
+        assignmentId,
+        studentId: student.id,
+        status: 'SUBMITTED',
+        feedback: JSON.stringify(feedbackObj),
+        submittedAt: new Date(),
+      },
+      update: {
+        status: 'SUBMITTED',
+        feedback: JSON.stringify(feedbackObj),
+        submittedAt: new Date(),
+      },
+    });
+
+    return {
+      submission,
+      originalityReport,
+    };
+  }
+
+  /**
+   * Manually triggers or re-calculates academic plagiarism & originality audit
+   * against peer submissions in the same class/assignment.
+   */
+  async checkSubmissionPlagiarism(
+    schoolId: string,
+    assignmentId: string,
+    studentId: string,
+  ): Promise<OriginalityReport> {
+    const validSchoolId = requireSchoolId(schoolId);
+
+    const assignment = await this.prisma.assignment.findFirst({
+      where: { id: assignmentId, schoolId: validSchoolId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('Assignment not found');
+    }
+
+    const submission = await this.prisma.assignmentSubmission.findUnique({
+      where: {
+        assignmentId_studentId: {
+          assignmentId,
+          studentId,
+        },
+      },
+    });
+    if (!submission) {
+      throw new NotFoundException(
+        'Submission not found for this student and assignment',
+      );
+    }
+
+    let text = submission.feedback || '';
+    let parsedObj: any = {};
+    try {
+      parsedObj = JSON.parse(text);
+      if (parsedObj.submissionText) {
+        text = parsedObj.submissionText;
+      }
+    } catch {
+      parsedObj = { rawFeedback: text };
+    }
+
+    if (!text || !text.trim()) {
+      throw new BadRequestException(
+        'Submission contains no written text content to analyze for plagiarism',
+      );
+    }
+
+    const peers = await this.prisma.assignmentSubmission.findMany({
+      where: {
+        assignmentId,
+        studentId: { not: studentId },
+      },
+      select: {
+        id: true,
+        studentId: true,
+        feedback: true,
+        student: {
+          select: {
+            user: {
+              select: { firstName: true, lastName: true },
+            },
+          },
+        },
+      },
+    });
+
+    const peerSubmissions: PeerSubmission[] = [];
+    for (const p of peers) {
+      if (!p.feedback) continue;
+      let peerText = p.feedback;
+      try {
+        const parsed = JSON.parse(peerText);
+        if (parsed.submissionText) {
+          peerText = parsed.submissionText;
+        }
+      } catch {}
+      if (peerText && peerText.trim().length > 0) {
+        const peerName =
+          `${p.student?.user?.firstName || ''} ${p.student?.user?.lastName || ''}`.trim() ||
+          'Peer Student';
+        peerSubmissions.push({
+          submissionId: p.id,
+          studentId: p.studentId,
+          studentName: peerName,
+          content: peerText,
+        });
+      }
+    }
+
+    if (!this.plagiarismService) {
+      throw new BadRequestException(
+        'Plagiarism service is currently unavailable',
+      );
+    }
+
+    const report = this.plagiarismService.analyzeOriginality(
+      text,
+      peerSubmissions,
+    );
+
+    parsedObj.originalityReport = report;
+    await this.prisma.assignmentSubmission.update({
+      where: {
+        assignmentId_studentId: {
+          assignmentId,
+          studentId,
+        },
+      },
+      data: {
+        feedback: JSON.stringify(parsedObj),
+      },
+    });
+
+    return report;
+  }
 }
+

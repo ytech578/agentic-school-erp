@@ -43,10 +43,8 @@ export class NotificationsGateway
         return;
       }
 
-      const secret = this.configService.get<string>(
-        'jwt.secret',
-        process.env.JWT_SECRET || 'secret',
-      );
+      const secret = this.configService.get<string>('jwt.accessSecret') || process.env.JWT_ACCESS_SECRET;
+      if (!secret) throw new Error('JWT Access Secret is not configured');
       const decoded = this.jwtService.verify(token, { secret });
 
       const userId = decoded.sub;

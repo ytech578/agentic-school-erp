@@ -19,6 +19,7 @@ import {
   CreateAssignmentDto,
   UpdateAssignmentDto,
   SubmitAssignmentDto,
+  StudentSubmitAssignmentDto,
 } from './dto/assignment.dto';
 
 @ApiTags('Assignments')
@@ -96,6 +97,39 @@ export class AssignmentsController {
       id,
       studentId,
       body,
+    );
+  }
+
+  @Post(':id/submit')
+  @ApiOperation({ summary: 'Submit student assignment with originality check' })
+  @Roles('STUDENT')
+  submitStudentAssignment(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: StudentSubmitAssignmentDto,
+  ) {
+    return this.service.submitStudentAssignment(
+      req.user.schoolId,
+      id,
+      req.user.id,
+      body,
+    );
+  }
+
+  @Post(':id/submissions/:studentId/plagiarism-check')
+  @ApiOperation({
+    summary: 'Run originality and plagiarism check for submission',
+  })
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
+  checkSubmissionPlagiarism(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Param('studentId') studentId: string,
+  ) {
+    return this.service.checkSubmissionPlagiarism(
+      req.user.schoolId,
+      id,
+      studentId,
     );
   }
 

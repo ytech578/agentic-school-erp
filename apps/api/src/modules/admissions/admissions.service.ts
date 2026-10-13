@@ -8,7 +8,10 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { AdmissionStatus, EnquiryStatus, Gender, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
-import { generateNextSequence, SequencePrismaClient } from '../../core/database/sequence.util';
+import {
+  generateNextSequence,
+  SequencePrismaClient,
+} from '../../core/database/sequence.util';
 import { StorageService } from '../../services/storage/storage.service';
 
 export interface CreateEnquiryDto {
@@ -361,10 +364,9 @@ export class AdmissionsService {
     const tempPassword = `Std@${birthYear}!${Math.random().toString(36).slice(-4)}`;
     const passwordHash = await bcrypt.hash(tempPassword, 12);
 
-    return this.prisma.$transaction(
-      async (tx: Prisma.TransactionClient) => {
-        // 1. Resolve Target Class and Section
-        let targetSection: TargetSectionInfo | null = null;
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // 1. Resolve Target Class and Section
+      let targetSection: TargetSectionInfo | null = null;
 
       if (options?.sectionId) {
         targetSection = await tx.section.findFirst({
@@ -450,7 +452,8 @@ export class AdmissionsService {
           if (chosenClass.sections.length > 0) {
             targetSection = targetSectionName
               ? chosenClass.sections.find(
-                  (s: { name: string; id?: string }) => s.name.toUpperCase() === targetSectionName,
+                  (s: { name: string; id?: string }) =>
+                    s.name.toUpperCase() === targetSectionName,
                 ) || chosenClass.sections[0]
               : chosenClass.sections[0];
           }

@@ -1,12 +1,11 @@
 import {
   Injectable,
   Logger,
-  ForbiddenException,
   BadRequestException,
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AuditAction, RiskLevel, EnquiryStatus } from '@prisma/client';
+import { EnquiryStatus } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
 import { generateNextSequence } from '../../core/database/sequence.util';
@@ -14,6 +13,7 @@ import { AgentControlPlaneService } from './agent/agent-control-plane.service';
 import { AgentExecutionContext } from './agent/agent-types';
 import { ROLE_PERMISSIONS, UserRole } from '@school-erp/shared';
 import { AIResilienceService } from './ai-resilience.service';
+import { buildFallbackQuestionPaper } from './templates/question-paper.template';
 
 import {
   GoogleGenerativeAI,
@@ -91,7 +91,7 @@ const AI_TOOLS: FunctionDeclarationsTool[] = [
 export class AIService {
   private readonly logger = new Logger(AIService.name);
   private genAI: GoogleGenerativeAI | null = null;
-  private model: any = null;
+  private model: import('@google/generative-ai').GenerativeModel | null = null;
   private insightsCache: Record<string, { time: number; insights: string[] }> =
     {};
 
@@ -127,15 +127,18 @@ export class AIService {
   // ─── Resilient Gemini content generation ──────────────────────────────────
   async safeGenerateContent(
     schoolId: string | undefined | null,
-    promptOrPayload: any,
+    promptOrPayload:
+      | string
+      | import('@google/generative-ai').GenerateContentRequest
+      | import('@google/generative-ai').Part[],
     operationName = 'generateContent',
-  ): Promise<any> {
+  ): Promise<import('@google/generative-ai').GenerateContentResult> {
     if (!this.model) {
       throw new BadRequestException('Gemini AI model is not configured.');
     }
     if (this.resilienceService) {
       return this.resilienceService.execute(
-        () => this.model.generateContent(promptOrPayload),
+        () => this.model!.generateContent(promptOrPayload),
         { schoolId: schoolId || undefined, operationName },
       );
     }
@@ -146,8 +149,8 @@ export class AIService {
   private async buildSystemPrompt(
     user: {
       id: string;
-      firstName: string;
-      lastName: string;
+      firstName?: string;
+      lastName?: string;
       role: string;
       schoolId?: string;
     },
@@ -301,7 +304,8 @@ ${leavesInfo}
 ${topStudentsList}
 • Fee Dues Summary: Outstanding Dues: ${outstandingFees}, Total Collected: ${collectedFees}.
 `;
-      } catch (err: any) {
+      } catch (error) {
+        const err = error as Error;
         this.logger.warn(
           `Failed to build live operational data: ${err.message}`,
         );
@@ -346,8 +350,8 @@ General Rules:
     schoolId: string;
     user: {
       id: string;
-      firstName: string;
-      lastName: string;
+      firstName?: string;
+      lastName?: string;
       role: string;
       schoolId?: string;
     };
@@ -363,7 +367,7 @@ General Rules:
     conversationId: string;
     reply: string;
     tokens?: number;
-    pendingAction?: any;
+    pendingAction?: Record<string, unknown> | null;
   }> {
     // Sanitize user message against raw action injection
     const rawMessage = data.message || '';
@@ -414,7 +418,7 @@ General Rules:
 
     let reply = '';
     let tokens: number | undefined;
-    let pendingAction: any = null;
+    let pendingAction: Record<string, unknown> | null = null;
 
     if (!this.model) {
       // Fallback mock response when no API key
@@ -425,12 +429,14 @@ General Rules:
           data.user,
           effectiveSchoolId,
         );
-        const history = (conversation.messages ?? []).map((m: any) => ({
-          role: m.role === 'user' ? 'user' : 'model',
-          parts: [
-            { text: (m.content || '').replace(/\[ACTION:[^\]]*\]/gi, '') },
-          ],
-        }));
+        const history = (conversation.messages ?? []).map(
+          (m: import('@prisma/client').AIMessage) => ({
+            role: m.role === 'user' ? 'user' : 'model',
+            parts: [
+              { text: (m.content || '').replace(/\[ACTION:[^\]]*\]/gi, '') },
+            ],
+          }),
+        );
 
         const chat = this.model.startChat({
           history: [
@@ -447,9 +453,10 @@ General Rules:
           ],
         });
 
-        let messagePayload: any = sanitizedUserMessage || rawMessage;
+        let messagePayload: string | import('@google/generative-ai').Part[] =
+          sanitizedUserMessage || rawMessage;
         if (data.attachments && data.attachments.length > 0) {
-          const parts: any[] = [
+          const parts: import('@google/generative-ai').Part[] = [
             {
               text:
                 sanitizedUserMessage ||
@@ -481,7 +488,7 @@ General Rules:
               },
             )
           : await chat.sendMessage(messagePayload);
-        const response = await result.response;
+        const response = result.response;
 
         try {
           reply = response.text();
@@ -499,7 +506,7 @@ General Rules:
 
         if (functionCalls && functionCalls.length === 1) {
           // Exactly one call — safe to propose
-          const call = functionCalls[0];
+          const call = functionCalls[0] as { name: string; args?: unknown };
           try {
             const ctx: AgentExecutionContext = {
               userId: data.user.id,
@@ -511,7 +518,7 @@ General Rules:
             const proposal = await this.controlPlane.proposeAction(
               ctx,
               call.name,
-              call.args as Record<string, unknown>,
+              (call.args as Record<string, unknown>) || {},
             );
             pendingAction = proposal.pendingAction;
           } catch (error: unknown) {
@@ -533,12 +540,14 @@ General Rules:
         // Strip ALL action tags from the user-facing reply
         reply = reply ? reply.replace(/\[ACTION:[^\]]+\]/g, '').trim() : '';
         if (!reply && pendingAction) {
-          const label = (pendingAction as Record<string, unknown>)['label'];
-          reply = `I have prepared the action to ${String(label ?? 'execute').toLowerCase()}. Please review and confirm below:`;
+          const label = pendingAction['label'];
+          const actionLabel = label ? String(label).toLowerCase() : 'execute';
+          reply = `I have prepared the action to ${actionLabel}. Please review and confirm below:`;
         }
-      } catch (err: any) {
+      } catch (error) {
+        const err = error as Error;
         this.logger.error('Gemini API error', err?.message);
-        if (err?.status === 429 || err?.message?.includes('429')) {
+        if ((err as any)?.status === 429 || err?.message?.includes('429')) {
           reply =
             "I'm currently receiving too many requests and hit the API rate limit. Please try again in a little while.";
         } else {
@@ -621,14 +630,21 @@ General Rules:
 
     if (anomalies.length > 0) {
       await this.prisma.agentAlert.createMany({
-        data: anomalies.map((a: any) => ({
-          schoolId,
-          type: a.type,
-          title: a.title,
-          description: a.description,
-          actionLabel: a.action,
-          isRead: false,
-        })),
+        data: anomalies.map(
+          (a: {
+            type: string;
+            title: string;
+            description: string;
+            action: string;
+          }) => ({
+            schoolId,
+            type: a.type as import('@prisma/client').RiskLevel,
+            title: a.title,
+            description: a.description,
+            actionLabel: a.action,
+            isRead: false,
+          }),
+        ),
       });
       this.logger.log(
         `Stored ${anomalies.length} proactive alerts for school: ${schoolId}`,
@@ -700,7 +716,8 @@ General Rules:
         status: 'success',
         output: welcomeEmail,
       });
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       agentResults.push({
         agent: 'Communications Agent',
         status: 'error',
@@ -738,7 +755,8 @@ General Rules:
         status: 'success',
         output: slotOutput,
       });
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       agentResults.push({
         agent: 'Scheduling Agent',
         status: 'error',
@@ -838,7 +856,8 @@ General Rules:
         status: 'success',
         output: feeEstimate,
       });
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       agentResults.push({
         agent: 'Finance Agent',
         status: 'error',
@@ -852,7 +871,13 @@ General Rules:
   // ─── Generate school insights for dashboard ───────────────────────────────
   async generateDashboardInsights(
     schoolId: string,
-    user: any,
+    user: {
+      id: string;
+      firstName?: string;
+      lastName?: string;
+      role: string;
+      schoolId?: string;
+    },
   ): Promise<string[]> {
     if (!this.model) {
       return [
@@ -901,16 +926,17 @@ Generate exactly 3 concise one-sentence insights about school operations. Return
       const text = result.response.text();
       const match = text.match(/\[[\s\S]*\]/);
       if (match) {
-        const parsed = JSON.parse(match[0]);
+        const parsed = JSON.parse(match[0]) as unknown;
         if (Array.isArray(parsed)) {
-          const insights = parsed.slice(0, 3);
+          const insights = parsed.slice(0, 3).map((item) => String(item));
           // Cache the result
           this.insightsCache[schoolId] = { time: now, insights };
           return insights;
         }
       }
-    } catch (err: any) {
-      this.logger.error('Dashboard insights error', err?.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error('Dashboard insights error', message);
     }
 
     return [
@@ -1070,7 +1096,8 @@ CRITICAL FORMATTING RULES:
 3. Do NOT use raw LaTeX dollar delimiters like $x = y$ or $$...$$. Write all equations and formulas cleanly using standard Unicode mathematical symbols (e.g. F = m × a, ax² + bx + c = 0, ±, √, ², ³, Δ, °, θ, π).`;
       const result = await this.model.generateContent(prompt);
       return result.response.text();
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       this.logger.error('Lesson plan error', err?.message);
       return buildFallbackPlan();
     }
@@ -1101,7 +1128,8 @@ CRITICAL FORMATTING RULES:
       const prompt = `You are an experienced educator crafting report card remarks. Tone: ${tone}. Student observations: ${studentProfile}. Write an insightful, professional, and personalized remark (2 to 3 sentences). Ensure it is actionable and grammatically impeccable. Do NOT use raw HTML tags like <br> or LaTeX symbols.`;
       const result = await this.model.generateContent(prompt);
       return result.response.text();
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       this.logger.error('Remark error', err?.message);
       return buildFallbackRemark();
     }
@@ -1122,7 +1150,8 @@ CRITICAL FORMATTING RULES:
       const prompt = `You are a professional teacher writing a direct, polite update to a parent. Student info: "${studentProfile}". Situation context: "${context}". Write a warm, polite, and reassuring message (2 to 3 paragraphs). Start with "Dear Parent," and end with teacher regards. Format cleanly for email or WhatsApp. Do NOT use raw HTML tags like <br> or LaTeX symbols.`;
       const result = await this.model.generateContent(prompt);
       return result.response.text();
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       this.logger.error('Parent update error', err?.message);
       return buildFallbackUpdate();
     }
@@ -1177,154 +1206,18 @@ CRITICAL FORMATTING RULES:
     const schoolName =
       params.schoolName?.trim() || school?.name || 'Academic Institute';
 
-    const buildFallbackPaper = () => {
-      let paper = `# ${schoolName.toUpperCase()}
-**Annual Summative Examination — Session 2026-27**
-**Affiliated to ${board} | Nursery – Grade 10 Curriculum**
-
----
-
-| **Subject:** ${subject} | **Grade / Level:** ${grade} |
-| :--- | :--- |
-| **Max. Marks:** ${totalMarks} | **Time Allowed:** ${duration} |
-| **Difficulty Tier:** ${difficulty} | **Coverage:** ${topics} |
-
----
-
-### 📋 General Instructions
-1. This question paper comprises **Five Sections** (Sections A, B, C, D, and E).
-2. **Section A** contains 5 Multiple Choice Questions (MCQs) carrying 1 mark each.
-3. **Section B** contains 3 Short Answer Type-I (SA-I) questions carrying 2 marks each.
-4. **Section C** contains 3 Short Answer Type-II (SA-II) questions carrying 3 marks each.
-5. **Section D** contains 2 Long Answer (LA) questions carrying 5 marks each with internal choice.
-6. **Section E** contains 1 Case/Source-based integrated unit of assessment carrying 4 marks.
-7. All questions are compulsory. Use of calculators or electronic devices is strictly prohibited.
-8. Write all answers neatly with necessary calculation steps and labelled diagrams.
-
----
-
-### SECTION A: Objective & Multiple Choice Questions (1 Mark Each)
-*All questions are compulsory. Select the correct option.*
-
-**Q1.** *[Remembering]* Which of the following fundamental principles or definitions correctly applies to **${subject}** in ${grade}?
-- (A) Option Alpha: The standard base value remains invariant under uniform translation.
-- (B) Option Beta: The rate of variation is directly proportional to external impetus.
-- (C) Option Gamma: The net equilibrium sum vanishes in closed cyclical states.
-- (D) Option Delta: The resultant magnitude quadruples when factor input doubles.
-
-**Q2.** *[Understanding]* Consider the relationship between primary components in the study of **${topics}**. If the boundary condition is halved, what is the consequence on the system?
-- (A) The system remains strictly unaltered.
-- (B) The resultant decreases by a factor of 2.
-- (C) The equilibrium point shifts toward the origin.
-- (D) The system exhibits exponential divergent oscillation.
-
-**Q3.** *[Applying]* A student needs to verify an experimental result involving **${subject}**. Which step ensures experimental validity and prevents systematic error?
-- (A) Neglecting ambient calibration temperature.
-- (B) Recording triple trials and taking the arithmetic mean.
-- (C) Rounding raw measurements before arithmetic computation.
-- (D) Eliminating control groups from comparative observation.
-
-**Q4.** *[Remembering]* In ${board} curriculum standards for ${grade}, the standardized unit or benchmark metric for measuring energy or output is:
-- (A) Newton-meter or Joule
-- (B) Pascal per second
-- (C) Volt-ampere inverse
-- (D) Hertz-radian
-
-**Q5.** *[Understanding]* An assertion (A) and reason (R) are given:
-- **Assertion (A):** The core theorem holds true for all rational values within the specified domain.
-- **Reason (R):** Continuous differentiability guarantees local existence of critical points.
-Choose the correct option:
-- (A) Both (A) and (R) are true and (R) is the correct explanation of (A).
-- (B) Both (A) and (R) are true but (R) is NOT the correct explanation of (A).
-- (C) (A) is true but (R) is false.
-- (D) (A) is false but (R) is true.
-
----
-
-### SECTION B: Short Answer Questions — Type I (2 Marks Each)
-
-**Q6.** *[Understanding]* State the two essential criteria required to validate the core theorem in **${topics}**. Give one real-life example illustrating this in action.  
-*(2 Marks)*
-
-**Q7.** *[Applying]* Solve the following standard problem: If a variable quantity P is inversely related to Q, and P = 24 when Q = 3, calculate the value of P when Q = 8. Show all derivation steps.  
-*(2 Marks)*
-
-**Q8.** *[Analyzing]* Differentiate between primary and secondary characteristics of **${subject}** studied in ${grade}. Present your answer in a concise comparative tabular format with at least two distinct points of divergence.  
-*(2 Marks)*
-
----
-
-### SECTION C: Short Answer Questions — Type II (3 Marks Each)
-
-**Q9.** *[Applying]* A practical scenario involves applying concepts of **${topics}** to optimize resources. Derive the mathematical or conceptual expression step-by-step, stating any assumptions clearly.  
-*(3 Marks)*
-
-**Q10.** *[Analyzing]* Explain why standard experimental values sometimes deviate from theoretical predictions in classroom laboratories. Outline three distinct precautions that students should take to minimize observational error.  
-*(3 Marks)*
-
-**Q11.** *[Understanding]* *(Internal Choice)*
-- **(a)** Explain the detailed mechanism of how feedback loops operate within the context of **${subject}**.
-- **OR**
-- **(b)** Draw a neat, labelled schematic diagram illustrating the primary workflow or structure in ${grade} **${subject}**.  
-*(3 Marks)*
-
----
-
-### SECTION D: Long Answer Questions (5 Marks Each)
-
-**Q12.** *[Evaluating]*
-- **(a)** Formulate the comprehensive proof or complete theoretical derivation for the governing formula in **${topics}**.
-- **(b)** Using the derived principle, calculate the total output when standard baseline parameters are multiplied by a factor of 1.5.  
-*(3 + 2 = 5 Marks)*  
-*OR*  
-- **(a)** Discuss how historical developments in **${subject}** shaped our modern scientific understanding.
-- **(b)** Outline two contemporary real-world challenges where this principle plays a critical role.  
-*(3 + 2 = 5 Marks)*
-
-**Q13.** *[Analyzing]*
-A composite real-world problem requires synthesizing multiple sub-concepts from ${grade} ${subject}:
-1. Identify the given independent and dependent variables. *(1 Mark)*
-2. Construct the governing system of equations or logical relations. *(2 Marks)*
-3. Solve for the unknown equilibrium states and interpret the physical or practical significance of your final answer. *(2 Marks)*  
-*(Total: 5 Marks)*
-
----
-
-### SECTION E: Case-Study / Competency-Based Assessment (4 Marks)
-
-**Q14.** *[Source / Case-Based Integrated Problem]*
-> **Case Context:** During a science and technology symposium at ${schoolName}, Class 10 students were tasked with evaluating energy efficiency and material sustainability under varying seasonal conditions. They recorded observations across five controlled trials and synthesized their data into a predictive performance curve.
-
-Based on the above context, answer the following:
-- **(i)** Identify the primary controlling parameter in the symposium experiment. *(1 Mark)*
-- **(ii)** What mathematical or empirical relation describes the trend observed across the trials? *(1 Mark)*
-- **(iii)** If the baseline load increases by 25%, predict the adjusted system output and justify your reasoning with two quantitative arguments. *(2 Marks)*`;
-
-      if (includeAnswerKey) {
-        paper += `\n\n---
-\n# 📝 STEP-BY-STEP MARKING SCHEME & ANSWER KEY
-**Confidential — For Evaluators Only**
-
-| Question | Expected Answer & Step Breakdown | Marks |
-| :--- | :--- | :--- |
-| **Q1** | **(A)** Standard base value remains invariant.<br />*Recall of core definition (1 mark)* | 1 M |
-| **Q2** | **(B)** Resultant decreases by factor of 2.<br />*Inverse proportional reasoning (1 mark)* | 1 M |
-| **Q3** | **(B)** Recording triple trials and taking arithmetic mean.<br />*Application of error reduction technique (1 mark)* | 1 M |
-| **Q4** | **(A)** Newton-meter or Joule.<br />*Accurate unit recall (1 mark)* | 1 M |
-| **Q5** | **(A)** Both (A) and (R) are true and (R) correctly explains (A). | 1 M |
-| **Q6** | • Stating first criterion clearly (1 M)<br />• Stating second criterion and practical example (1 M) | 2 M |
-| **Q7** | • Constant of proportionality k = P × Q = 24 × 3 = 72 (1 M)<br />• P = 72 / 8 = 9 with final unit (1 M) | 2 M |
-| **Q8** | • Point 1: Operational scope difference (1 M)<br />• Point 2: Input dependency difference (1 M) | 2 M |
-| **Q9** | • Setting up initial boundary equations (1 M)<br />• Substitution and algebraic manipulation (1 M)<br />• Final simplified expression with units (1 M) | 3 M |
-| **Q10** | • Precaution 1: Zero-error correction (1 M)<br />• Precaution 2: Parallax avoidance (1 M)<br />• Precaution 3: Environmental stability (1 M) | 3 M |
-| **Q11 (a/b)** | • Complete explanation / neat labelled diagram with all 4 parts identified (2 M)<br />• Functional description of parts (1 M) | 3 M |
-| **Q12** | • Part (a): Correct proof / derivation step-by-step (3 M)<br />• Part (b): Correct numerical substitution and final value (2 M) | 5 M |
-| **Q13** | • Step 1: Variable identification (1 M)<br />• Step 2: System formulation (2 M)<br />• Step 3: Analytical solution and interpretation (2 M) | 5 M |
-| **Q14** | • (i): Identification of controlling variable (1 M)<br />• (ii): Stating governing empirical equation (1 M)<br />• (iii): Calculation of 25% load shift with justification (2 M) | 4 M |`;
-      }
-
-      return paper;
-    };
+    const buildFallbackPaper = () =>
+      buildFallbackQuestionPaper({
+        schoolName,
+        board,
+        subject,
+        grade,
+        totalMarks,
+        duration,
+        difficulty,
+        topics,
+        includeAnswerKey,
+      });
 
     if (!this.model) {
       return buildFallbackPaper();
@@ -1353,9 +1246,14 @@ CRITICAL RULES:
 - Ensure natural, clear spacing between words, numbers, mathematical operators, and MCQ options (e.g. '(a) Option', not '(a)Option').
 - Do NOT use raw HTML tags such as <br>, <p>, or <div>.`;
 
-      const result = await this.model.generateContent(prompt);
+      const result = await this.safeGenerateContent(
+        validSchoolId,
+        prompt,
+        'generateQuestionPaper',
+      );
       return result.response.text();
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       this.logger.error('Question paper generation error', err?.message);
       return buildFallbackPaper();
     }
@@ -1692,7 +1590,8 @@ Do NOT use raw HTML tags or unescaped LaTeX symbols.`;
         studentName,
         admissionNumber: student.admissionNumber,
       };
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       this.logger.error('MTSS Intervention plan error', err?.message);
       return {
         plan: buildFallbackPlan(),
@@ -1762,7 +1661,8 @@ Do NOT use raw HTML tags or unescaped LaTeX symbols.`;
           leadCaptured = true;
           enquiryId = enquiry.id;
         }
-      } catch (err: any) {
+      } catch (error) {
+        const err = error as Error;
         this.logger.warn(
           `Failed to auto-capture admissions lead: ${err.message}`,
         );
@@ -1923,7 +1823,8 @@ Format in clean Markdown without raw HTML or unescaped LaTeX.`;
         enquiryId,
         language,
       };
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       this.logger.error('Helpdesk chat error', err?.message);
       return {
         reply: buildFallbackResponse(),
@@ -2018,19 +1919,25 @@ Format in clean Markdown without raw HTML or unescaped LaTeX.`;
     // Curated learning gaps based on subjects
     const learningGaps = subjectsSummary
       .filter((s) => s.percentage < 70)
-      .map((s) => ({
-        subject: s.subject,
-        percentage: s.percentage,
-        weakTopic: s.subject.toLowerCase().includes('math')
+      .map((s) => {
+        const weakTopic = s.subject.toLowerCase().includes('math')
           ? 'Quadratic Equations & Linear Graphs'
           : s.subject.toLowerCase().includes('science')
             ? 'Chemical Reactions & Optics'
             : s.subject.toLowerCase().includes('english')
               ? 'Grammar (Subject-Verb Agreement & Tenses)'
-              : 'Core Analytical Concepts',
-        recommendedAction:
-          '30-minute interactive diagnostic practice & flashcard review',
-      }));
+              : `${s.subject} Foundational Concepts`;
+        return {
+          subject: s.subject,
+          percentage: s.percentage,
+          currentScore: s.percentage,
+          weakTopic,
+          topic: weakTopic,
+          recommendedAction:
+            '30-minute interactive diagnostic practice & flashcard review',
+          bloomLevel: 'Understanding',
+        };
+      });
 
     // Fallback default gaps if no marks recorded yet
     if (learningGaps.length === 0) {
@@ -2038,16 +1945,22 @@ Format in clean Markdown without raw HTML or unescaped LaTeX.`;
         {
           subject: 'Mathematics',
           percentage: 62,
+          currentScore: 62,
           weakTopic: 'Polynomials & Coordinate Geometry',
+          topic: 'Polynomials & Coordinate Geometry',
           recommendedAction:
             'Practice 5 adaptive diagnostic questions to reinforce algebraic factorization.',
+          bloomLevel: 'Applying',
         },
         {
           subject: 'Science',
           percentage: 68,
+          currentScore: 68,
           weakTopic: 'Light Reflection & Refraction Ray Diagrams',
+          topic: 'Light Reflection & Refraction Ray Diagrams',
           recommendedAction:
             'Review step-by-step sign convention rules with interactive flashcards.',
+          bloomLevel: 'Understanding',
         },
       );
     }
@@ -2085,6 +1998,8 @@ Format in clean Markdown without raw HTML or unescaped LaTeX.`;
     userId: string,
     subject: string,
     topic: string,
+    grade = 'Class 10',
+    difficulty = 'STANDARD',
   ) {
     requireSchoolId(schoolId);
     const s = subject || 'Mathematics';
@@ -2101,11 +2016,14 @@ Format in clean Markdown without raw HTML or unescaped LaTeX.`;
           'Assume all boundary conditions are zero.',
         ],
         correctIndex: 0,
+        correctAnswer:
+          'Identify the given known values and determine the target variable.',
         hint: 'Always begin by organizing knowns, unknowns, and appropriate units.',
         explanation:
           'Systematic problem solving in K-10 curriculum mandates listing known parameters before selecting the governing formula.',
         conceptRecap:
           'Rule of Practice: Known Parameters -> Governing Principle -> Unit Consistency -> Solution.',
+        bloomLevel: 'Understanding',
       },
       {
         id: 2,
@@ -2117,11 +2035,13 @@ Format in clean Markdown without raw HTML or unescaped LaTeX.`;
           'No change occurs.',
         ],
         correctIndex: 1,
+        correctAnswer: 'The resultant doubles (increases proportionally).',
         hint: 'Direct linear relationship: Output is proportional to input factor.',
         explanation:
           'Under linear models studied in Grades 6-10, doubling the direct independent variable doubles the resultant output.',
         conceptRecap:
           'Direct Variation: Y = k × X. When X doubles, Y also doubles.',
+        bloomLevel: 'Applying',
       },
       {
         id: 3,
@@ -2133,18 +2053,63 @@ Format in clean Markdown without raw HTML or unescaped LaTeX.`;
           'Verifying the solution by substituting it back into the original problem.',
         ],
         correctIndex: 1,
+        correctAnswer:
+          'Forgetting to distribute negative signs across grouped parentheses.',
         hint: 'Distributive property of negative signs is the single most frequent algebraic error.',
         explanation:
           'Distributing negative signs across parentheses like -(a - b) = -a + b is a critical foundational skill tested in CBSE board exams.',
         conceptRecap:
           'Signs Rule: -(a - b) = -a + b. Always double-check grouped terms.',
+        bloomLevel: 'Analyzing',
       },
     ];
+
+    const normalizeQuestionList = (raw: any[]) => {
+      if (!Array.isArray(raw) || raw.length === 0) {
+        return buildFallbackQuestions();
+      }
+      return raw.map((q, idx) => {
+        const rawOpts = Array.isArray(q.options) && q.options.length > 0
+          ? q.options.map((opt: any) => String(opt ?? ''))
+          : [
+              'Identify the given known values and determine the target variable.',
+              'Skip initial parameter checks and estimate the answer directly.',
+              'Invert the final equation without applying algebraic symmetry.',
+              'Assume all boundary conditions are zero.',
+            ];
+        const correctIdx =
+          typeof q.correctIndex === 'number' &&
+          q.correctIndex >= 0 &&
+          q.correctIndex < rawOpts.length
+            ? q.correctIndex
+            : 0;
+        const correctAns =
+          q.correctAnswer && typeof q.correctAnswer === 'string'
+            ? q.correctAnswer
+            : rawOpts[correctIdx] || rawOpts[0];
+
+        return {
+          id: q.id || idx + 1,
+          question: String(q.question || `In ${s}, which statement best describes "${t}"?`),
+          options: rawOpts,
+          correctIndex: correctIdx,
+          correctAnswer: correctAns,
+          hint: String(q.hint || 'Review foundational definitions and step-by-step calculations.'),
+          explanation: String(q.explanation || `The conceptually accurate choice is: ${correctAns}`),
+          conceptRecap: String(q.conceptRecap || `Fundamental anchor for ${t}.`),
+          bloomLevel: q.bloomLevel || 'Understanding',
+        };
+      });
+    };
 
     if (!this.model) {
       return {
         subject: s,
         topic: t,
+        difficulty,
+        grade,
+        remedialFocus: `Foundational mastery and concept recall for ${t}`,
+        conceptRecap: `Focus on core principles of ${t}. Break down formulas and solve step-by-step.`,
         questions: buildFallbackQuestions(),
       };
     }
@@ -2161,23 +2126,54 @@ Return strictly valid JSON with this exact structure:
     "question": "Question text here",
     "options": ["Option A", "Option B", "Option C", "Option D"],
     "correctIndex": 0,
+    "correctAnswer": "Option A",
     "hint": "Helpful hint without giving away the answer directly",
     "explanation": "Clear step-by-step explanation of why option is correct",
-    "conceptRecap": "1-sentence memory anchor"
+    "conceptRecap": "1-sentence memory anchor",
+    "bloomLevel": "Understanding"
   }
 ]`;
 
-      const result = await this.model.generateContent(prompt);
+      const result = await this.safeGenerateContent(
+        schoolId,
+        prompt,
+        'generateAdaptivePractice',
+      );
       const text = result.response.text().trim();
       const jsonMatch = text.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
-        return { subject: s, topic: t, questions: parsed };
+        return {
+          subject: s,
+          topic: t,
+          difficulty,
+          grade,
+          remedialFocus: `Foundational mastery and concept recall for ${t}`,
+          conceptRecap: `Focus on core principles of ${t}. Break down formulas and solve step-by-step.`,
+          questions: normalizeQuestionList(parsed),
+        };
       }
-      return { subject: s, topic: t, questions: buildFallbackQuestions() };
-    } catch (err: any) {
-      this.logger.error('Adaptive practice error', err?.message);
-      return { subject: s, topic: t, questions: buildFallbackQuestions() };
+      return {
+        subject: s,
+        topic: t,
+        difficulty,
+        grade,
+        remedialFocus: `Foundational mastery and concept recall for ${t}`,
+        conceptRecap: `Focus on core principles of ${t}. Break down formulas and solve step-by-step.`,
+        questions: buildFallbackQuestions(),
+      };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error('Adaptive practice error', message);
+      return {
+        subject: s,
+        topic: t,
+        difficulty,
+        grade,
+        remedialFocus: `Foundational mastery and concept recall for ${t}`,
+        conceptRecap: `Focus on core principles of ${t}. Break down formulas and solve step-by-step.`,
+        questions: buildFallbackQuestions(),
+      };
     }
   }
 
@@ -2296,11 +2292,19 @@ Return ONLY the single INTENT string without quotes or extra text.`;
       }
 
       let textResponse = '';
-      let chartData: any = null;
-      let actionExecuted: any = null;
+      let chartData: unknown = null;
+      let actionExecuted: unknown = null;
 
       if (intent === 'CREATE_ADMISSION') {
-        let extracted: any = {};
+        let extracted: {
+          studentName?: string;
+          classApplied?: string;
+          parentName?: string;
+          parentPhone?: string;
+          parentEmail?: string | null;
+          gender?: string;
+          notes?: string;
+        } = {};
         if (this.model) {
           try {
             const extractPrompt = `Extract admission application details from this user command: "${prompt}".
@@ -2321,7 +2325,7 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
               .text()
               .trim()
               .replace(/```json|```/g, '');
-            extracted = JSON.parse(jsonStr);
+            extracted = JSON.parse(jsonStr) as typeof extracted;
           } catch {}
         }
 
@@ -2612,10 +2616,13 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
               .text()
               .trim()
               .replace(/```json|```/g, '');
-            const parsed = JSON.parse(jsonStr);
+            const parsed = JSON.parse(jsonStr) as {
+              title?: string;
+              message?: string;
+            };
             title = parsed.title || title;
             message = parsed.message || cleanPrompt;
-          } catch (e) {
+          } catch {
             message = cleanPrompt;
           }
         }
@@ -2664,9 +2671,12 @@ Return ONLY raw JSON, without markdown formatting or code blocks.`;
 If the user asks you to draft an announcement, message, or email, DO NOT refuse. Do not ask for verification. Assume the principal has already verified the facts and immediately provide a highly professional, ready-to-send draft.
 Format your response cleanly in Markdown with headings and bullet points.
 User request: "${prompt}"`;
-            let contentPayload: any = fallbackPrompt;
+            let contentPayload:
+              string | import('@google/generative-ai').Part[] = fallbackPrompt;
             if (attachments && attachments.length > 0) {
-              const parts: any[] = [{ text: fallbackPrompt }];
+              const parts: import('@google/generative-ai').Part[] = [
+                { text: fallbackPrompt },
+              ];
               for (const att of attachments) {
                 const rawBase64 = att.base64.includes('base64,')
                   ? att.base64.split('base64,')[1]
@@ -2692,7 +2702,8 @@ User request: "${prompt}"`;
       }
 
       return { intent, textResponse, chartData, actionExecuted };
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       this.logger.error('Execute data query error', err?.message);
       return {
         intent: 'ERROR',
@@ -2793,7 +2804,8 @@ User request: "${prompt}"`;
           actionRoute: '/hr',
         });
       }
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       this.logger.error('Get anomalies error', err?.message);
     }
 
@@ -2840,7 +2852,9 @@ User request: "${prompt}"`;
               `Draft a polite, professional fee reminder message for a parent. Student: ${studentName}, Outstanding amount: Rs.${Number(p.outstandingAmount).toLocaleString()}, Parent: ${guardianName}. Keep it under 60 words. Plain text only.`,
             );
             message = r.response.text().trim();
-          } catch (_) {}
+          } catch {
+            /* ignore */
+          }
         }
         return {
           id: p.id,
@@ -2883,7 +2897,13 @@ User request: "${prompt}"`;
     });
 
     // Group by student
-    const studentAbsences: Record<string, any> = {};
+    const studentAbsences: Record<
+      string,
+      {
+        student: (typeof absentRecords)[0]['student'];
+        count: number;
+      }
+    > = {};
     for (const r of absentRecords) {
       if (!studentAbsences[r.studentId])
         studentAbsences[r.studentId] = { student: r.student, count: 0 };
@@ -2892,9 +2912,9 @@ User request: "${prompt}"`;
 
     const items = await Promise.all(
       Object.values(studentAbsences)
-        .filter((s: any) => s.count >= 3)
+        .filter((s) => s.count >= 3)
         .slice(0, 30)
-        .map(async (s: any) => {
+        .map(async (s) => {
           const studentName =
             `${s.student.user?.firstName || ''} ${s.student.user?.lastName || ''}`.trim() ||
             'Student';
@@ -2909,7 +2929,9 @@ User request: "${prompt}"`;
                 `Draft a caring, professional absence alert for a parent. Student: ${studentName}, Consecutive absences: ${s.count} days. Keep it under 60 words. Plain text only.`,
               );
               message = r.response.text().trim();
-            } catch (_) {}
+            } catch {
+              /* ignore */
+            }
           }
           return {
             id: s.student.id,
@@ -2984,6 +3006,7 @@ User request: "${prompt}"`;
 
     const items = await Promise.all(
       approvedLeaves.map(async (leave) => {
+        await Promise.resolve();
         const absentStaffName = `${leave.staff.user.firstName} ${leave.staff.user.lastName}`;
 
         const affectedSlots = todayTimetableSlots.filter(
@@ -2991,6 +3014,7 @@ User request: "${prompt}"`;
         );
 
         // Find free substitute for the primary affected period (or overall)
+
         let suggestedSub: any = null;
         const slotsWithSub = affectedSlots.map((slot) => {
           const busyStaffAtPeriod = new Set(
@@ -3008,7 +3032,11 @@ User request: "${prompt}"`;
           // Subject match priority
           const subjectMatch = freeStaff.find((st) =>
             st.teacherAssignments?.some(
-              (ta: any) =>
+              (
+                ta: import('@prisma/client').Prisma.TeacherAssignmentGetPayload<{
+                  include: { subject: true };
+                }>,
+              ) =>
                 ta.subjectId === slot.subjectId ||
                 ta.subject?.name === slot.subject?.name,
             ),
@@ -3103,7 +3131,9 @@ User request: "${prompt}"`;
               `Draft a formal attendance warning letter for a parent. Student: ${studentName}, Attendance: ${pct}%. Keep under 80 words. Plain text only.`,
             );
             message = r.response.text().trim();
-          } catch (_) {}
+          } catch {
+            /* ignore */
+          }
         }
         return {
           id: s.studentId,
@@ -3138,6 +3168,7 @@ User request: "${prompt}"`;
 
     const items = await Promise.all(
       pendingLeaves.map(async (leave) => {
+        await Promise.resolve();
         const staffName = `${leave.staff.user.firstName} ${leave.staff.user.lastName}`;
         const startDate = new Date(leave.startDate);
         const dayOfWeek = startDate.getDay() === 0 ? 7 : startDate.getDay();
@@ -3168,10 +3199,10 @@ User request: "${prompt}"`;
                 .text()
                 .trim()
                 .replace(/```json|```/g, ''),
-            );
+            ) as { recommendation?: string; reasoning?: string };
             recommendation = parsed.recommendation || recommendation;
             reasoning = parsed.reasoning || reasoning;
-          } catch (_) {}
+          } catch {}
         }
 
         return {

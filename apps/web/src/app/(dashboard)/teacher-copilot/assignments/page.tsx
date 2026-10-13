@@ -4,11 +4,12 @@ import React, { useState, useEffect, useMemo } from "react";
 import { 
   Plus, Check, Search, Calendar, FileText, CheckCircle2, 
   AlertTriangle, Clock, Trash2, ArrowLeft, Users, 
-  Filter, Loader2, X, Save
+  Filter, Loader2, X, Save, ShieldCheck, ShieldAlert, Split, Sparkles, ExternalLink
 } from "lucide-react";
 import { apiClient } from "@/lib/axios";
 import { Button } from "@/components/ui/Button";
 import Link from "next/link";
+import AssignmentPlagiarismModal, { OriginalityReport } from "@/components/teacher/AssignmentPlagiarismModal";
 
 interface Assignment {
   id: string;
@@ -45,6 +46,9 @@ interface SubmissionItem {
   status: "PENDING" | "SUBMITTED" | "GRADED" | "LATE";
   marksObtained: number | null;
   feedback: string;
+  submissionText?: string;
+  attachmentUrl?: string | null;
+  originalityReport?: OriginalityReport | null;
   submittedAt: string | null;
 }
 
@@ -80,6 +84,10 @@ export default function TeacherAssignmentsPage() {
   const [submissionStats, setSubmissionStats] = useState<{ totalStudents: number; submittedCount: number; gradedCount: number; pendingCount: number } | null>(null);
   const [gradingMarks, setGradingMarks] = useState<Record<string, { marks: string; feedback: string }>>({});
   const [savingGradeId, setSavingGradeId] = useState<string | null>(null);
+
+  // Plagiarism & Originality Inspector Modal State
+  const [selectedSubmissionForPlagiarism, setSelectedSubmissionForPlagiarism] = useState<SubmissionItem | null>(null);
+  const [isPlagiarismModalOpen, setIsPlagiarismModalOpen] = useState(false);
 
   // Delete Modal State
   const [assignmentToDelete, setAssignmentToDelete] = useState<Assignment | null>(null);
@@ -1124,8 +1132,83 @@ export default function TeacherAssignmentsPage() {
                             <div style={{ fontWeight: 700, fontSize: "var(--text-sm)", color: "var(--text-primary)" }}>
                               {sub.studentName}
                             </div>
-                            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>
-                              {sub.status === "GRADED" ? "Graded" : sub.status === "SUBMITTED" ? "Submitted" : "Pending Submission"}
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.2rem" }}>
+                              <span style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>
+                                {sub.status === "GRADED" ? "Graded" : sub.status === "SUBMITTED" ? "Submitted" : "Pending Submission"}
+                              </span>
+
+                              {/* Originality Badge & Inspector Launcher */}
+                              {sub.originalityReport ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedSubmissionForPlagiarism(sub);
+                                    setIsPlagiarismModalOpen(true);
+                                  }}
+                                  style={{
+                                    fontSize: "10px",
+                                    fontWeight: 700,
+                                    padding: "0.15rem 0.5rem",
+                                    borderRadius: "100px",
+                                    background:
+                                      sub.originalityReport.status === "FLAGGED_PLAGIARISM"
+                                        ? "rgba(239, 68, 68, 0.15)"
+                                        : sub.originalityReport.status === "MODERATE_SIMILARITY"
+                                        ? "rgba(245, 158, 11, 0.15)"
+                                        : "rgba(16, 185, 129, 0.15)",
+                                    color:
+                                      sub.originalityReport.status === "FLAGGED_PLAGIARISM"
+                                        ? "#dc2626"
+                                        : sub.originalityReport.status === "MODERATE_SIMILARITY"
+                                        ? "#d97706"
+                                        : "#059669",
+                                    border: `1px solid ${
+                                      sub.originalityReport.status === "FLAGGED_PLAGIARISM"
+                                        ? "rgba(239, 68, 68, 0.3)"
+                                        : sub.originalityReport.status === "MODERATE_SIMILARITY"
+                                        ? "rgba(245, 158, 11, 0.3)"
+                                        : "rgba(16, 185, 129, 0.3)"
+                                    }`,
+                                    cursor: "pointer",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "0.25rem",
+                                  }}
+                                  title="Click to view full originality report and split-view diff"
+                                >
+                                  {sub.originalityReport.status === "FLAGGED_PLAGIARISM" ? (
+                                    <ShieldAlert size={11} />
+                                  ) : (
+                                    <ShieldCheck size={11} />
+                                  )}
+                                  {sub.originalityReport.overallSimilarityScore}% Match · Diff
+                                </button>
+                              ) : sub.status !== "PENDING" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedSubmissionForPlagiarism(sub);
+                                    setIsPlagiarismModalOpen(true);
+                                  }}
+                                  style={{
+                                    fontSize: "10px",
+                                    fontWeight: 700,
+                                    padding: "0.15rem 0.5rem",
+                                    borderRadius: "100px",
+                                    background: "var(--brand-blue-subtle)",
+                                    color: "var(--brand-primary)",
+                                    border: "1px solid rgba(59, 130, 246, 0.25)",
+                                    cursor: "pointer",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "0.25rem",
+                                  }}
+                                  title="Audit student submission against peer submissions"
+                                >
+                                  <Sparkles size={11} />
+                                  Audit Originality
+                                </button>
+                              ) : null}
                             </div>
                           </div>
                         </div>
@@ -1178,6 +1261,35 @@ export default function TeacherAssignmentsPage() {
                             />
                           </div>
 
+                          {/* Diff Panel Action Button */}
+                          {sub.status !== "PENDING" && (
+                            <button
+                              type="button"
+                              title="Open Originality Inspector & Peer Diff"
+                              onClick={() => {
+                                setSelectedSubmissionForPlagiarism(sub);
+                                setIsPlagiarismModalOpen(true);
+                              }}
+                              style={{
+                                padding: "0.4rem 0.65rem",
+                                borderRadius: "var(--radius-md)",
+                                border: "1px solid var(--border-default)",
+                                background: "var(--bg-surface)",
+                                color: "var(--text-secondary)",
+                                fontSize: "var(--text-xs)",
+                                fontWeight: 600,
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "0.25rem",
+                                flexShrink: 0,
+                              }}
+                            >
+                              <Split size={12} />
+                              Diff
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             onClick={() => handleSaveGrade(sub.studentId)}
@@ -1209,6 +1321,42 @@ export default function TeacherAssignmentsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ========================================================
+          STUDENT ASSIGNMENT PLAGIARISM & ORIGINALITY UI PANEL
+          ======================================================== */}
+      {selectedAssignmentForSubmissions && selectedSubmissionForPlagiarism && (
+        <AssignmentPlagiarismModal
+          isOpen={isPlagiarismModalOpen}
+          onClose={() => {
+            setIsPlagiarismModalOpen(false);
+            setSelectedSubmissionForPlagiarism(null);
+          }}
+          assignmentId={selectedAssignmentForSubmissions.id}
+          assignmentTitle={selectedAssignmentForSubmissions.title}
+          studentId={selectedSubmissionForPlagiarism.studentId}
+          studentName={selectedSubmissionForPlagiarism.studentName}
+          submissionText={selectedSubmissionForPlagiarism.submissionText || ""}
+          attachmentUrl={selectedSubmissionForPlagiarism.attachmentUrl}
+          originalityReport={selectedSubmissionForPlagiarism.originalityReport || null}
+          peerSubmissions={submissions
+            .filter((s) => s.studentId !== selectedSubmissionForPlagiarism.studentId)
+            .map((s) => ({
+              studentId: s.studentId,
+              studentName: s.studentName,
+              content: s.submissionText || "",
+            }))}
+          onReportUpdated={(newReport) => {
+            setSubmissions((prev) =>
+              prev.map((s) =>
+                s.studentId === selectedSubmissionForPlagiarism.studentId
+                  ? { ...s, originalityReport: newReport }
+                  : s
+              )
+            );
+          }}
+        />
       )}
 
       {/* ========================================================

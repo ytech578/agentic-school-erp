@@ -168,3 +168,21 @@ export class SubmitAssignmentDto {
   @IsOptional()
   feedback?: string;
 }
+
+export class StudentSubmitAssignmentDto {
+  @ApiProperty({
+    description: 'Submission text content (answers, solution text, or essay)',
+    example: 'Photosynthesis is the process used by plants and other organisms to convert light energy into chemical energy.',
+  })
+  @IsString()
+  content: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional URL of uploaded homework document / attachment',
+    example: '/uploads/documents/assignment_123.pdf',
+  })
+  @IsString()
+  @IsOptional()
+  attachmentUrl?: string;
+}
+

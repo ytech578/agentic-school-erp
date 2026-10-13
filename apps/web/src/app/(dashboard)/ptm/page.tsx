@@ -21,7 +21,8 @@ import {
   Video,
   ExternalLink,
   Filter,
-  CalendarDays
+  CalendarDays,
+  AlertOctagon
 } from "lucide-react";
 
 interface StudentProfile {
@@ -103,6 +104,15 @@ export default function PtmSchedulingPage() {
     return error?.response?.data?.message || fallback;
   };
 
+  const isSessionDatePast = (session: { meetingDate?: string | Date; date?: string | Date } | null | undefined): boolean => {
+    if (!session) return false;
+    const raw = session.meetingDate || session.date;
+    if (!raw) return false;
+    const d = new Date(raw);
+    d.setHours(23, 59, 59, 999);
+    return d.getTime() < Date.now();
+  };
+
   useEffect(() => {
     fetchSessions();
     apiClient.get("/students?limit=50")
@@ -175,6 +185,11 @@ export default function PtmSchedulingPage() {
     e.preventDefault();
     if (!activeSlotToBook || !studentIdToBook) return;
 
+    if (selectedSession && isSessionDatePast(selectedSession)) {
+      alert("This PTM session date has passed. Slot booking is no longer available.");
+      return;
+    }
+
     try {
       await apiClient.post(`/ptm/slots/${activeSlotToBook.id}/book`, {
         studentId: studentIdToBook,
@@ -236,7 +251,25 @@ export default function PtmSchedulingPage() {
     {
       header: "Meeting Date",
       accessorKey: "meetingDate",
-      cell: (row) => ((row.meetingDate || row.date) ? new Date(row.meetingDate || row.date!).toLocaleDateString() : "—"),
+      cell: (row) => {
+        const isPast = isSessionDatePast(row);
+        const dateVal = row.meetingDate || row.date;
+        const formatted = dateVal ? new Date(dateVal).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—";
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 600 }}>{formatted}</span>
+            {isPast ? (
+              <span style={{ fontSize: "10px", fontWeight: 700, padding: "0.15rem 0.45rem", borderRadius: "var(--radius-full)", background: "var(--slate-100)", color: "var(--slate-600)" }}>
+                CLOSED (PAST)
+              </span>
+            ) : (
+              <span style={{ fontSize: "10px", fontWeight: 700, padding: "0.15rem 0.45rem", borderRadius: "var(--radius-full)", background: "var(--teal-50)", color: "var(--teal-700)" }}>
+                UPCOMING
+              </span>
+            )}
+          </div>
+        );
+      },
     },
     {
       header: "Time Window",
@@ -260,16 +293,19 @@ export default function PtmSchedulingPage() {
     {
       header: "Actions",
       accessorKey: "id",
-      cell: (row) => (
-        <Button
-          size="sm"
-          variant="outline"
-          icon={<Eye size={14} />}
-          onClick={() => handleOpenSlots(row)}
-        >
-          View Slots
-        </Button>
-      ),
+      cell: (row) => {
+        const isPast = isSessionDatePast(row);
+        return (
+          <Button
+            size="sm"
+            variant={isPast ? "secondary" : "outline"}
+            icon={<Eye size={14} />}
+            onClick={() => handleOpenSlots(row)}
+          >
+            {isPast ? "View Past Records" : "View Slots"}
+          </Button>
+        );
+      },
     },
   ];
 
@@ -518,6 +554,30 @@ export default function PtmSchedulingPage() {
           title={`Slots: ${selectedSession.title} (${new Date(selectedSession.meetingDate || selectedSession.date || Date.now()).toLocaleDateString()})`}
         >
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem", maxHeight: "72vh", overflowY: "auto" }}>
+            {/* Past Meeting Alert */}
+            {isSessionDatePast(selectedSession) && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.6rem",
+                  padding: "0.75rem 1rem",
+                  borderRadius: "var(--radius-md)",
+                  background: "var(--slate-100)",
+                  border: "1px solid var(--border-default)",
+                  color: "var(--text-secondary)",
+                  fontSize: "0.85rem",
+                }}
+              >
+                <AlertOctagon size={18} style={{ color: "var(--warning)", flexShrink: 0 }} />
+                <div>
+                  <strong style={{ color: "var(--text-primary)" }}>Session Date Passed:</strong> This meeting window took place on{" "}
+                  {new Date(selectedSession.meetingDate || selectedSession.date || "").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}.
+                  New slot bookings are closed for past dates. Completed consultation summaries remain accessible below.
+                </div>
+              </div>
+            )}
+
             {/* Virtual Video Conference Room Banner (if applicable) */}
             {selectedSession.meetingLink && (
               <div
@@ -772,11 +832,27 @@ export default function PtmSchedulingPage() {
                         )}
                       </div>
 
-                      <div style={{ display: "flex", gap: "0.4rem" }}>
+                      <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
                         {isAvailable && (
-                          <Button size="sm" onClick={() => setActiveSlotToBook(slot)}>
-                            Book Slot
-                          </Button>
+                          isSessionDatePast(selectedSession) ? (
+                            <span
+                              style={{
+                                fontSize: "0.75rem",
+                                fontWeight: 700,
+                                padding: "0.25rem 0.6rem",
+                                borderRadius: "4px",
+                                background: "var(--slate-100)",
+                                color: "var(--slate-500)",
+                                border: "1px solid var(--border-default)",
+                              }}
+                            >
+                              Booking Closed
+                            </span>
+                          ) : (
+                            <Button size="sm" onClick={() => setActiveSlotToBook(slot)}>
+                              Book Slot
+                            </Button>
+                          )
                         )}
 
                         {isBooked && (
@@ -789,14 +865,16 @@ export default function PtmSchedulingPage() {
                             >
                               Feedback
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleCancelSlot(slot.id)}
-                              style={{ color: "var(--danger)" }}
-                            >
-                              Cancel
-                            </Button>
+                            {!isSessionDatePast(selectedSession) && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleCancelSlot(slot.id)}
+                                style={{ color: "var(--danger)" }}
+                              >
+                                Cancel
+                              </Button>
+                            )}
                           </>
                         )}
                       </div>

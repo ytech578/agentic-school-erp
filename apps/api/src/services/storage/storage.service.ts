@@ -2,6 +2,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  BadRequestException,
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -114,9 +115,10 @@ export class StorageService {
           mimeType,
           storageDriver: 's3',
         };
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
         this.logger.warn(
-          `S3 upload failed, falling back to local storage: ${err.message}`,
+          `S3 upload failed, falling back to local storage: ${msg}`,
         );
       }
     }
@@ -143,6 +145,19 @@ export class StorageService {
     };
   }
 
+  private extractS3Key(fileUrl: string): string {
+    let s3Key = fileUrl;
+    if (fileUrl.startsWith('s3://')) {
+      s3Key = fileUrl.replace(`s3://${this.s3Bucket}/`, '');
+    } else if (fileUrl.startsWith('http')) {
+      const urlObj = new URL(fileUrl);
+      s3Key = urlObj.pathname
+        .replace(`/${this.s3Bucket}/`, '')
+        .replace(/^\//, '');
+    }
+    return s3Key;
+  }
+
   async getFileStream(fileUrl: string): Promise<FileStreamResult> {
     if (
       (fileUrl.startsWith('http') || fileUrl.startsWith('s3://')) &&
@@ -151,15 +166,7 @@ export class StorageService {
       this.s3Client
     ) {
       try {
-        let s3Key = fileUrl;
-        if (fileUrl.startsWith('s3://')) {
-          s3Key = fileUrl.replace(`s3://${this.s3Bucket}/`, '');
-        } else if (fileUrl.startsWith('http')) {
-          const urlObj = new URL(fileUrl);
-          s3Key = urlObj.pathname
-            .replace(`/${this.s3Bucket}/`, '')
-            .replace(/^\//, '');
-        }
+        const s3Key = this.extractS3Key(fileUrl);
 
         const command = new GetObjectCommand({
           Bucket: this.s3Bucket,
@@ -177,17 +184,25 @@ export class StorageService {
           mimeType: response.ContentType || 'application/octet-stream',
           fileSize: response.ContentLength,
         };
-      } catch (err: any) {
-        this.logger.error(`Failed to stream from S3: ${err.message}`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error(`Failed to stream from S3: ${msg}`);
         throw new NotFoundException(
           'Requested file not found in cloud storage',
         );
       }
     }
 
-    // Local filesystem stream
+    // Local filesystem stream with path traversal protection
     const relativePath = fileUrl.replace(/^\/uploads\//, '');
-    const filePath = path.join(this.uploadDir, relativePath);
+    const normalizedRelative = path.normalize(relativePath).replace(/^(\.\.[\/\\])+/, '');
+    const resolvedPath = path.resolve(this.uploadDir, normalizedRelative);
+    const resolvedUploadDir = path.resolve(this.uploadDir);
+
+    if (!resolvedPath.startsWith(resolvedUploadDir)) {
+      throw new BadRequestException('Invalid file path (path traversal detected)');
+    }
+    const filePath = resolvedPath;
 
     if (!fs.existsSync(filePath)) {
       throw new NotFoundException('Requested file not found on local storage');
@@ -222,15 +237,7 @@ export class StorageService {
       this.s3Client
     ) {
       try {
-        let s3Key = fileUrl;
-        if (fileUrl.startsWith('s3://')) {
-          s3Key = fileUrl.replace(`s3://${this.s3Bucket}/`, '');
-        } else if (fileUrl.startsWith('http')) {
-          const urlObj = new URL(fileUrl);
-          s3Key = urlObj.pathname
-            .replace(`/${this.s3Bucket}/`, '')
-            .replace(/^\//, '');
-        }
+        const s3Key = this.extractS3Key(fileUrl);
 
         const command = new DeleteObjectCommand({
           Bucket: this.s3Bucket,
@@ -239,13 +246,22 @@ export class StorageService {
         await this.s3Client.send(command);
         this.logger.log(`Deleted S3 object: ${s3Key}`);
         return;
-      } catch (err: any) {
-        this.logger.warn(`Failed to delete S3 object: ${err.message}`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Failed to delete S3 object: ${msg}`);
       }
     }
 
+    // Local filesystem deletion with path traversal protection
     const relativePath = fileUrl.replace(/^\/uploads\//, '');
-    const filePath = path.join(this.uploadDir, relativePath);
+    const normalizedRelative = path.normalize(relativePath).replace(/^(\.\.[\/\\])+/, '');
+    const resolvedPath = path.resolve(this.uploadDir, normalizedRelative);
+    const resolvedUploadDir = path.resolve(this.uploadDir);
+
+    if (!resolvedPath.startsWith(resolvedUploadDir)) {
+      throw new BadRequestException('Invalid file path (path traversal detected)');
+    }
+    const filePath = resolvedPath;
 
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);

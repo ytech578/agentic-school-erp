@@ -122,6 +122,26 @@ describe('PtmService', () => {
       ).rejects.toThrow(ConflictException);
     });
 
+    it('should throw BadRequestException if session date is in the past', async () => {
+      prisma.student.findFirst.mockResolvedValue({
+        id: mockStudentId,
+        guardians: [{ userId: mockParentUserId }],
+      });
+      prisma.ptmSlot.findFirst.mockResolvedValue({
+        id: 'slot-1',
+        sessionId: 'session-1',
+        teacherId: mockTeacherId,
+        status: 'AVAILABLE',
+        session: { date: new Date('2020-01-01') },
+      });
+
+      await expect(
+        service.bookSlot(mockSchoolId, 'slot-1', mockParentUserId, 'PARENT', {
+          studentId: mockStudentId,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
     it('should book available slot successfully', async () => {
       prisma.student.findFirst.mockResolvedValue({
         id: mockStudentId,

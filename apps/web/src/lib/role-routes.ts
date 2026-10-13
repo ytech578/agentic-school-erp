@@ -110,7 +110,7 @@ export function isRouteAllowedForRole(pathname: string, role?: string): boolean 
 
   // ─── Certificates Engine ───
   if (normalized.startsWith('/certificates')) {
-    return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER', 'PARENT', 'STUDENT'].includes(role);
+    return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'PARENT', 'STUDENT'].includes(role);
   }
 
   // ─── PTM Scheduling ───
@@ -130,7 +130,7 @@ export function isRouteAllowedForRole(pathname: string, role?: string): boolean 
 
   // ─── SaaS Subscriptions & Metering ───
   if (normalized.startsWith('/subscriptions')) {
-    return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER'].includes(role);
+    return ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL'].includes(role);
   }
 
   // ─── DPDP Privacy Center ───

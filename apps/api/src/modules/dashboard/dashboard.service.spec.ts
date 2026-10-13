@@ -83,7 +83,7 @@ describe('DashboardService (Audit Verification & Zero-Mock Guarantee)', () => {
       ]);
       prisma.activityLog.findMany.mockResolvedValueOnce([]);
 
-      const result = await service.getSuperAdminDashboard();
+      const result = (await service.getSuperAdminDashboard()) as any;
 
       expect(result.fleet.totalSchools).toBe(5);
       expect(result.fleet.activeSchools).toBe(4);
@@ -103,7 +103,7 @@ describe('DashboardService (Audit Verification & Zero-Mock Guarantee)', () => {
       };
       redisService.get.mockResolvedValueOnce(JSON.stringify(cachedData));
 
-      const result = await service.getSuperAdminDashboard();
+      const result = (await service.getSuperAdminDashboard()) as any;
 
       expect(result).toEqual(cachedData);
       expect(prisma.school.count).not.toHaveBeenCalled();
@@ -150,7 +150,9 @@ describe('DashboardService (Audit Verification & Zero-Mock Guarantee)', () => {
       prisma.user.findMany.mockResolvedValueOnce([]); // recentEnrollments
       prisma.feePayment.findMany.mockResolvedValueOnce([]); // 7-day trend payments
 
-      const result = await service.getSchoolAdminDashboard(mockSchoolId);
+      const result = (await service.getSchoolAdminDashboard(
+        mockSchoolId,
+      )) as any;
 
       expect(result.kpis.collectedThisMonth).toBe(350000);
       expect(result.kpis.overdueDues).toBe(50000);
@@ -188,7 +190,9 @@ describe('DashboardService (Audit Verification & Zero-Mock Guarantee)', () => {
         { paidAmount: 25000, paymentDate: today },
       ]);
 
-      const result = await service.getSchoolAdminDashboard(mockSchoolId);
+      const result = (await service.getSchoolAdminDashboard(
+        mockSchoolId,
+      )) as any;
 
       expect(result.collectionTrend).toBeDefined();
       expect(result.collectionTrend.length).toBe(7);

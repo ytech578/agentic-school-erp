@@ -155,6 +155,7 @@ export class CertificatesController {
   @Get(':id/download')
   @ApiBearerAuth('JWT-auth')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   @ApiOperation({ summary: 'Download certificate PDF' })
   async downloadCertificate(
     @Request() req: any,

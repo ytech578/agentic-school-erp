@@ -243,7 +243,9 @@ export class AuthService {
 
     this.logger.log(`Password reset email sent to ${email}`);
 
-    const isDev = this.config.get('app.nodeEnv') !== 'production';
+    const isDev =
+      process.env.ENABLE_DEV_AUTH_SIMULATION === 'true' &&
+      this.config.get('app.nodeEnv') === 'development';
     if (isDev) {
       return {
         devSimulation: true,

@@ -18,7 +18,7 @@ export class DashboardService {
     if (!this.redisService) return null;
     try {
       const data = await this.redisService.get(key);
-      return data ? JSON.parse(data) : null;
+      return data ? (JSON.parse(data) as T) : null;
     } catch {
       return null;
     }
@@ -26,7 +26,7 @@ export class DashboardService {
 
   private async setToCache(
     key: string,
-    data: any,
+    data: unknown,
     ttlSeconds = 60,
   ): Promise<void> {
     if (!this.redisService) return;
@@ -40,7 +40,7 @@ export class DashboardService {
   // ─── SUPER ADMIN DASHBOARD (Platform Multi-Tenant Fleet) ───────────────────
   async getSuperAdminDashboard() {
     const cacheKey = 'dashboard:superadmin';
-    const cached = await this.getFromCache<any>(cacheKey);
+    const cached = await this.getFromCache<Record<string, unknown>>(cacheKey);
     if (cached) return cached;
 
     const [
@@ -135,7 +135,7 @@ export class DashboardService {
         : requireSchoolId(schoolId, 'School admin dashboard');
 
     const cacheKey = `dashboard:schooladmin:${validSchoolId ?? 'global'}`;
-    const cached = await this.getFromCache<any>(cacheKey);
+    const cached = await this.getFromCache<Record<string, unknown>>(cacheKey);
     if (cached) return cached;
 
     const now = new Date();
@@ -354,7 +354,7 @@ export class DashboardService {
   async getPrincipalDashboard(schoolId: string) {
     const validSchoolId = requireSchoolId(schoolId);
     const cacheKey = `dashboard:principal:${validSchoolId}`;
-    const cached = await this.getFromCache<any>(cacheKey);
+    const cached = await this.getFromCache<Record<string, unknown>>(cacheKey);
     if (cached) return cached;
 
     const now = new Date();
@@ -591,7 +591,16 @@ export class DashboardService {
     // Build map of staff unavailable today (approved leave or absent/excused attendance)
     const unavailableMap = new Map<
       string,
-      { staff: any; status: string; reason?: string }
+      {
+        staff: import('@prisma/client').Prisma.StaffGetPayload<{
+          include: {
+            user: true;
+            teacherAssignments: { include: { subject: true } };
+          };
+        }>;
+        status: string;
+        reason?: string;
+      }
     >();
 
     for (const l of approvedLeavesToday) {
@@ -620,14 +629,35 @@ export class DashboardService {
     );
 
     // Map existing confirmed substitutions for today by originalStaffId
-    const confirmedSubsMap = new Map<string, any[]>();
+    const confirmedSubsMap = new Map<
+      string,
+      import('@prisma/client').Prisma.FacultySubstitutionGetPayload<{
+        include: {
+          substituteStaff: {
+            include: {
+              user: true;
+              teacherAssignments: { include: { subject: true } };
+            };
+          };
+        };
+      }>[]
+    >();
     for (const cs of confirmedSubstitutionsToday) {
       const list = confirmedSubsMap.get(cs.originalStaffId) || [];
       list.push(cs);
       confirmedSubsMap.set(cs.originalStaffId, list);
     }
 
-    const substitutions: any[] = [];
+    const substitutions: {
+      staffId: string;
+      name: string;
+      status: string;
+      leaveReason?: string;
+      classesCount: number;
+      isConfirmed: boolean;
+      recommendedSubstitute?: string | null;
+      periods: Record<string, unknown>[];
+    }[] = [];
 
     for (const [staffId, info] of unavailableMap.entries()) {
       const staff = info.staff;
@@ -655,7 +685,7 @@ export class DashboardService {
         continue;
       }
 
-      const periods: any[] = [];
+      const periods: Record<string, unknown>[] = [];
       for (const slot of staffSlots) {
         const pNum = slot.periodNumber;
         const slotTime =
@@ -681,7 +711,11 @@ export class DashboardService {
         // Ranking: 1. Subject Specialist -> 2. Department Peer -> 3. Available Free Faculty
         const subjectMatches = freeStaff.filter((st) =>
           st.teacherAssignments?.some(
-            (ta: any) =>
+            (
+              ta: import('@prisma/client').Prisma.TeacherAssignmentGetPayload<{
+                include: { subject: true };
+              }>,
+            ) =>
               ta.subjectId === slot.subjectId ||
               ta.subject?.name === subjectName,
           ),
@@ -782,72 +816,111 @@ export class DashboardService {
       });
     }
 
-    const pendingLeaves = (pendingLeavesList || []).map((l: any) => ({
-      id: l.id,
-      staffName: l.staff?.user
-        ? `${l.staff.user.firstName} ${l.staff.user.lastName}`
-        : 'Faculty Member',
-      leaveType: l.leaveType || 'CASUAL',
-      startDate: l.startDate,
-      endDate: l.endDate,
-      reason: l.reason || 'Personal leave request',
-      status: l.status,
-    }));
+    const pendingLeaves = (pendingLeavesList || []).map(
+      (
+        l: import('@prisma/client').Prisma.LeaveRequestGetPayload<{
+          include: { staff: { include: { user: true } } };
+        }>,
+      ) => ({
+        id: l.id,
+        staffName: l.staff?.user
+          ? `${l.staff.user.firstName} ${l.staff.user.lastName}`
+          : 'Faculty Member',
+        leaveType: l.leaveType || 'CASUAL',
+        startDate: l.startDate,
+        endDate: l.endDate,
+        reason: l.reason || 'Personal leave request',
+        status: l.status,
+      }),
+    );
 
-    let atRiskStudents: any[] = [];
+    let atRiskStudents: Record<string, unknown>[] = [];
     if (this.aiService) {
       try {
         const riskResult =
           await this.aiService.getEarlyWarningRiskStudents(validSchoolId);
         const flagged = (riskResult?.students || []).filter(
-          (s: any) =>
+          (s: {
+            riskLevel?: string;
+            id?: string;
+            name?: string;
+            admissionNumber?: string;
+            class?: string;
+            attendanceRate?: number;
+            primaryDrivers?: string[];
+          }) =>
             s.riskLevel === 'CRITICAL' ||
             s.riskLevel === 'HIGH' ||
             s.riskLevel === 'MODERATE',
         );
-        atRiskStudents = flagged.slice(0, 10).map((s: any) => ({
-          id: s.id,
-          name: s.name,
-          admissionNumber: s.admissionNumber,
-          className: s.class,
-          attendancePct: s.attendanceRate,
-          guardianPhone: null,
-          riskFactor: s.primaryDrivers?.[0] || 'Early Warning Triggered',
-          severity: s.riskLevel,
-        }));
-      } catch (err) {
+        atRiskStudents = flagged
+          .slice(0, 10)
+          .map(
+            (s: {
+              riskLevel?: string;
+              id?: string;
+              name?: string;
+              admissionNumber?: string;
+              class?: string;
+              attendanceRate?: number;
+              primaryDrivers?: string[];
+            }) => ({
+              id: s.id,
+              name: s.name,
+              admissionNumber: s.admissionNumber,
+              className: s.class,
+              attendancePct: s.attendanceRate,
+              guardianPhone: null,
+              riskFactor: s.primaryDrivers?.[0] || 'Early Warning Triggered',
+              severity: s.riskLevel,
+            }),
+          );
+      } catch {
         atRiskStudents = [];
       }
     } else {
-      atRiskStudents = (atRiskStudentsList || []).map((s: any) => {
-        const enrollment = s.enrollments?.[0];
-        const className = enrollment?.section
-          ? `${enrollment.section.class.name} - ${enrollment.section.name}`
-          : 'Unassigned';
-        const guardian = s.guardians?.[0];
-        const totalAtt = (s.attendance || []).length;
-        const presentAtt = (s.attendance || []).filter(
-          (a: any) =>
-            a.status === 'PRESENT' ||
-            a.status === 'LATE' ||
-            a.status === 'HALF_DAY',
-        ).length;
-        const attendancePct =
-          totalAtt > 0 ? Math.round((presentAtt / totalAtt) * 100) : 0;
-        return {
-          id: s.id,
-          name: s.user
-            ? `${s.user.firstName} ${s.user.lastName}`
-            : s.admissionNumber,
-          admissionNumber: s.admissionNumber,
-          className,
-          attendancePct,
-          guardianPhone: guardian?.phone || null,
-          riskFactor:
-            attendancePct < 75 ? 'Low Attendance' : 'Academic Monitoring',
-          severity: attendancePct < 75 ? 'HIGH' : 'MODERATE',
-        };
-      });
+      atRiskStudents = (atRiskStudentsList || []).map(
+        (
+          s: import('@prisma/client').Prisma.StudentGetPayload<{
+            include: {
+              enrollments: {
+                include: { section: { include: { class: true } } };
+              };
+              guardians: true;
+              attendance: true;
+              user: true;
+            };
+          }>,
+        ) => {
+          const enrollment = s.enrollments?.[0];
+          const className = enrollment?.section
+            ? `${enrollment.section.class.name} - ${enrollment.section.name}`
+            : 'Unassigned';
+          const guardian = s.guardians?.[0];
+          const totalAtt = (s.attendance || []).length;
+          const presentAtt = (s.attendance || []).filter(
+            (a: import('@prisma/client').AttendanceRecord) =>
+              a.status === 'PRESENT' ||
+              a.status === 'LATE' ||
+              a.status === 'HALF_DAY',
+          ).length;
+          const attendancePct =
+            totalAtt > 0 ? Math.round((presentAtt / totalAtt) * 100) : 0;
+          return {
+            id: s.id,
+            name: s.user
+              ? `${s.user.firstName} ${s.user.lastName}`
+              : s.admissionNumber,
+            admissionNumber: s.admissionNumber,
+            className,
+            attendancePct,
+            guardianPhone: guardian?.phone || null,
+            riskFactor:
+              attendancePct < 75 ? 'Low Attendance' : 'Academic Monitoring',
+            severity: attendancePct < 75 ? 'HIGH' : 'MODERATE',
+          };
+        },
+      );
     }
 
     const result = {
@@ -971,7 +1044,14 @@ export class DashboardService {
     }
 
     // Group assigned periods by substitute staff ID
-    const groupedBySubstitute = new Map<string, any[]>();
+    const groupedBySubstitute = new Map<
+      string,
+      {
+        periodNumber: number;
+        className?: string | null;
+        subjectName?: string | null;
+      }[]
+    >();
     for (const p of data.periods) {
       if (!p.substituteStaffId) continue;
       const list = groupedBySubstitute.get(p.substituteStaffId) || [];
@@ -1335,6 +1415,22 @@ export class DashboardService {
         else if (sub && sub.status === 'GRADED') status = 'GRADED';
         else if (new Date(a.dueDate) < now) status = 'OVERDUE';
 
+        let feedback = sub?.feedback || null;
+        let submissionText: string | null = null;
+        let originalityReport: any = null;
+        if (sub?.feedback) {
+          try {
+            const parsed = JSON.parse(sub.feedback);
+            if (parsed && typeof parsed === 'object') {
+              feedback = parsed.teacherFeedback || null;
+              submissionText = parsed.submissionText || null;
+              originalityReport = parsed.originalityReport || null;
+            }
+          } catch {
+            // legacy plain text feedback
+          }
+        }
+
         return {
           id: a.id,
           title: a.title,
@@ -1343,7 +1439,9 @@ export class DashboardService {
           maxMarks: a.maxMarks,
           status,
           marksObtained: sub?.marksObtained ? Number(sub.marksObtained) : null,
-          feedback: sub?.feedback || null,
+          feedback,
+          submissionText,
+          originalityReport,
         };
       });
     }
@@ -1383,7 +1481,18 @@ export class DashboardService {
 
   // ─── LEGACY COMPATIBILITY: GET DASHBOARD STATS ────────────────────────────
   async getDashboardStats(schoolId?: string | null, isGlobal = false) {
-    const adminData = await this.getSchoolAdminDashboard(schoolId, isGlobal);
+    const adminData = (await this.getSchoolAdminDashboard(
+      schoolId,
+      isGlobal,
+    )) as {
+      kpis: {
+        totalStudents: number;
+        totalStaff: number;
+        totalClasses: number;
+        studentAttendancePct: number;
+      };
+      recentEnrollments: Record<string, unknown>[];
+    };
     return {
       stats: [
         {
@@ -1455,175 +1564,246 @@ export class DashboardService {
     if (!guardians.length) return { children: [] };
 
     const children = await Promise.all(
-      guardians.map(async (g: any) => {
-        const student = g.student;
-        const enrollment = student.enrollments[0];
-        const section = enrollment?.section;
-        const className = section
-          ? `${section.class.name} - ${section.name}`
-          : 'Not Enrolled';
+      guardians.map(
+        async (
+          g: import('@prisma/client').Prisma.GuardianGetPayload<{
+            include: {
+              student: {
+                include: {
+                  enrollments: {
+                    include: { section: { include: { class: true } } };
+                  };
+                  attendance: true;
+                  feePayments: true;
+                  user: true;
+                  activities: true;
+                };
+              };
+            };
+          }>,
+        ) => {
+          const student = g.student;
+          const enrollment = student.enrollments[0];
+          const section = enrollment?.section;
+          const className = section
+            ? `${section.class.name} - ${section.name}`
+            : 'Not Enrolled';
 
-        const now = new Date();
-        const attendanceByMonth: Record<string, any> = {};
-        for (let i = 5; i >= 0; i--) {
-          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          const key = d.toLocaleString('default', {
-            month: 'short',
-            year: '2-digit',
-          });
-          attendanceByMonth[key] = {
-            month: key,
-            present: 0,
-            absent: 0,
-            late: 0,
-            total: 0,
-          };
-        }
-        let totalPresent = 0,
-          totalAbsent = 0,
-          totalLate = 0;
-        for (const a of student.attendance) {
-          const d = new Date(a.date);
-          const key = d.toLocaleString('default', {
-            month: 'short',
-            year: '2-digit',
-          });
-          if (attendanceByMonth[key]) {
-            attendanceByMonth[key].total++;
-            if (a.status === 'PRESENT') {
-              attendanceByMonth[key].present++;
-              totalPresent++;
-            } else if (a.status === 'ABSENT') {
-              attendanceByMonth[key].absent++;
-              totalAbsent++;
-            } else if (a.status === 'LATE') {
-              attendanceByMonth[key].late++;
-              totalLate++;
+          const now = new Date();
+          const attendanceByMonth: Record<
+            string,
+            {
+              month: string;
+              present: number;
+              absent: number;
+              late: number;
+              total: number;
+            }
+          > = {};
+          for (let i = 5; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const key = d.toLocaleString('default', {
+              month: 'short',
+              year: '2-digit',
+            });
+            attendanceByMonth[key] = {
+              month: key,
+              present: 0,
+              absent: 0,
+              late: 0,
+              total: 0,
+            };
+          }
+          let totalPresent = 0,
+            totalAbsent = 0,
+            totalLate = 0;
+          for (const a of student.attendance) {
+            const d = new Date(a.date);
+            const key = d.toLocaleString('default', {
+              month: 'short',
+              year: '2-digit',
+            });
+            if (attendanceByMonth[key]) {
+              attendanceByMonth[key].total++;
+              if (a.status === 'PRESENT') {
+                attendanceByMonth[key].present++;
+                totalPresent++;
+              } else if (a.status === 'ABSENT') {
+                attendanceByMonth[key].absent++;
+                totalAbsent++;
+              } else if (a.status === 'LATE') {
+                attendanceByMonth[key].late++;
+                totalLate++;
+              }
             }
           }
-        }
-        const totalDays = student.attendance.length;
-        const attendancePct =
-          totalDays > 0
-            ? Math.round(((totalPresent + totalLate) / totalDays) * 100)
-            : 100;
+          const totalDays = student.attendance.length;
+          const attendancePct =
+            totalDays > 0
+              ? Math.round(((totalPresent + totalLate) / totalDays) * 100)
+              : 100;
 
-        const totalFee = student.feePayments.reduce(
-          (s: number, p: any) => s + Number(p.totalAmount || 0),
-          0,
-        );
-        const paidFee = student.feePayments.reduce(
-          (s: number, p: any) => s + Number(p.paidAmount || 0),
-          0,
-        );
-        const outstandingFee = student.feePayments.reduce(
-          (s: number, p: any) => s + Number(p.outstandingAmount || 0),
-          0,
-        );
-        const paymentHistory = student.feePayments.map((p: any) => ({
-          id: p.id,
-          date: p.paymentDate,
-          amount: Number(p.paidAmount),
-          totalAmount: Number(p.totalAmount),
-          outstanding: Number(p.outstandingAmount),
-          status: p.paymentStatus,
-          mode: p.paymentMode,
-          receiptNumber: p.receipt?.receiptNumber || p.transactionRef || 'N/A',
-          description: 'School Fee',
-        }));
-
-        let upcomingExams: any[] = [];
-        if (section?.id) {
-          try {
-            const exams = await this.prisma.exam.findMany({
-              where: {
-                schoolId: validSchoolId,
-                subjects: { some: { classId: section.class.id } },
-                startDate: { gte: new Date() },
+          const totalFee = student.feePayments.reduce(
+            (s: number, p: import('@prisma/client').FeePayment) =>
+              s + Number(p.totalAmount || 0),
+            0,
+          );
+          const paidFee = student.feePayments.reduce(
+            (s: number, p: import('@prisma/client').FeePayment) =>
+              s + Number(p.paidAmount || 0),
+            0,
+          );
+          const outstandingFee = student.feePayments.reduce(
+            (s: number, p: import('@prisma/client').FeePayment) =>
+              s + Number(p.outstandingAmount || 0),
+            0,
+          );
+          const paymentHistory = student.feePayments.map(
+            (
+              p: import('@prisma/client').FeePayment & {
+                receipt?: { receiptNumber?: string };
               },
-              include: { subjects: { include: { subject: true } } },
-              orderBy: { startDate: 'asc' },
-              take: 10,
-            });
-            upcomingExams = exams.map((e: any) => ({
-              id: e.id,
-              name: e.name,
-              startDate: e.startDate,
-              endDate: e.endDate,
-              subjects: e.subjects.map((s: any) => ({
-                subject: s.subject?.name,
-                date: s.date,
-                maxMarks: s.maxMarks,
-              })),
-            }));
-          } catch (_) {}
-        }
+            ) => ({
+              id: p.id,
+              date: p.paymentDate,
+              amount: Number(p.paidAmount),
+              totalAmount: Number(p.totalAmount),
+              outstanding: Number(p.outstandingAmount),
+              status: p.paymentStatus,
+              mode: p.paymentMode,
+              receiptNumber:
+                p.receipt?.receiptNumber || p.transactionRef || 'N/A',
+              description: 'School Fee',
+            }),
+          );
 
-        let todayTimetable: any[] = [];
-        if (section?.id) {
-          try {
-            const dayOfWeek = new Date().getDay();
-            const day = dayOfWeek === 0 ? 7 : dayOfWeek;
-            const slots = await this.prisma.timetableSlot.findMany({
-              where: {
-                schoolId: validSchoolId,
-                sectionId: section.id,
-                dayOfWeek: day,
-              },
-              include: { subject: true, staff: { include: { user: true } } },
-              orderBy: { periodNumber: 'asc' },
-            });
-            todayTimetable = slots.map((slot: any) => ({
-              id: slot.id,
-              period: slot.periodNumber,
-              startTime: slot.startTime,
-              endTime: slot.endTime,
-              subject: slot.subject?.name || 'Free Period',
-              teacher: slot.staff
-                ? `${slot.staff.user.firstName} ${slot.staff.user.lastName}`
-                : null,
-            }));
-          } catch (_) {}
-        }
+          let upcomingExams: Record<string, unknown>[] = [];
+          if (section?.id) {
+            try {
+              const exams = await this.prisma.exam.findMany({
+                where: {
+                  schoolId: validSchoolId,
+                  subjects: { some: { classId: section.class.id } },
+                  startDate: { gte: new Date() },
+                },
+                include: { subjects: { include: { subject: true } } },
+                orderBy: { startDate: 'asc' },
+                take: 10,
+              });
+              upcomingExams = exams.map(
+                (
+                  e: import('@prisma/client').Prisma.ExamGetPayload<{
+                    include: { subjects: true };
+                  }>,
+                ) => ({
+                  id: e.id,
+                  name: e.name,
+                  startDate: e.startDate,
+                  endDate: e.endDate,
+                  subjects: e.subjects.map(
+                    (
+                      s: import('@prisma/client').Prisma.ExamSubjectGetPayload<{
+                        include: { subject: true };
+                      }>,
+                    ) => ({
+                      subject: s.subject?.name,
+                      date: s.examDate,
+                      maxMarks: s.maxMarks,
+                    }),
+                  ),
+                }),
+              );
+            } catch {
+              // ignore
+            }
+          }
 
-        return {
-          id: student.id,
-          name: `${student.user.firstName} ${student.user.lastName}`,
-          firstName: student.user.firstName,
-          lastName: student.user.lastName,
-          email: student.user.email,
-          className,
-          sectionId: section?.id,
-          classId: section?.class?.id,
-          admissionNumber: student.admissionNumber,
-          rollNumber: enrollment?.rollNumber || 'N/A',
-          attendance: {
-            overall: attendancePct,
-            totalDays,
-            presentDays: totalPresent,
-            absentDays: totalAbsent,
-            lateDays: totalLate,
-            byMonth: Object.values(attendanceByMonth),
-          },
-          fees: {
-            totalFee,
-            paidFee,
-            outstandingFee,
-            history: paymentHistory,
-          },
-          upcomingExams,
-          todayTimetable,
-          transport: null,
-          activities: student.activities.map((act: any) => ({
-            id: act.id,
-            title: act.title,
-            event: act.event,
-            date: act.date,
-            icon: act.icon,
-            description: act.description,
-          })),
-        };
-      }),
+          let todayTimetable: Record<string, unknown>[] = [];
+          if (section?.id) {
+            try {
+              const dayOfWeek = new Date().getDay();
+              const day = dayOfWeek === 0 ? 7 : dayOfWeek;
+              const slots = await this.prisma.timetableSlot.findMany({
+                where: {
+                  schoolId: validSchoolId,
+                  sectionId: section.id,
+                  dayOfWeek: day,
+                },
+                include: { subject: true, staff: { include: { user: true } } },
+                orderBy: { periodNumber: 'asc' },
+              });
+              todayTimetable = slots.map(
+                (
+                  slot: import('@prisma/client').Prisma.TimetableSlotGetPayload<{
+                    include: {
+                      subject: true;
+                      staff: { include: { user: true } };
+                    };
+                  }>,
+                ) => ({
+                  id: slot.id,
+                  period: slot.periodNumber,
+                  startTime: slot.startTime,
+                  endTime: slot.endTime,
+                  subject: slot.subject?.name || 'Free Period',
+                  teacher: slot.staff
+                    ? `${slot.staff.user.firstName} ${slot.staff.user.lastName}`
+                    : null,
+                }),
+              );
+            } catch {
+              // ignore
+            }
+          }
+
+          return {
+            id: student.id,
+            name: `${student.user.firstName} ${student.user.lastName}`,
+            firstName: student.user.firstName,
+            lastName: student.user.lastName,
+            email: student.user.email,
+            className,
+            sectionId: section?.id,
+            classId: section?.class?.id,
+            admissionNumber: student.admissionNumber,
+            rollNumber: enrollment?.rollNumber || 'N/A',
+            attendance: {
+              overall: attendancePct,
+              totalDays,
+              presentDays: totalPresent,
+              absentDays: totalAbsent,
+              lateDays: totalLate,
+              byMonth: Object.values(attendanceByMonth),
+            },
+            fees: {
+              totalFee,
+              paidFee,
+              outstandingFee,
+              history: paymentHistory,
+            },
+            upcomingExams,
+            todayTimetable,
+            transport: null,
+            activities: student.activities.map(
+              (act: {
+                id: string;
+                title: string;
+                event: string | null;
+                date: Date;
+                icon?: string;
+                description?: string | null;
+              }) => ({
+                id: act.id,
+                title: act.title,
+                event: act.event,
+                date: act.date,
+                icon: act.icon,
+                description: act.description,
+              }),
+            ),
+          };
+        },
+      ),
     );
 
     return { children };

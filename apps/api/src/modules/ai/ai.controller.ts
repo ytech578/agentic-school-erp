@@ -270,7 +270,7 @@ export class AIController {
       userId: req.user.id,
       role: req.user.role, // server-resolved from JWT
       schoolId: req.user.schoolId,
-      permissions: ROLE_PERMISSIONS[req.user.role as UserRole] ?? [],
+      permissions: ROLE_PERMISSIONS[req.user.role] ?? [],
     };
 
     const proposal = await this.controlPlane.proposeAction(ctx, toolName, {
@@ -486,7 +486,13 @@ export class AIController {
     summary: 'Generate adaptive diagnostic practice questions for a topic',
   })
   async generateAdaptivePractice(
-    @Body() body: { subject: string; topic: string },
+    @Body()
+    body: {
+      subject: string;
+      topic: string;
+      grade?: string;
+      difficulty?: string;
+    },
     @Request() req: AuthenticatedRequest,
   ) {
     return this.service.generateAdaptivePractice(
@@ -494,6 +500,8 @@ export class AIController {
       req.user.id,
       body.subject,
       body.topic,
+      body.grade,
+      body.difficulty,
     );
   }
 }

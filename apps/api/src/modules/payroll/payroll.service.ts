@@ -499,14 +499,13 @@ export class PayrollService {
 
   // ─── 4. PAYSLIP RETRIEVAL & DISBURSEMENT ──────────────────────────────────
 
-  async getPayslip(
-    schoolId: string,
+  private async fetchAndAuthorizePayslip(
     payslipId: string,
+    validSchoolId: string,
     requestingUserId: string,
     requestingUserRole: string,
+    actionDesc: string = 'view',
   ) {
-    const validSchoolId = requireSchoolId(schoolId);
-
     const payslip = await this.prisma.payslip.findFirst({
       where: { id: payslipId, schoolId: validSchoolId },
       include: {
@@ -529,23 +528,37 @@ export class PayrollService {
       },
     });
 
-    if (!payslip) {
-      throw new NotFoundException(`Payslip not found.`);
-    }
+    if (!payslip) throw new NotFoundException(`Payslip not found.`);
 
-    // Role-based authorization: Teachers/Staff can only access their OWN payslip
     const isElevated = [
       'SUPER_ADMIN',
       'SCHOOL_ADMIN',
       'PRINCIPAL',
       'ACCOUNTANT',
     ].includes(requestingUserRole);
-
     if (!isElevated && payslip.staff.userId !== requestingUserId) {
       throw new ForbiddenException(
-        `You are not authorized to view this payslip.`,
+        `You are not authorized to ${actionDesc} this payslip.`,
       );
     }
+    return payslip;
+  }
+
+  async getPayslip(
+    schoolId: string,
+    payslipId: string,
+    requestingUserId: string,
+    requestingUserRole: string,
+  ) {
+    const validSchoolId = requireSchoolId(schoolId);
+
+    const payslip = await this.fetchAndAuthorizePayslip(
+      payslipId,
+      validSchoolId,
+      requestingUserId,
+      requestingUserRole,
+      'view',
+    );
 
     const struct = (payslip.staff as any)?.salaryStructure;
     const conveyance = struct?.conveyance || 0;
@@ -653,6 +666,42 @@ export class PayrollService {
         lopDeduction: p.otherDeductions,
       };
     });
+  }
+
+  async getMyPayslips(schoolId: string, userId: string) {
+    const validSchoolId = requireSchoolId(schoolId);
+
+    const staff = await this.prisma.staff.findFirst({
+      where: { userId, schoolId: validSchoolId },
+      include: {
+        user: { select: { firstName: true, lastName: true, email: true } },
+        designation: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true } },
+        salaryStructure: true,
+      },
+    });
+
+    if (!staff) {
+      return {
+        staff: null,
+        salaryStructure: null,
+        payslips: [],
+        message: 'No linked staff profile found for this user account.',
+      };
+    }
+
+    const payslips = await this.getStaffPayslips(
+      validSchoolId,
+      staff.id,
+      userId,
+      'TEACHER',
+    );
+
+    return {
+      staff,
+      salaryStructure: staff.salaryStructure,
+      payslips,
+    };
   }
 
   async getStaffPayslips(
@@ -765,44 +814,13 @@ export class PayrollService {
   ): Promise<{ buffer: Buffer; fileName: string }> {
     const validSchoolId = requireSchoolId(schoolId);
 
-    const payslip = await this.prisma.payslip.findFirst({
-      where: { id: payslipId, schoolId: validSchoolId },
-      include: {
-        cycle: true,
-        staff: {
-          select: {
-            id: true,
-            userId: true,
-            employeeId: true,
-            bankName: true,
-            bankAccountNo: true,
-            bankIfscCode: true,
-            panNumber: true,
-            user: { select: { firstName: true, lastName: true, email: true } },
-            designation: { select: { name: true } },
-            department: { select: { name: true } },
-            salaryStructure: true,
-          },
-        },
-      },
-    });
-
-    if (!payslip) {
-      throw new NotFoundException(`Payslip not found.`);
-    }
-
-    const isElevated = [
-      'SUPER_ADMIN',
-      'SCHOOL_ADMIN',
-      'PRINCIPAL',
-      'ACCOUNTANT',
-    ].includes(requestingUserRole);
-
-    if (!isElevated && payslip.staff.userId !== requestingUserId) {
-      throw new ForbiddenException(
-        `You are not authorized to download this payslip.`,
-      );
-    }
+    const payslip = await this.fetchAndAuthorizePayslip(
+      payslipId,
+      validSchoolId,
+      requestingUserId,
+      requestingUserRole,
+      'download',
+    );
 
     const school = await this.prisma.school.findUnique({
       where: { id: validSchoolId },

@@ -49,16 +49,26 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         this.logger.log('Connected to Redis cache cluster successfully');
       });
 
+      let hasWarnedOffline = false;
       this.client.on('error', (err: Error) => {
         if (this.isConnected) {
           this.logger.warn(
             `Redis disconnected: ${err.message}. Engaging circuit-breaker memory fallback.`,
+          );
+        } else if (!hasWarnedOffline) {
+          hasWarnedOffline = true;
+          this.logger.warn(
+            `Redis unavailable (${err.message}). Operating in resilient circuit-breaker memory mode.`,
           );
         }
         this.isConnected = false;
       });
 
       this.client.on('close', () => {
+        this.isConnected = false;
+      });
+
+      this.client.on('end', () => {
         this.isConnected = false;
       });
     } catch (err: unknown) {

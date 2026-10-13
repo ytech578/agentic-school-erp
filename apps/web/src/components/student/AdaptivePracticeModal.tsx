@@ -13,7 +13,8 @@ interface Question {
   id: number;
   question: string;
   options: string[];
-  correctAnswer: string;
+  correctAnswer?: string;
+  correctIndex?: number;
   hint: string;
   explanation: string;
   bloomLevel?: string;
@@ -54,8 +55,79 @@ export default function AdaptivePracticeModal({
   const [userAnswers, setUserAnswers] = useState<Record<number, { selected: string; isCorrect: boolean }>>({});
   const [isFinished, setIsFinished] = useState(false);
 
+  const getFallbackSession = (subj: string, top: string): PracticeSession => ({
+    subject: subj,
+    topic: top,
+    difficulty: "STANDARD",
+    remedialFocus: `Foundational mastery and concept recall for ${top}`,
+    conceptRecap: `Focus on core principles of ${top}. Break down formulas and solve step-by-step.`,
+    questions: [
+      {
+        id: 1,
+        question: `In ${subj}, which of the following best represents the foundational principle of ${top}?`,
+        options: [
+          "A) Direct proportionality and linear balance",
+          "B) Inverse quadratic relationship",
+          "C) Constant state equilibrium",
+          "D) Independent variable isolation",
+        ],
+        correctAnswer: "A) Direct proportionality and linear balance",
+        correctIndex: 0,
+        hint: "Think about the baseline relation established in introductory examples.",
+        explanation: "Direct linear relations provide the standard foundational baseline before applying higher-order transformations.",
+        bloomLevel: "Understanding",
+      },
+      {
+        id: 2,
+        question: `When solving problems involving ${top}, what is the recommended first diagnostic step?`,
+        options: [
+          "A) Formulate all given data into standard units",
+          "B) Substitute directly without checking boundary conditions",
+          "C) Ignore negative coefficients",
+          "D) Guess the order of magnitude",
+        ],
+        correctAnswer: "A) Formulate all given data into standard units",
+        correctIndex: 0,
+        hint: "Standardizing given parameters eliminates dimensional errors early.",
+        explanation: "Always convert and normalize parameters to standard SI or canonical algebraic form first.",
+        bloomLevel: "Applying",
+      },
+      {
+        id: 3,
+        question: `What is a common pitfall students encounter during examination questions on ${top}?`,
+        options: [
+          "A) Overlooking sign conventions and step-wise unit verification",
+          "B) Writing answers too clearly",
+          "C) Using the standard formula correctly",
+          "D) Rechecking final calculations",
+        ],
+        correctAnswer: "A) Overlooking sign conventions and step-wise unit verification",
+        correctIndex: 0,
+        hint: "Most marks are dropped in algebraic sign changes or unit conversions.",
+        explanation: "Sign conventions and dimensional consistency account for over 70% of avoidable examination errors.",
+        bloomLevel: "Analyzing",
+      },
+    ],
+  });
+
+  const checkIsOptionCorrect = (opt: string | null | undefined, q?: Question) => {
+    if (!opt || !q) return false;
+    const cleanOpt = String(opt).trim().toLowerCase();
+    const target = q.correctAnswer || (q.options && typeof q.correctIndex === "number" ? q.options[q.correctIndex] : "") || "";
+    const cleanTarget = String(target).trim().toLowerCase();
+
+    if (!cleanOpt || !cleanTarget) return false;
+    if (cleanOpt === cleanTarget) return true;
+
+    const targetPrefix = cleanTarget.charAt(0);
+    if (cleanOpt.startsWith(targetPrefix + ")") || cleanOpt.startsWith(targetPrefix + " ") || cleanOpt.startsWith(targetPrefix + ".")) {
+      return true;
+    }
+    return false;
+  };
+
   useEffect(() => {
-    if (isOpen && subject && topic) {
+    if (isOpen && subject) {
       loadPracticeQuestions();
     } else {
       // Reset state on close
@@ -70,16 +142,66 @@ export default function AdaptivePracticeModal({
   }, [isOpen, subject, topic]);
 
   const loadPracticeQuestions = async () => {
+    const safeSubject = subject?.trim() || "General Studies";
+    const safeTopic = topic?.trim() || `${safeSubject} Core Revision`;
     setLoading(true);
     try {
       const res = await apiClient.post("/ai/student/practice", {
-        subject,
-        topic,
+        subject: safeSubject,
+        topic: safeTopic,
         grade,
         difficulty: "STANDARD",
       });
       const data = res.data?.data || res.data;
-      setSession(data.practiceSession || data);
+      const rawSession = data.practiceSession || data;
+      const rawQuestions: any[] = Array.isArray(rawSession?.questions)
+        ? rawSession.questions
+        : Array.isArray(rawSession)
+          ? rawSession
+          : [];
+
+      const parsedQuestions: Question[] = rawQuestions.map((q: any, idx: number) => {
+        const rawOpts = Array.isArray(q.options) && q.options.length > 0
+          ? q.options.map((o: any) => String(o ?? ""))
+          : [
+              "A) Direct proportionality and linear balance",
+              "B) Inverse quadratic relationship",
+              "C) Constant state equilibrium",
+              "D) Independent variable isolation",
+            ];
+
+        const correctIdx = typeof q.correctIndex === "number" && q.correctIndex >= 0 && q.correctIndex < rawOpts.length
+          ? q.correctIndex
+          : 0;
+
+        const correctAns = (q.correctAnswer && typeof q.correctAnswer === "string" && q.correctAnswer.trim())
+          ? q.correctAnswer.trim()
+          : rawOpts[correctIdx] || rawOpts[0];
+
+        return {
+          id: q.id || idx + 1,
+          question: q.question || `In ${safeSubject}, which statement is true for ${safeTopic}?`,
+          options: rawOpts,
+          correctIndex: correctIdx,
+          correctAnswer: correctAns,
+          hint: q.hint || "Review standard step-by-step principles and definitions.",
+          explanation: q.explanation || `The correct option is: ${correctAns}`,
+          bloomLevel: q.bloomLevel || "Understanding",
+        };
+      });
+
+      const fallback = getFallbackSession(safeSubject, safeTopic);
+      const finalQuestions = parsedQuestions.length > 0 ? parsedQuestions : fallback.questions;
+
+      setSession({
+        subject: rawSession?.subject || safeSubject,
+        topic: rawSession?.topic || safeTopic,
+        difficulty: rawSession?.difficulty || "STANDARD",
+        remedialFocus: rawSession?.remedialFocus || fallback.remedialFocus,
+        conceptRecap: rawSession?.conceptRecap || fallback.conceptRecap,
+        questions: finalQuestions,
+      });
+
       setCurrentIndex(0);
       setSelectedOption(null);
       setIsAnswerSubmitted(false);
@@ -88,58 +210,14 @@ export default function AdaptivePracticeModal({
       setIsFinished(false);
     } catch (err) {
       console.error("Failed to generate adaptive practice session:", err);
-      // Deterministic fallback practice session for K-10
-      setSession({
-        subject,
-        topic,
-        difficulty: "STANDARD",
-        remedialFocus: `Foundational mastery and concept recall for ${topic}`,
-        conceptRecap: `Focus on core principles of ${topic}. Break down formulas and solve step-by-step.`,
-        questions: [
-          {
-            id: 1,
-            question: `In ${subject}, which of the following best represents the foundational principle of ${topic}?`,
-            options: [
-              "A) Direct proportionality and linear balance",
-              "B) Inverse quadratic relationship",
-              "C) Constant state equilibrium",
-              "D) Independent variable isolation",
-            ],
-            correctAnswer: "A) Direct proportionality and linear balance",
-            hint: "Think about the baseline relation established in introductory examples.",
-            explanation: "Direct linear relations provide the standard foundational baseline before applying higher-order transformations.",
-            bloomLevel: "Understanding",
-          },
-          {
-            id: 2,
-            question: `When solving problems involving ${topic}, what is the recommended first diagnostic step?`,
-            options: [
-              "A) Formulate all given data into standard units",
-              "B) Substitute directly without checking boundary conditions",
-              "C) Ignore negative coefficients",
-              "D) Guess the order of magnitude",
-            ],
-            correctAnswer: "A) Formulate all given data into standard units",
-            hint: "Standardizing given parameters eliminates dimensional errors early.",
-            explanation: "Always convert and normalize parameters to standard SI or canonical algebraic form first.",
-            bloomLevel: "Applying",
-          },
-          {
-            id: 3,
-            question: `What is a common pitfall students encounter during examination questions on ${topic}?`,
-            options: [
-              "A) Overlooking sign conventions and step-wise unit verification",
-              "B) Writing answers too clearly",
-              "C) Using the standard formula correctly",
-              "D) Rechecking final calculations",
-            ],
-            correctAnswer: "A) Overlooking sign conventions and step-wise unit verification",
-            hint: "Most marks are dropped in algebraic sign changes or unit conversions.",
-            explanation: "Sign conventions and dimensional consistency account for over 70% of avoidable examination errors.",
-            bloomLevel: "Analyzing",
-          },
-        ],
-      });
+      const fallback = getFallbackSession(safeSubject, safeTopic);
+      setSession(fallback);
+      setCurrentIndex(0);
+      setSelectedOption(null);
+      setIsAnswerSubmitted(false);
+      setRevealedHints({});
+      setUserAnswers({});
+      setIsFinished(false);
     } finally {
       setLoading(false);
     }
@@ -162,8 +240,7 @@ export default function AdaptivePracticeModal({
 
   const handleSubmitAnswer = () => {
     if (!selectedOption || !currentQuestion || isAnswerSubmitted) return;
-    const isCorrect = selectedOption.trim().toLowerCase() === currentQuestion.correctAnswer.trim().toLowerCase()
-      || selectedOption.startsWith(currentQuestion.correctAnswer.charAt(0));
+    const isCorrect = checkIsOptionCorrect(selectedOption, currentQuestion);
 
     setUserAnswers((prev) => ({
       ...prev,
@@ -447,8 +524,7 @@ export default function AdaptivePracticeModal({
               <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
                 {currentQuestion.options.map((opt, oidx) => {
                   const isSelected = selectedOption === opt;
-                  const isCorrect = opt.trim().toLowerCase() === currentQuestion.correctAnswer.trim().toLowerCase()
-                    || opt.startsWith(currentQuestion.correctAnswer.charAt(0));
+                  const isCorrect = checkIsOptionCorrect(opt, currentQuestion);
 
                   let optionBorder = "1px solid var(--border-default)";
                   let optionBg = "var(--bg-app)";
@@ -557,8 +633,40 @@ export default function AdaptivePracticeModal({
               )}
             </div>
           ) : (
-            <div style={{ textAlign: "center", padding: "2rem" }}>
-              <p>No questions generated.</p>
+            <div style={{ textAlign: "center", padding: "3rem 1.5rem" }}>
+              <div
+                style={{
+                  width: "48px",
+                  height: "48px",
+                  borderRadius: "50%",
+                  background: "rgba(99, 102, 241, 0.1)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  margin: "0 auto 1rem",
+                  color: "#6366F1",
+                }}
+              >
+                <Brain size={24} />
+              </div>
+              <h3 style={{ fontSize: "var(--text-base)", fontWeight: 700, margin: "0 0 0.5rem", color: "var(--text-primary)" }}>
+                Ready to Practice {topic || subject}
+              </h3>
+              <p style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)", maxWidth: "380px", margin: "0 auto 1.5rem" }}>
+                Click below to synthesize a tailored diagnostic micro-quiz.
+              </p>
+              <Button
+                variant="primary"
+                onClick={loadPracticeQuestions}
+                style={{
+                  background: "linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)",
+                  color: "#FFFFFF",
+                  border: "none",
+                }}
+              >
+                <Sparkles size={14} style={{ marginRight: "0.35rem" }} />
+                Generate Practice Questions
+              </Button>
             </div>
           )}
         </div>

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { useSchool } from "@/hooks/useSchool";
+import { useAuthStore } from "@/store/auth.store";
 import { formatCurrencyINR as formatCurrency, numberToIndianWords, formatDate } from "@/lib/formatters";
 import { 
   Receipt, 
@@ -137,13 +138,22 @@ interface PayrollCycle {
 
 export default function PayrollDashboardPage() {
   const { schoolName, affiliationNo, fullAddress, phone: schoolPhone, code: schoolCode } = useSchool();
-  const [activeTab, setActiveTab] = useState<"cycles" | "structures" | "all-payslips">("cycles");
+  const { user } = useAuthStore();
+  const isAdmin = ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"].includes(user?.role || "");
+  const isTeacher = user?.role === "TEACHER";
+
+  const [activeTab, setActiveTab] = useState<"cycles" | "structures" | "all-payslips" | "my-payslips">("cycles");
   const [cycles, setCycles] = useState<PayrollCycle[]>([]);
   const [structures, setStructures] = useState<SalaryStructure[]>([]);
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [allPayslips, setAllPayslips] = useState<Payslip[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Teacher personal payslip state
+  const [myStaffProfile, setMyStaffProfile] = useState<Staff | null>(null);
+  const [mySalaryStructure, setMySalaryStructure] = useState<SalaryStructure | null>(null);
+  const [myPayslips, setMyPayslips] = useState<Payslip[]>([]);
 
   // Cycle creation modal
   const [isCycleModalOpen, setIsCycleModalOpen] = useState(false);
@@ -224,40 +234,53 @@ export default function PayrollDashboardPage() {
   }, [basicSalary, da, hra, conveyance, medicalAllowance, specialAllowance, epfEnrolled, esiEnrolled, profTax, tdsMonthly]);
 
   useEffect(() => {
+    if (isTeacher) {
+      setActiveTab("my-payslips");
+    }
     fetchData();
-  }, []);
+  }, [isTeacher]);
 
   const fetchData = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      // Pass limit=500 to fetch all staff without default 10 pagination cap
-      const [cyclesRes, structRes, staffRes, payslipsRes] = await Promise.allSettled([
-        apiClient.get("/payroll/cycles"),
-        apiClient.get("/payroll/salary-structures"),
-        apiClient.get("/staff?limit=500"),
-        apiClient.get("/payroll/payslips?limit=500"),
-      ]);
+      if (isTeacher) {
+        // Teacher mode: securely fetch their own payslips and compensation structure
+        const res = await apiClient.get("/payroll/my-payslips");
+        const payload = res.data?.data || res.data || {};
+        setMyStaffProfile(payload.staff || null);
+        setMySalaryStructure(payload.salaryStructure || null);
+        const list = Array.isArray(payload.payslips) ? payload.payslips : [];
+        setMyPayslips(list);
+      } else {
+        // Admin mode: load fleet-wide payroll cycles, structures, and payslips
+        const [cyclesRes, structRes, staffRes, payslipsRes] = await Promise.allSettled([
+          apiClient.get("/payroll/cycles"),
+          apiClient.get("/payroll/salary-structures"),
+          apiClient.get("/staff?limit=500"),
+          apiClient.get("/payroll/payslips?limit=500"),
+        ]);
 
-      if (cyclesRes.status === "fulfilled") {
-        const raw = cyclesRes.value.data?.data || cyclesRes.value.data || [];
-        const list = Array.isArray(raw?.items) ? raw.items : Array.isArray(raw) ? raw : [];
-        setCycles(list);
-      }
-      if (structRes.status === "fulfilled") {
-        const raw = structRes.value.data?.data || structRes.value.data || [];
-        const list = Array.isArray(raw?.items) ? raw.items : Array.isArray(raw) ? raw : [];
-        setStructures(list);
-      }
-      if (staffRes.status === "fulfilled") {
-        const raw = staffRes.value.data?.data || staffRes.value.data || [];
-        const list = Array.isArray(raw?.items) ? raw.items : Array.isArray(raw) ? raw : [];
-        setStaffList(list);
-      }
-      if (payslipsRes.status === "fulfilled") {
-        const raw = payslipsRes.value.data?.data || payslipsRes.value.data || [];
-        const list = Array.isArray(raw?.items) ? raw.items : Array.isArray(raw) ? raw : [];
-        setAllPayslips(list);
+        if (cyclesRes.status === "fulfilled") {
+          const raw = cyclesRes.value.data?.data || cyclesRes.value.data || [];
+          const list = Array.isArray(raw?.items) ? raw.items : Array.isArray(raw) ? raw : [];
+          setCycles(list);
+        }
+        if (structRes.status === "fulfilled") {
+          const raw = structRes.value.data?.data || structRes.value.data || [];
+          const list = Array.isArray(raw?.items) ? raw.items : Array.isArray(raw) ? raw : [];
+          setStructures(list);
+        }
+        if (staffRes.status === "fulfilled") {
+          const raw = staffRes.value.data?.data || staffRes.value.data || [];
+          const list = Array.isArray(raw?.items) ? raw.items : Array.isArray(raw) ? raw : [];
+          setStaffList(list);
+        }
+        if (payslipsRes.status === "fulfilled") {
+          const raw = payslipsRes.value.data?.data || payslipsRes.value.data || [];
+          const list = Array.isArray(raw?.items) ? raw.items : Array.isArray(raw) ? raw : [];
+          setAllPayslips(list);
+        }
       }
     } catch (err: any) {
       setError(err?.response?.data?.message || "Failed to load payroll records.");
@@ -810,6 +833,131 @@ export default function PayrollDashboardPage() {
     },
   ];
 
+  const myPayslipColumns: Column<Payslip>[] = [
+    {
+      header: "Pay Period",
+      accessorKey: "month",
+      cell: (row) => {
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const m = (row.month || 1) - 1;
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+            <Calendar size={14} className="text-secondary" />
+            <strong style={{ fontSize: "0.9rem" }}>{monthNames[m] || `Month ${row.month}`} {row.year}</strong>
+          </div>
+        );
+      },
+    },
+    {
+      header: "Payslip Number",
+      accessorKey: "payslipNumber",
+      cell: (row) => (
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+          {row.payslipNumber || `PS-${row.id.slice(0, 8).toUpperCase()}`}
+        </span>
+      ),
+    },
+    {
+      header: "Working / Present",
+      accessorKey: "workingDays",
+      cell: (row) => (
+        <span style={{ fontSize: "0.85rem" }}>
+          {row.presentDays ?? (row.workingDays - (row.unpaidLeaveDays || 0))} / {row.workingDays} days
+        </span>
+      ),
+    },
+    {
+      header: "Gross Earnings",
+      accessorKey: "grossSalary",
+      cell: (row) => (
+        <strong style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>
+          {formatCurrency(row.grossSalary)}
+        </strong>
+      ),
+    },
+    {
+      header: "Deductions (EPF/PT/TDS)",
+      accessorKey: "totalDeductions",
+      cell: (row) => (
+        <span style={{ fontSize: "0.85rem", color: "var(--danger-dark)", fontWeight: 600 }}>
+          -{formatCurrency(row.totalDeductions || ((row.epfDeduction || 0) + (row.esiDeduction || 0) + (row.ptDeduction || 0) + (row.tdsDeduction || 0)))}
+        </span>
+      ),
+    },
+    {
+      header: "Net Take-Home",
+      accessorKey: "netSalary",
+      cell: (row) => (
+        <strong style={{ fontSize: "0.95rem", color: "#059669" }}>
+          {formatCurrency(row.netSalary)}
+        </strong>
+      ),
+    },
+    {
+      header: "Status",
+      accessorKey: "paymentStatus",
+      cell: (row) => {
+        const isPaid = row.paymentStatus === "PAID";
+        return (
+          <span
+            style={{
+              padding: "0.2rem 0.6rem",
+              borderRadius: "var(--radius-full)",
+              fontSize: "0.75rem",
+              fontWeight: 700,
+              background: isPaid ? "var(--success-light)" : "var(--warning-light)",
+              color: isPaid ? "var(--success-dark)" : "var(--warning-dark)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.25rem",
+            }}
+          >
+            {isPaid ? <CheckCircle2 size={12} /> : <Clock size={12} />}
+            {row.paymentStatus || "PAID"}
+          </span>
+        );
+      },
+    },
+    {
+      header: "Actions",
+      accessorKey: "id",
+      cell: (row) => (
+        <div style={{ display: "flex", gap: "0.4rem" }}>
+          <Button
+            size="sm"
+            variant="outline"
+            icon={<Eye size={13} />}
+            onClick={() => {
+              const enriched: Payslip = {
+                ...row,
+                staff: row.staff || myStaffProfile || (user ? {
+                  id: row.staffId,
+                  employeeId: "FACULTY",
+                  user: { firstName: user.firstName, lastName: user.lastName, email: user.email },
+                  designation: "Teaching Faculty",
+                  department: "Academics",
+                } : undefined),
+              };
+              setActivePayslip(enriched);
+            }}
+            title="View & Print Official Payslip"
+          >
+            View & Print
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<Download size={13} />}
+            onClick={() => handleDownloadPayslip(row.id, `${user?.firstName || "Teacher"}`)}
+            title="Download PDF"
+          >
+            PDF
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
   const filteredPayslips = useMemo(() => {
     if (!selectedCycle?.payslips) return [];
     if (!payslipSearch.trim()) return selectedCycle.payslips;
@@ -837,150 +985,315 @@ export default function PayrollDashboardPage() {
         <div>
           <h1 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <Receipt className="text-brand" size={26} />
-            Payroll & Statutory Compliance
+            {isTeacher ? "My Payslips & Compensation" : "Payroll & Statutory Compliance"}
           </h1>
           <p style={{ margin: "0.25rem 0 0", color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-            Automated CBSE/Enterprise pay computation, EPF (12%), ESI (0.75%), State PT slabs, TDS, and bank disbursement
+            {isTeacher
+              ? "Your personal monthly disbursement records, EPFO (12%), ESIC, PT deductions, and downloadable PDF payslips"
+              : "Automated CBSE/Enterprise pay computation, EPF (12%), ESI (0.75%), State PT slabs, TDS, and bank disbursement"}
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "0.75rem" }}>
-          <Button
-            variant="outline"
-            icon={<Plus size={16} />}
-            onClick={() => openStructureModal()}
-          >
-            Configure Salary Structure
-          </Button>
-          <Button
-            icon={<Calendar size={16} />}
-            onClick={() => setIsCycleModalOpen(true)}
-          >
-            New Monthly Cycle
-          </Button>
-        </div>
+        {isAdmin && (
+          <div style={{ display: "flex", gap: "0.75rem" }}>
+            <Button
+              variant="outline"
+              icon={<Plus size={16} />}
+              onClick={() => openStructureModal()}
+            >
+              Configure Salary Structure
+            </Button>
+            <Button
+              icon={<Calendar size={16} />}
+              onClick={() => setIsCycleModalOpen(true)}
+            >
+              New Monthly Cycle
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* KPI Cards with interactive micro-animations */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "1rem" }}>
-        <div className="card kpi-card" style={{ padding: "1.25rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>TOTAL GROSS SALARY</span>
-            <div style={{ background: "var(--primary-50)", padding: "0.4rem", borderRadius: "8px", color: "var(--primary-600)" }}>
-              <IndianRupee size={18} />
+      {isTeacher ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "1rem" }}>
+          <div className="card kpi-card" style={{ padding: "1.25rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>LATEST NET PAY</span>
+              <div style={{ background: "var(--success-light)", padding: "0.4rem", borderRadius: "8px", color: "var(--success-dark)" }}>
+                <CheckCircle2 size={18} />
+              </div>
+            </div>
+            <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0", color: "var(--success-dark)" }}>
+              {myPayslips.length > 0 ? formatCurrency(myPayslips[0].netSalary) : mySalaryStructure ? formatCurrency(Math.max(0, (mySalaryStructure.basicSalary + mySalaryStructure.hra + mySalaryStructure.da + (mySalaryStructure.specialAllowance || 0)) - ((mySalaryStructure.epfEnrolled ? Math.round(Math.min(mySalaryStructure.basicSalary + mySalaryStructure.da, 15000) * 0.12) : 0) + (mySalaryStructure.professionalTax || 200) + (mySalaryStructure.tdsMonthly || 0)))) : "—"}
+            </p>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "0.25rem" }}>
+              {myPayslips.length > 0 ? `Disbursed for ${myPayslips[0].month}/${myPayslips[0].year}` : "Based on active salary structure"}
             </div>
           </div>
-          <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0", color: "var(--text-primary)" }}>
-            {formatCurrency(totalGrossDisbursed > 0 ? totalGrossDisbursed : monthlyStructureGross)}
-          </p>
-          <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "0.25rem" }}>
-            Monthly Run Rate: <strong>{formatCurrency(monthlyStructureGross)}</strong> ({safeStructures.length} staff)
-          </div>
-        </div>
 
-        <div className="card kpi-card" style={{ padding: "1.25rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>TOTAL NET DISBURSED</span>
-            <div style={{ background: "var(--success-light)", padding: "0.4rem", borderRadius: "8px", color: "var(--success-dark)" }}>
-              <CheckCircle2 size={18} />
+          <div className="card kpi-card" style={{ padding: "1.25rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>MONTHLY GROSS</span>
+              <div style={{ background: "var(--primary-50)", padding: "0.4rem", borderRadius: "8px", color: "var(--primary-600)" }}>
+                <IndianRupee size={18} />
+              </div>
+            </div>
+            <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0", color: "var(--text-primary)" }}>
+              {myPayslips.length > 0 ? formatCurrency(myPayslips[0].grossSalary) : mySalaryStructure ? formatCurrency((mySalaryStructure.basicSalary || 0) + (mySalaryStructure.hra || 0) + (mySalaryStructure.da || 0) + (mySalaryStructure.conveyance || 0) + (mySalaryStructure.medicalAllowance || 0) + (mySalaryStructure.specialAllowance || 0)) : "—"}
+            </p>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "0.25rem" }}>
+              Basic: {formatCurrency(mySalaryStructure?.basicSalary || 0)} • HRA: {formatCurrency(mySalaryStructure?.hra || 0)}
             </div>
           </div>
-          <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0", color: "var(--success-dark)" }}>
-            {formatCurrency(totalNetDisbursed)}
-          </p>
-          <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "0.25rem" }}>
-            Across {safeCycles.length} recorded monthly cycles
-          </div>
-        </div>
 
-        <div className="card kpi-card" style={{ padding: "1.25rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>EPF (12%) REMITTANCES</span>
-            <div style={{ background: "var(--teal-50)", padding: "0.4rem", borderRadius: "8px", color: "var(--teal-600)" }}>
-              <ShieldCheck size={18} />
+          <div className="card kpi-card" style={{ padding: "1.25rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>EPF STATUTORY (12%)</span>
+              <div style={{ background: "var(--teal-50)", padding: "0.4rem", borderRadius: "8px", color: "var(--teal-600)" }}>
+                <ShieldCheck size={18} />
+              </div>
+            </div>
+            <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0", color: "var(--teal-700)" }}>
+              {myPayslips.length > 0 ? formatCurrency(myPayslips[0].epfDeduction || 0) : mySalaryStructure?.epfEnrolled ? formatCurrency(Math.round(Math.min((mySalaryStructure.basicSalary || 0) + (mySalaryStructure.da || 0), 15000) * 0.12)) : "Exempt"}
+            </p>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "0.25rem" }}>
+              12% Employee Provident Fund (EPFO India)
             </div>
           </div>
-          <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0", color: "var(--teal-700)" }}>
-            {formatCurrency(totalEpfDeductions > 0 ? totalEpfDeductions : monthlyStructureEpf)}
-          </p>
-          <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "0.25rem" }}>
-            Monthly EPFO Pool: {formatCurrency(monthlyStructureEpf)} ({safeStructures.filter(s => s.epfApplicable ?? s.epfEnrolled).length} staff enrolled)
-          </div>
-        </div>
 
-        <div className="card kpi-card" style={{ padding: "1.25rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>ESI (0.75%) CONTRIBUTIONS</span>
-            <div style={{ background: "var(--warning-light)", padding: "0.4rem", borderRadius: "8px", color: "var(--warning-dark)" }}>
-              <Receipt size={18} />
+          <div className="card kpi-card" style={{ padding: "1.25rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>AVAILABLE PAYSLIPS</span>
+              <div style={{ background: "var(--brand-blue-subtle)", padding: "0.4rem", borderRadius: "8px", color: "var(--brand-primary)" }}>
+                <FileText size={18} />
+              </div>
+            </div>
+            <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0", color: "var(--brand-primary)" }}>
+              {myPayslips.length}
+            </p>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "0.25rem" }}>
+              Issued by {schoolName || "Institution"}
             </div>
           </div>
-          <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0", color: "var(--warning-dark)" }}>
-            {formatCurrency(totalEsiDeductions > 0 ? totalEsiDeductions : monthlyStructureEsi)}
-          </p>
-          <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "0.25rem" }}>
-            Monthly ESIC Medical Pool (Eligible Gross ≤ ₹21k)
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "1rem" }}>
+          <div className="card kpi-card" style={{ padding: "1.25rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>TOTAL GROSS SALARY</span>
+              <div style={{ background: "var(--primary-50)", padding: "0.4rem", borderRadius: "8px", color: "var(--primary-600)" }}>
+                <IndianRupee size={18} />
+              </div>
+            </div>
+            <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0", color: "var(--text-primary)" }}>
+              {formatCurrency(totalGrossDisbursed > 0 ? totalGrossDisbursed : monthlyStructureGross)}
+            </p>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "0.25rem" }}>
+              Monthly Run Rate: <strong>{formatCurrency(monthlyStructureGross)}</strong> ({safeStructures.length} staff)
+            </div>
+          </div>
+
+          <div className="card kpi-card" style={{ padding: "1.25rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>TOTAL NET DISBURSED</span>
+              <div style={{ background: "var(--success-light)", padding: "0.4rem", borderRadius: "8px", color: "var(--success-dark)" }}>
+                <CheckCircle2 size={18} />
+              </div>
+            </div>
+            <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0", color: "var(--success-dark)" }}>
+              {formatCurrency(totalNetDisbursed)}
+            </p>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "0.25rem" }}>
+              Across {safeCycles.length} recorded monthly cycles
+            </div>
+          </div>
+
+          <div className="card kpi-card" style={{ padding: "1.25rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>EPF (12%) REMITTANCES</span>
+              <div style={{ background: "var(--teal-50)", padding: "0.4rem", borderRadius: "8px", color: "var(--teal-600)" }}>
+                <ShieldCheck size={18} />
+              </div>
+            </div>
+            <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0", color: "var(--teal-700)" }}>
+              {formatCurrency(totalEpfDeductions > 0 ? totalEpfDeductions : monthlyStructureEpf)}
+            </p>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "0.25rem" }}>
+              Monthly EPFO Pool: {formatCurrency(monthlyStructureEpf)} ({safeStructures.filter(s => s.epfApplicable ?? s.epfEnrolled).length} staff enrolled)
+            </div>
+          </div>
+
+          <div className="card kpi-card" style={{ padding: "1.25rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>ESI (0.75%) CONTRIBUTIONS</span>
+              <div style={{ background: "var(--warning-light)", padding: "0.4rem", borderRadius: "8px", color: "var(--warning-dark)" }}>
+                <Receipt size={18} />
+              </div>
+            </div>
+            <p style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0.5rem 0 0", color: "var(--warning-dark)" }}>
+              {formatCurrency(totalEsiDeductions > 0 ? totalEsiDeductions : monthlyStructureEsi)}
+            </p>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginTop: "0.25rem" }}>
+              Monthly ESIC Medical Pool (Eligible Gross ≤ ₹21k)
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: "0.5rem", borderBottom: "1px solid var(--border-default)" }}>
-        <button
-          onClick={() => setActiveTab("cycles")}
-          className={`tab-btn ${activeTab === "cycles" ? "active" : ""}`}
-          style={{
-            padding: "0.6rem 1rem",
-            fontWeight: 700,
-            fontSize: "0.875rem",
-            border: "none",
-            borderBottom: activeTab === "cycles" ? "2px solid var(--primary-600)" : "2px solid transparent",
-            color: activeTab === "cycles" ? "var(--primary-600)" : "var(--text-secondary)",
-            background: "transparent",
-            cursor: "pointer",
-            transition: "all 0.2s ease",
-          }}
-        >
-          Payroll Cycles ({cycles.length})
-        </button>
-        <button
-          onClick={() => setActiveTab("structures")}
-          className={`tab-btn ${activeTab === "structures" ? "active" : ""}`}
-          style={{
-            padding: "0.6rem 1rem",
-            fontWeight: 700,
-            fontSize: "0.875rem",
-            border: "none",
-            borderBottom: activeTab === "structures" ? "2px solid var(--primary-600)" : "2px solid transparent",
-            color: activeTab === "structures" ? "var(--primary-600)" : "var(--text-secondary)",
-            background: "transparent",
-            cursor: "pointer",
-            transition: "all 0.2s ease",
-          }}
-        >
-          Staff Salary Structures ({structures.length})
-        </button>
-        <button
-          onClick={() => setActiveTab("all-payslips")}
-          className={`tab-btn ${activeTab === "all-payslips" ? "active" : ""}`}
-          style={{
-            padding: "0.6rem 1rem",
-            fontWeight: 700,
-            fontSize: "0.875rem",
-            border: "none",
-            borderBottom: activeTab === "all-payslips" ? "2px solid var(--primary-600)" : "2px solid transparent",
-            color: activeTab === "all-payslips" ? "var(--primary-600)" : "var(--text-secondary)",
-            background: "transparent",
-            cursor: "pointer",
-            transition: "all 0.2s ease",
-          }}
-        >
-          All Payslips Master Registry ({allPayslips.length})
-        </button>
-      </div>
+      {isTeacher ? (
+        <div style={{ display: "flex", gap: "0.5rem", borderBottom: "1px solid var(--border-default)" }}>
+          <button
+            onClick={() => setActiveTab("my-payslips")}
+            className={`tab-btn ${activeTab === "my-payslips" ? "active" : ""}`}
+            style={{
+              padding: "0.6rem 1rem",
+              fontWeight: 700,
+              fontSize: "0.875rem",
+              border: "none",
+              borderBottom: activeTab === "my-payslips" ? "2px solid var(--primary-600)" : "2px solid transparent",
+              color: activeTab === "my-payslips" ? "var(--primary-600)" : "var(--text-secondary)",
+              background: "transparent",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+            }}
+          >
+            My Issued Payslips ({myPayslips.length})
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: "0.5rem", borderBottom: "1px solid var(--border-default)" }}>
+          <button
+            onClick={() => setActiveTab("cycles")}
+            className={`tab-btn ${activeTab === "cycles" ? "active" : ""}`}
+            style={{
+              padding: "0.6rem 1rem",
+              fontWeight: 700,
+              fontSize: "0.875rem",
+              border: "none",
+              borderBottom: activeTab === "cycles" ? "2px solid var(--primary-600)" : "2px solid transparent",
+              color: activeTab === "cycles" ? "var(--primary-600)" : "var(--text-secondary)",
+              background: "transparent",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+            }}
+          >
+            Payroll Cycles ({cycles.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("structures")}
+            className={`tab-btn ${activeTab === "structures" ? "active" : ""}`}
+            style={{
+              padding: "0.6rem 1rem",
+              fontWeight: 700,
+              fontSize: "0.875rem",
+              border: "none",
+              borderBottom: activeTab === "structures" ? "2px solid var(--primary-600)" : "2px solid transparent",
+              color: activeTab === "structures" ? "var(--primary-600)" : "var(--text-secondary)",
+              background: "transparent",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+            }}
+          >
+            Staff Salary Structures ({structures.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("all-payslips")}
+            className={`tab-btn ${activeTab === "all-payslips" ? "active" : ""}`}
+            style={{
+              padding: "0.6rem 1rem",
+              fontWeight: 700,
+              fontSize: "0.875rem",
+              border: "none",
+              borderBottom: activeTab === "all-payslips" ? "2px solid var(--primary-600)" : "2px solid transparent",
+              color: activeTab === "all-payslips" ? "var(--primary-600)" : "var(--text-secondary)",
+              background: "transparent",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+            }}
+          >
+            All Payslips Master Registry ({allPayslips.length})
+          </button>
+        </div>
+      )}
 
       {/* Content Table */}
       <div className="card tab-content-animate" style={{ padding: "1.25rem" }}>
+        {activeTab === "my-payslips" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+            <DataTable
+              columns={myPayslipColumns}
+              data={myPayslips}
+              isLoading={isLoading}
+              emptyMessage="No payslips generated for your profile yet. Once the monthly payroll cycle is finalized and disbursed by administration, your official payslips and Form-16 will appear here."
+            />
+
+            {/* Teacher's Active Salary Structure Breakdown */}
+            {mySalaryStructure && (
+              <div
+                style={{
+                  background: "var(--bg-app)",
+                  borderRadius: "var(--radius-xl)",
+                  border: "1px solid var(--border-default)",
+                  padding: "1.25rem",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                      <Briefcase size={16} className="text-brand" />
+                      Active Compensation Structure Breakdown
+                    </h3>
+                    <p style={{ margin: "0.2rem 0 0", fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+                      Approved statutory structure for {user?.firstName} {user?.lastName} ({myStaffProfile?.employeeId || "Faculty"})
+                    </p>
+                  </div>
+                  <span style={{ fontSize: "11px", fontWeight: 700, padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", background: "var(--success-light)", color: "var(--success-dark)" }}>
+                    ACTIVE CONTRACT
+                  </span>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.75rem" }}>
+                  <div style={{ background: "var(--bg-surface)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
+                    <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", fontWeight: 600 }}>BASIC SALARY</span>
+                    <p style={{ margin: "0.25rem 0 0", fontWeight: 700, fontSize: "0.95rem" }}>{formatCurrency(mySalaryStructure.basicSalary)}</p>
+                  </div>
+                  <div style={{ background: "var(--bg-surface)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
+                    <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", fontWeight: 600 }}>HOUSE RENT ALLOWANCE (HRA)</span>
+                    <p style={{ margin: "0.25rem 0 0", fontWeight: 700, fontSize: "0.95rem" }}>{formatCurrency(mySalaryStructure.hra)}</p>
+                  </div>
+                  <div style={{ background: "var(--bg-surface)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
+                    <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", fontWeight: 600 }}>DEARNESS ALLOWANCE (DA)</span>
+                    <p style={{ margin: "0.25rem 0 0", fontWeight: 700, fontSize: "0.95rem" }}>{formatCurrency(mySalaryStructure.da)}</p>
+                  </div>
+                  <div style={{ background: "var(--bg-surface)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
+                    <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", fontWeight: 600 }}>CONVEYANCE + MEDICAL</span>
+                    <p style={{ margin: "0.25rem 0 0", fontWeight: 700, fontSize: "0.95rem" }}>{formatCurrency((mySalaryStructure.conveyance || 0) + (mySalaryStructure.medicalAllowance || 0))}</p>
+                  </div>
+                  <div style={{ background: "var(--bg-surface)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
+                    <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", fontWeight: 600 }}>SPECIAL ALLOWANCE</span>
+                    <p style={{ margin: "0.25rem 0 0", fontWeight: 700, fontSize: "0.95rem" }}>{formatCurrency(mySalaryStructure.specialAllowance || 0)}</p>
+                  </div>
+                  <div style={{ background: "var(--bg-surface)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
+                    <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", fontWeight: 600 }}>EPF (12%) ENROLLED</span>
+                    <p style={{ margin: "0.25rem 0 0", fontWeight: 700, fontSize: "0.95rem", color: mySalaryStructure.epfEnrolled ? "var(--teal-700)" : "var(--text-secondary)" }}>
+                      {mySalaryStructure.epfEnrolled ? "Yes (Active)" : "Exempt"}
+                    </p>
+                  </div>
+                  <div style={{ background: "var(--bg-surface)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
+                    <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", fontWeight: 600 }}>PROFESSIONAL TAX (PT)</span>
+                    <p style={{ margin: "0.25rem 0 0", fontWeight: 700, fontSize: "0.95rem" }}>{formatCurrency(mySalaryStructure.professionalTax || mySalaryStructure.profTax || 200)}</p>
+                  </div>
+                  <div style={{ background: "var(--bg-surface)", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
+                    <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", fontWeight: 600 }}>TDS MONTHLY</span>
+                    <p style={{ margin: "0.25rem 0 0", fontWeight: 700, fontSize: "0.95rem" }}>{formatCurrency(mySalaryStructure.tdsMonthly || 0)}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === "cycles" && (
           <DataTable
             columns={cycleColumns}

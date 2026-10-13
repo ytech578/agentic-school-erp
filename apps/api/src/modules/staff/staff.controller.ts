@@ -35,11 +35,12 @@ export class StaffController {
       typeof targetSchoolId === 'string' &&
       targetSchoolId.trim()
     ) {
+      if (req.user?.role !== 'SUPER_ADMIN') {
+        throw new ForbiddenException('Cannot access another school context');
+      }
       return targetSchoolId.trim();
     }
-    const defaultSchool = await this.service.getDefaultSchoolId();
-    if (defaultSchool) return defaultSchool;
-    throw new ForbiddenException('Valid school context is required');
+    throw new ForbiddenException('Valid school context is required (fail-closed)');
   }
 
   @Get('departments')

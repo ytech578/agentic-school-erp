@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import { 
-  Search, Users, GraduationCap, DollarSign, X, Calendar, 
-  BookOpen, FileText, Settings, Sparkles, MessageSquare, ArrowRight, Layers, Loader2, Shield 
+import {
+  Search, Users, GraduationCap, DollarSign, X, Calendar,
+  BookOpen, FileText, Settings, Sparkles, MessageSquare, ArrowRight, Layers, Loader2, Shield
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth.store";
@@ -214,7 +214,7 @@ export default function GlobalSearch({ isOpen, onClose }: { isOpen: boolean; onC
 
   return (
     <>
-      <div 
+      <div
         style={{
           position: "fixed",
           inset: 0,
@@ -226,18 +226,18 @@ export default function GlobalSearch({ isOpen, onClose }: { isOpen: boolean; onC
         }}
         onClick={onClose}
       />
-      <div 
+      <div
         style={{
-          position: "fixed", 
-          top: "15%", 
-          left: "50%", 
-          transform: "translate(-50%, 0)", 
-          width: "90%", 
+          position: "fixed",
+          top: "15%",
+          left: "50%",
+          transform: "translate(-50%, 0)",
+          width: "90%",
           maxWidth: "580px",
-          background: "var(--bg-surface-solid, #ffffff)", 
-          borderRadius: "16px", 
+          background: "var(--bg-surface-solid, #ffffff)",
+          borderRadius: "16px",
           border: "1px solid var(--border-default, #e2e8f0)",
-          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1)", 
+          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1)",
           zIndex: 1001,
           overflow: "hidden",
           animation: "scaleUp 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
@@ -258,25 +258,25 @@ export default function GlobalSearch({ isOpen, onClose }: { isOpen: boolean; onC
               setSelectedIndex(0);
             }}
             placeholder="Quick search modules, students, fees or settings..."
-            style={{ 
-              flex: 1, 
-              border: "none", 
-              background: "transparent", 
-              color: "#0f172a", 
-              fontSize: "1rem", 
-              outline: "none" 
+            style={{
+              flex: 1,
+              border: "none",
+              background: "transparent",
+              color: "#0f172a",
+              fontSize: "1rem",
+              outline: "none"
             }}
           />
-          <button 
+          <button
             type="button"
-            onClick={onClose} 
-            style={{ 
-              background: "#f1f5f9", 
-              border: "1px solid #e2e8f0", 
-              borderRadius: "6px", 
-              padding: "0.25rem 0.5rem", 
-              fontSize: "0.75rem", 
-              color: "#64748b", 
+            onClick={onClose}
+            style={{
+              background: "#f1f5f9",
+              border: "1px solid #e2e8f0",
+              borderRadius: "6px",
+              padding: "0.25rem 0.5rem",
+              fontSize: "0.75rem",
+              color: "#64748b",
               cursor: "pointer",
               fontWeight: 600
             }}
@@ -284,37 +284,37 @@ export default function GlobalSearch({ isOpen, onClose }: { isOpen: boolean; onC
             ESC
           </button>
         </div>
-        
+
         <div style={{ padding: "0.5rem", maxHeight: "420px", overflowY: "auto" }}>
           {filteredItems.length > 0 ? (
             filteredItems.map((item, index) => {
               const isSelected = index === selectedIndex;
               const IconComp = item.icon;
               return (
-                <div 
+                <div
                   key={item.id}
                   onClick={() => handleSelect(item.url)}
                   style={{
-                    display: "flex", 
-                    alignItems: "center", 
-                    gap: "0.875rem", 
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.875rem",
                     padding: "0.75rem 1rem",
-                    borderRadius: "10px", 
-                    cursor: "pointer", 
+                    borderRadius: "10px",
+                    cursor: "pointer",
                     background: isSelected ? "rgba(37, 99, 235, 0.08)" : "transparent",
                     transition: "background 0.15s ease",
                   }}
                   onMouseEnter={() => setSelectedIndex(index)}
                 >
-                  <div 
-                    style={{ 
-                      width: "36px", 
-                      height: "36px", 
-                      borderRadius: "8px", 
-                      background: isSelected ? "#2563eb" : "#f1f5f9", 
-                      display: "flex", 
-                      alignItems: "center", 
-                      justifyContent: "center", 
+                  <div
+                    style={{
+                      width: "36px",
+                      height: "36px",
+                      borderRadius: "8px",
+                      background: isSelected ? "#2563eb" : "#f1f5f9",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
                       flexShrink: 0,
                       transition: "background 0.15s ease",
                     }}

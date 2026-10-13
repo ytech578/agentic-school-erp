@@ -1,9 +1,9 @@
 import { NodeSDK } from '@opentelemetry/sdk-node';
+import { ConsoleSpanExporter } from '@opentelemetry/sdk-trace-base';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 
 export const otelSDK = new NodeSDK({
-  traceExporter:
-    new (require('@opentelemetry/sdk-trace-base').ConsoleSpanExporter)(),
+  traceExporter: new ConsoleSpanExporter(),
   instrumentations: [getNodeAutoInstrumentations()],
 });
 

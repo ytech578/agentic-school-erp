@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { AssignmentsService } from './assignments.service';
 import { PrismaService } from '../../core/database/prisma.service';
+import { PlagiarismService } from './plagiarism.service';
 
 describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
   let service: AssignmentsService;
@@ -13,7 +14,12 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
       update: jest.Mock;
       delete: jest.Mock;
     };
-    assignmentSubmission: { findMany: jest.Mock; upsert: jest.Mock };
+    assignmentSubmission: {
+      findUnique: jest.Mock;
+      findMany: jest.Mock;
+      upsert: jest.Mock;
+      update: jest.Mock;
+    };
     studentEnrollment: { findMany: jest.Mock };
     student: { findFirst: jest.Mock };
     academicYear: { findFirst: jest.Mock; findMany: jest.Mock };
@@ -34,8 +40,10 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
         delete: jest.fn(),
       },
       assignmentSubmission: {
+        findUnique: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
         upsert: jest.fn(),
+        update: jest.fn(),
       },
       studentEnrollment: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -68,6 +76,7 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AssignmentsService,
+        PlagiarismService,
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();
@@ -1269,5 +1278,96 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
       expect(prisma.assignmentSubmission.upsert).toHaveBeenCalled();
       expect(res.status).toBe('GRADED');
     });
+
+    it('should allow student to submit assignment content and compute originality', async () => {
+      const schoolId = 'school-123';
+      const assignmentId = 'assign-1';
+      const userId = 'user-student-1';
+      const studentId = 'student-1';
+
+      prisma.assignment.findFirst.mockResolvedValue({
+        id: assignmentId,
+        schoolId,
+      });
+      prisma.student.findFirst.mockResolvedValue({ id: studentId, userId, schoolId });
+      prisma.assignmentSubmission.findUnique.mockResolvedValue(null);
+      prisma.assignmentSubmission.findMany.mockResolvedValue([
+        {
+          id: 'peer-sub-1',
+          studentId: 'peer-student-2',
+          feedback: JSON.stringify({
+            submissionText: 'The process of cellular respiration converts glucose into ATP molecules in mitochondria.',
+          }),
+        },
+      ]);
+      prisma.assignmentSubmission.upsert.mockResolvedValue({
+        id: 'sub-new-1',
+        assignmentId,
+        studentId,
+        status: 'SUBMITTED',
+        feedback: JSON.stringify({
+          submissionText: 'Cellular respiration converts glucose into ATP molecules in mitochondria.',
+        }),
+      });
+
+      const res = await service.submitStudentAssignment(
+        schoolId,
+        assignmentId,
+        userId,
+        {
+          content: 'Cellular respiration converts glucose into ATP molecules in mitochondria.',
+        },
+      );
+
+      expect(prisma.assignmentSubmission.upsert).toHaveBeenCalled();
+      expect(res.submission.status).toBe('SUBMITTED');
+    });
+
+    it('should reject student submission if student profile does not exist in school', async () => {
+      prisma.assignment.findFirst.mockResolvedValue({
+        id: 'assign-1',
+        schoolId: 'school-123',
+      });
+      prisma.student.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.submitStudentAssignment('school-123', 'assign-1', 'unknown-user', {
+          content: 'My homework answers',
+        }),
+      ).rejects.toThrow('Authenticated student profile not found in this school');
+    });
+
+    it('should run on-demand plagiarism check for existing submission', async () => {
+      const schoolId = 'school-123';
+      const assignmentId = 'assign-1';
+      const studentId = 'student-1';
+
+      prisma.assignment.findFirst.mockResolvedValue({
+        id: assignmentId,
+        schoolId,
+      });
+      prisma.assignmentSubmission.findUnique.mockResolvedValue({
+        id: 'sub-1',
+        assignmentId,
+        studentId,
+        feedback: JSON.stringify({
+          submissionText: 'The photosynthesis mechanism produces glucose and oxygen from carbon dioxide and water.',
+        }),
+      });
+      prisma.assignmentSubmission.findMany.mockResolvedValue([]);
+      prisma.assignmentSubmission.update.mockResolvedValue({});
+
+      const report = await service.checkSubmissionPlagiarism(
+        schoolId,
+        assignmentId,
+        studentId,
+      );
+
+      expect(report).toBeDefined();
+      expect(report.overallSimilarityScore).toBe(0);
+      expect(report.status).toBe('CLEAN');
+      expect(report.isPlagiarized).toBe(false);
+    });
   });
 });
+

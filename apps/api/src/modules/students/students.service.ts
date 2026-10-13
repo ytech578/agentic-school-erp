@@ -729,6 +729,10 @@ export class StudentsService {
       );
     }
 
+    if (file.size > 10 * 1024 * 1024) {
+      throw new BadRequestException('File size exceeds the 10MB limit');
+    }
+
     if (!this.storageService) {
       throw new BadRequestException('Storage service is not configured');
     }

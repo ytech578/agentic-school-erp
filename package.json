@@ -7,6 +7,7 @@
     "packages/*"
   ],
   "scripts": {
+    "predev": "node scripts/dev-preflight.js",
     "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
     "dev:api": "npm run start:dev --workspace=apps/api",
     "dev:web": "npm run dev --workspace=apps/web",

@@ -371,7 +371,7 @@ export default function TeacherCopilotPage() {
   };
 
   return (
-    <div style={{ maxWidth: "1280px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.75rem" }}>
+    <div className="animate-fade-in" style={{ maxWidth: "1280px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.75rem" }}>
       {/* Scoped Keyframes & Animation Boosts */}
       <style>{`
         @keyframes copilotShimmer {
@@ -440,7 +440,7 @@ export default function TeacherCopilotPage() {
         border: "1px solid rgba(255, 255, 255, 0.1)"
       }}>
         {/* Ambient background decoration */}
-        <div style={{
+        <div className="animate-float" style={{
           position: "absolute",
           top: "-30px",
           right: "-30px",

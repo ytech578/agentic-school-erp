@@ -31,7 +31,9 @@ export class FcmService implements OnModuleInit {
       const privateKey = this.config.get<string>('FIREBASE_PRIVATE_KEY');
 
       if (serviceAccountJson) {
-        const credentials = JSON.parse(serviceAccountJson);
+        const credentials = JSON.parse(
+          serviceAccountJson,
+        ) as import('firebase-admin').ServiceAccount;
         this.firebaseApp = initializeApp({
           credential: cert(credentials),
         });
@@ -53,11 +55,10 @@ export class FcmService implements OnModuleInit {
           'FCM credentials not provided. Operating in graceful mock mode (push notifications will be logged).',
         );
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.isConfigured = false;
-      this.logger.error(
-        `Failed to initialize Firebase Admin SDK: ${err.message}`,
-      );
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Failed to initialize Firebase Admin SDK: ${msg}`);
     }
   }
 
@@ -94,8 +95,9 @@ export class FcmService implements OnModuleInit {
       await this.prisma.deviceToken.deleteMany({
         where: { token },
       });
-    } catch (err: any) {
-      this.logger.warn(`Failed to delete device token: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to delete device token: ${msg}`);
     }
   }
 
@@ -150,8 +152,9 @@ export class FcmService implements OnModuleInit {
         data: payload.data,
       });
       return true;
-    } catch (err: any) {
-      this.logger.error(`FCM topic push failed for ${topic}: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`FCM topic push failed for ${topic}: ${msg}`);
       return false;
     }
   }
@@ -199,17 +202,22 @@ export class FcmService implements OnModuleInit {
       // Cleanup stale tokens that failed
       if (response.failureCount > 0) {
         const staleTokens: string[] = [];
-        response.responses.forEach((resp: any, idx: number) => {
-          if (!resp.success) {
-            const errCode = resp.error?.code;
-            if (
-              errCode === 'messaging/registration-token-not-registered' ||
-              errCode === 'messaging/invalid-registration-token'
-            ) {
-              staleTokens.push(tokens[idx]);
+        response.responses.forEach(
+          (
+            resp: { success: boolean; error?: { code?: string } },
+            idx: number,
+          ) => {
+            if (!resp.success) {
+              const errCode = resp.error?.code;
+              if (
+                errCode === 'messaging/registration-token-not-registered' ||
+                errCode === 'messaging/invalid-registration-token'
+              ) {
+                staleTokens.push(tokens[idx]);
+              }
             }
-          }
-        });
+          },
+        );
 
         if (staleTokens.length > 0) {
           this.logger.log(
@@ -222,8 +230,9 @@ export class FcmService implements OnModuleInit {
       }
 
       return response.successCount > 0;
-    } catch (err: any) {
-      this.logger.error(`FCM multicast failed: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`FCM multicast failed: ${msg}`);
       return false;
     }
   }

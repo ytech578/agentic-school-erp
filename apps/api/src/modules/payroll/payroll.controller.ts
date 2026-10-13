@@ -103,6 +103,15 @@ export class PayrollController {
 
   // ─── PAYSLIPS ─────────────────────────────────────────────────────────────
 
+  @Get('my-payslips')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
+  @ApiOperation({
+    summary: 'Get current logged-in staff member payslips and salary structure',
+  })
+  getMyPayslips(@Request() req: any) {
+    return this.payrollService.getMyPayslips(req.user.schoolId, req.user.id);
+  }
+
   @Get('payslips')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({

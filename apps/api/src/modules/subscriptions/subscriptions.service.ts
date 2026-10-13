@@ -105,16 +105,7 @@ export class SubscriptionsService {
   // ─── 1. GET OR INITIALIZE SUBSCRIPTION ─────────────────────────────────────
 
   async getSubscription(schoolId?: string | null) {
-    let validSchoolId = schoolId;
-    if (!validSchoolId) {
-      const primarySchool = await this.prisma.school.findFirst({
-        select: { id: true },
-      });
-      if (!primarySchool) {
-        throw new NotFoundException('No schools configured in fleet.');
-      }
-      validSchoolId = primarySchool.id;
-    }
+    const validSchoolId = requireSchoolId(schoolId, 'Subscription');
 
     let sub = await this.prisma.schoolSubscription.findUnique({
       where: { schoolId: validSchoolId },

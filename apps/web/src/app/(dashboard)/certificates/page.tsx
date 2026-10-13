@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { useSchool } from "@/hooks/useSchool";
+import { useAuthStore } from "@/store/auth.store";
 import { formatDate } from "@/lib/formatters";
 import QRCode from "qrcode";
+import Image from "next/image";
 import { 
   FileCheck, 
   Plus, 
@@ -21,7 +23,6 @@ import {
   Eye,
   Printer,
   Building,
-  User,
   ShieldCheck,
   GraduationCap
 } from "lucide-react";
@@ -77,7 +78,7 @@ interface CertificateRecord {
   leavingReason?: string;
   conductRemark?: string;
   remarks?: string;
-  school?: any;
+  school?: { name?: string; address?: string; phone?: string; email?: string; [key: string]: unknown };
 }
 
 interface VerificationResult {
@@ -116,6 +117,8 @@ const formatDateWords = (dateString?: string): string => {
 
 export default function CertificatesPage() {
   const { schoolName, affiliationNo, fullAddress, phone, email, principalName, boardType } = useSchool();
+  const { user } = useAuthStore();
+  const canManageCertificates = ["SUPER_ADMIN", "SCHOOL_ADMIN", "PRINCIPAL"].includes(user?.role || "");
 
   const [activeTab, setActiveTab] = useState<"certificates" | "verify">("certificates");
   const [students, setStudents] = useState<StudentProfile[]>([]);
@@ -175,7 +178,7 @@ export default function CertificatesPage() {
         setTemplates(templs);
         if (templs.length > 0) {
           setSelectedTemplateId(templs[0].id);
-          const tType = templs[0].type as any;
+          const tType = templs[0].type;
           if (tType === "TRANSFER_CERTIFICATE" || tType === "BONAFIDE" || tType === "CHARACTER") {
             setCertType(tType);
           }
@@ -205,17 +208,6 @@ export default function CertificatesPage() {
       console.error("Failed to load certificates data", err);
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleTemplateChange = (templateId: string) => {
-    setSelectedTemplateId(templateId);
-    const tmpl = templates.find((t) => t.id === templateId);
-    if (tmpl) {
-      const tType = tmpl.type as any;
-      if (tType === "TRANSFER_CERTIFICATE" || tType === "BONAFIDE" || tType === "CHARACTER") {
-        setCertType(tType);
-      }
     }
   };
 
@@ -469,7 +461,7 @@ export default function CertificatesPage() {
           >
             PDF
           </Button>
-          {!row.isRevoked && row.status !== "REVOKED" && (
+          {canManageCertificates && !row.isRevoked && row.status !== "REVOKED" && (
             <Button
               variant="ghost"
               size="sm"
@@ -499,14 +491,16 @@ export default function CertificatesPage() {
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "0.75rem" }}>
-          <Button
-            icon={<Plus size={16} />}
-            onClick={() => setIsIssueModalOpen(true)}
-          >
-            Issue New Certificate
-          </Button>
-        </div>
+        {canManageCertificates && (
+          <div style={{ display: "flex", gap: "0.75rem" }}>
+            <Button
+              icon={<Plus size={16} />}
+              onClick={() => setIsIssueModalOpen(true)}
+            >
+              Issue New Certificate
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
@@ -673,7 +667,7 @@ export default function CertificatesPage() {
                   key={item.type}
                   type="button"
                   onClick={() => {
-                    setCertType(item.type as any);
+                    setCertType(item.type as "TRANSFER_CERTIFICATE" | "BONAFIDE" | "CHARACTER");
                     const matchedTmpl = templates.find((t) => t.type === item.type);
                     if (matchedTmpl) setSelectedTemplateId(matchedTmpl.id);
                   }}
@@ -764,7 +758,7 @@ export default function CertificatesPage() {
                   className="input-field"
                   style={{ width: "100%", padding: "0.45rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-default)" }}
                 >
-                  <option value="Parent's Transfer / Relocating">Parent's Transfer / Relocating</option>
+                  <option value="Parent's Transfer / Relocating">Parent&apos;s Transfer / Relocating</option>
                   <option value="Higher Education / Boarding">Higher Education / Boarding</option>
                   <option value="Completed Course of Study">Completed Course of Study</option>
                   <option value="Personal / Domestic Reasons">Personal / Domestic Reasons</option>
@@ -994,11 +988,11 @@ export default function CertificatesPage() {
                         <td style={{ padding: "0.35rem 0", fontWeight: 700, color: "#0f172a" }}>{studentName}</td>
                       </tr>
                       <tr>
-                        <td style={{ padding: "0.35rem 0", color: "#475569", fontWeight: 600 }}>2. Father's / Guardian's Name:</td>
+                        <td style={{ padding: "0.35rem 0", color: "#475569", fontWeight: 600 }}>2. Father&apos;s / Guardian&apos;s Name:</td>
                         <td style={{ padding: "0.35rem 0", fontWeight: 600 }}>{fatherName}</td>
                       </tr>
                       <tr>
-                        <td style={{ padding: "0.35rem 0", color: "#475569", fontWeight: 600 }}>3. Mother's Name:</td>
+                        <td style={{ padding: "0.35rem 0", color: "#475569", fontWeight: 600 }}>3. Mother&apos;s Name:</td>
                         <td style={{ padding: "0.35rem 0", fontWeight: 600 }}>{motherName}</td>
                       </tr>
                       <tr>
@@ -1079,7 +1073,7 @@ export default function CertificatesPage() {
                 {/* QR Code */}
                 <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
                   {qrCodeDataUrl ? (
-                    <img src={qrCodeDataUrl} alt="Certificate Verification QR Code" style={{ width: "90px", height: "90px", borderRadius: "4px", border: "1px solid #cbd5e1" }} />
+                    <Image src={qrCodeDataUrl} alt="Certificate Verification QR Code" width={90} height={90} unoptimized style={{ borderRadius: "4px", border: "1px solid #cbd5e1" }} />
                   ) : (
                     <div style={{ width: "90px", height: "90px", border: "1px dashed #cbd5e1", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       <QrCode size={40} color="#94a3b8" />

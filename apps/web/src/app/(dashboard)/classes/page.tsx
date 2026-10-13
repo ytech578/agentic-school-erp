@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { apiClient } from "@/lib/axios";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -8,7 +8,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useAuthStore } from "@/store/auth.store";
 import { 
   Layers, Plus, Users, School, Trash2, Edit2, DoorOpen, 
-  Sparkles, CheckCircle2, AlertCircle, Loader2, BarChart2 
+  Sparkles, Loader2, BarChart2 
 } from "lucide-react";
 
 export default function ClassesManagementPage() {
@@ -34,7 +34,7 @@ export default function ClassesManagementPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  const fetchClassesAndYears = async () => {
+  const fetchClassesAndYears = useCallback(async () => {
     setIsLoading(true);
     try {
       const [classesRes, ayRes] = await Promise.all([
@@ -53,11 +53,11 @@ export default function ClassesManagementPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [selectedAcademicYearId]);
 
   useEffect(() => {
     fetchClassesAndYears();
-  }, []);
+  }, [fetchClassesAndYears]);
 
   const handleOpenCreateClassModal = () => {
     setEditingClass(null);
@@ -109,10 +109,11 @@ export default function ClassesManagementPage() {
 
       await fetchClassesAndYears();
       setTimeout(() => setIsClassModalOpen(false), 800);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errMsg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed to save class. Please try again.";
       setActionMessage({
         type: "error",
-        text: err.response?.data?.message || "Failed to save class. Please try again.",
+        text: errMsg,
       });
     } finally {
       setIsSubmitting(false);
@@ -127,8 +128,9 @@ export default function ClassesManagementPage() {
     try {
       await apiClient.delete(`/classes/${classId}`);
       await fetchClassesAndYears();
-    } catch (err: any) {
-      alert(err.response?.data?.message || "Cannot delete class with active student enrollments.");
+    } catch (err: unknown) {
+      const errMsg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Cannot delete class with active student enrollments.";
+      alert(errMsg);
     }
   };
 
@@ -164,10 +166,11 @@ export default function ClassesManagementPage() {
       setActionMessage({ type: "success", text: `Section ${sectionName.trim()} created successfully.` });
       await fetchClassesAndYears();
       setTimeout(() => setIsSectionModalOpen(false), 800);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errMsg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed to add section. Section name may already exist in this class.";
       setActionMessage({
         type: "error",
-        text: err.response?.data?.message || "Failed to add section. Section name may already exist in this class.",
+        text: errMsg,
       });
     } finally {
       setIsSubmitting(false);
@@ -182,8 +185,9 @@ export default function ClassesManagementPage() {
     try {
       await apiClient.delete(`/classes/sections/${sectionId}`);
       await fetchClassesAndYears();
-    } catch (err: any) {
-      alert(err.response?.data?.message || "Cannot delete section with active enrollments.");
+    } catch (err: unknown) {
+      const errMsg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Cannot delete section with active enrollments.";
+      alert(errMsg);
     }
   };
 
@@ -191,10 +195,10 @@ export default function ClassesManagementPage() {
   const totalClasses = classes.length;
   const totalSections = classes.reduce((sum, c) => sum + (c.sections?.length || 0), 0);
   const totalEnrolledStudents = classes.reduce((sum, c) => {
-    return sum + (c.sections || []).reduce((secSum: number, s: any) => secSum + (s._count?.enrollments || 0), 0);
+    return sum + (c.sections || []).reduce((secSum: number, s: { _count?: { enrollments?: number } }) => secSum + (s._count?.enrollments || 0), 0);
   }, 0);
   const totalCapacity = classes.reduce((sum, c) => {
-    return sum + (c.sections || []).reduce((secSum: number, s: any) => secSum + (s.capacity || 40), 0);
+    return sum + (c.sections || []).reduce((secSum: number, s: { capacity?: number }) => secSum + (s.capacity || 40), 0);
   }, 0);
   const capacityUtilization = totalCapacity > 0 ? Math.round((totalEnrolledStudents / totalCapacity) * 100) : 0;
 

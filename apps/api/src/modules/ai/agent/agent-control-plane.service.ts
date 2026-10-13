@@ -35,7 +35,12 @@ import {
   SendAnnouncementInput,
   AutomationInput,
 } from './agent-types';
-import { AgentAction, AgentActionStatus, Prisma, RiskLevel } from '@prisma/client';
+import {
+  AgentAction,
+  AgentActionStatus,
+  Prisma,
+  RiskLevel,
+} from '@prisma/client';
 
 // ─── Inline audit helper ───────────────────────────────────────────────────────
 interface AuditPayload {

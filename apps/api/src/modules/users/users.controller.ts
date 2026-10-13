@@ -15,6 +15,7 @@ import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
+import type { AuthenticatedRequest } from '../../core/types/auth-request.interface';
 
 @ApiTags('Users')
 @ApiBearerAuth('JWT-auth')
@@ -27,7 +28,7 @@ export class UsersController {
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'List all users with filters' })
   findAll(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('role') role?: string,
@@ -35,7 +36,7 @@ export class UsersController {
     @Query('search') search?: string,
   ) {
     return this.usersService.findAll(
-      req.user.schoolId,
+      req.user.schoolId || '',
       {
         page: page ? +page : 1,
         limit: limit ? +limit : 20,
@@ -56,7 +57,7 @@ export class UsersController {
     'STUDENT',
     'PARENT',
   )
-  getMe(@Request() req: any) {
+  getMe(@Request() req: AuthenticatedRequest) {
     return this.usersService.findById(req.user.id);
   }
 
@@ -69,11 +70,22 @@ export class UsersController {
     'STUDENT',
     'PARENT',
   )
-  updateMyProfile(@Request() req: any, @Body() data: any) {
-    // Only allow updating safe fields like avatarUrl or phone
+  updateMyProfile(
+    @Request() req: AuthenticatedRequest,
+    @Body()
+    data: {
+      avatarUrl?: string;
+      phone?: string;
+      firstName?: string;
+      lastName?: string;
+    },
+  ) {
+    // Only allow updating safe fields
     const safeData = {
       avatarUrl: data.avatarUrl,
-      // Add other safe fields if needed
+      phone: data.phone,
+      firstName: data.firstName,
+      lastName: data.lastName,
     };
     return this.usersService.updateProfile(req.user.id, safeData);
   }
@@ -81,36 +93,61 @@ export class UsersController {
   @Get('stats')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Get global user stats and role breakdown' })
-  getStats(@Request() req: any) {
-    return this.usersService.getStats(req.user.schoolId, req.user);
+  getStats(@Request() req: AuthenticatedRequest) {
+    return this.usersService.getStats(req.user.schoolId || '', req.user);
   }
 
   @Get(':id')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  findOne(@Request() req: any, @Param('id') id: string) {
+  findOne(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
     return this.usersService.findById(
       id,
-      req.user?.schoolId,
+      req.user?.schoolId || undefined,
       req.user?.role === 'SUPER_ADMIN',
     );
   }
 
   @Post()
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN')
-  create(@Request() req: any, @Body() data: any) {
-    return this.usersService.createUser(req.user.schoolId, data, req.user);
+  create(
+    @Request() req: AuthenticatedRequest,
+    @Body()
+    data: {
+      email: string;
+      firstName: string;
+      lastName: string;
+      role: string;
+      phone?: string;
+      password?: string;
+    },
+  ) {
+    return this.usersService.createUser(
+      req.user.schoolId || '',
+      data,
+      req.user,
+    );
   }
 
   @Patch(':id')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  update(@Request() req: any, @Param('id') id: string, @Body() data: any) {
+  update(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body()
+    data: {
+      firstName?: string;
+      lastName?: string;
+      phone?: string;
+      role?: string;
+    },
+  ) {
     return this.usersService.updateUser(id, data, req.user);
   }
 
   @Patch(':id/status')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN')
   updateStatus(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body() body: { status: string },
   ) {
@@ -120,7 +157,7 @@ export class UsersController {
   @Post(':id/reset-password')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN')
   resetPassword(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body() body: { newPassword: string },
   ) {
@@ -129,7 +166,7 @@ export class UsersController {
 
   @Delete(':id')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN')
-  remove(@Request() req: any, @Param('id') id: string) {
+  remove(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
     return this.usersService.deactivateUser(id, req.user);
   }
 }

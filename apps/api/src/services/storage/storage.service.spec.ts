@@ -1,22 +1,23 @@
 import { StorageService } from './storage.service';
 import * as fs from 'fs';
 import * as path from 'path';
+import { ConfigService } from '@nestjs/config';
 
 describe('StorageService - Multi-Provider Driver (Part 2)', () => {
   let service: StorageService;
-  let mockConfig: any;
+  let mockConfig: { get: jest.Mock };
   const testUploadDir = path.join(__dirname, 'test_uploads');
 
   beforeEach(() => {
     mockConfig = {
-      get: jest.fn((key: string, defaultVal?: any) => {
+      get: jest.fn((key: string, defaultVal?: unknown) => {
         if (key === 'STORAGE_DRIVER') return 'local';
         if (key === 'STORAGE_LOCAL_PATH') return testUploadDir;
         return defaultVal;
       }),
     };
 
-    service = new StorageService(mockConfig);
+    service = new StorageService(mockConfig as unknown as ConfigService);
   });
 
   afterEach(() => {

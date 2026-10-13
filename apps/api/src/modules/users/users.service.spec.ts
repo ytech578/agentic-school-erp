@@ -4,7 +4,17 @@ import { PrismaService } from '../../core/database/prisma.service';
 
 describe('UsersService', () => {
   let service: UsersService;
-  let prisma: any;
+  let prisma: {
+    user: {
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
+      findFirst: jest.Mock;
+      count: jest.Mock;
+      groupBy: jest.Mock;
+      create: jest.Mock;
+      update: jest.Mock;
+    };
+  };
 
   beforeEach(async () => {
     prisma = {

@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import {
-  Bot, Zap, DollarSign, Users, Calendar, GraduationCap,
+  Bot, DollarSign, Users, Calendar, GraduationCap,
   FileText, ClipboardList, AlertTriangle,
   Play, Send, Loader2, Info, Sparkles, CheckCircle, X
 } from "lucide-react";
@@ -260,7 +260,7 @@ export default function AutomationHubPage() {
                 <IconComponent size={28} color={automation.color} />
               </div>
               <p style={{ fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem", fontSize: "var(--text-base)" }}>Ready to scan</p>
-              <p style={{ color: "var(--text-tertiary)", fontSize: "var(--text-sm)", maxWidth: "340px" }}>Click <strong>"Run Scan"</strong> to let the AI analyze your school data and generate actionable recommendations.</p>
+              <p style={{ color: "var(--text-tertiary)", fontSize: "var(--text-sm)", maxWidth: "340px" }}>Click <strong>&quot;Run Scan&quot;</strong> to let the AI analyze your school data and generate actionable recommendations.</p>
             </div>
           )}
 

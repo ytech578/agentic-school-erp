@@ -58,7 +58,9 @@ describe('AgentToolDispatcher', () => {
     });
 
     it('throws error when registering an invalid handler without key', () => {
-      expect(() => dispatcher.register({} as unknown as AgentToolHandler)).toThrow(
+      expect(() =>
+        dispatcher.register({} as unknown as AgentToolHandler),
+      ).toThrow(
         'Invalid handler registration: handler and handler.key are required',
       );
     });

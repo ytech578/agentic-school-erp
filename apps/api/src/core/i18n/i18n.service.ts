@@ -8,8 +8,8 @@ export type TranslationDict = Record<string, Record<string, string>>;
 export class I18nService {
   private readonly logger = new Logger(I18nService.name);
   private readonly dictionaries: Record<string, TranslationDict> = {
-    en: enTranslations as unknown as TranslationDict,
-    hi: hiTranslations as unknown as TranslationDict,
+    en: enTranslations,
+    hi: hiTranslations,
   };
 
   getSupportedLocales(): string[] {

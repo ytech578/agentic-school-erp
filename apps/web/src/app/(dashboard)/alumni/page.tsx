@@ -220,7 +220,7 @@ export default function AlumniManagementPage() {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch (err: unknown) {
+    } catch {
       alert("Failed to download transcript PDF.");
     }
   };

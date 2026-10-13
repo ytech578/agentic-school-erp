@@ -8,22 +8,22 @@ import { ZodError } from 'zod';
 import type { ZodSchema } from 'zod';
 
 @Injectable()
-export class ZodValidationPipe implements PipeTransform {
+export class ZodValidationPipe implements PipeTransform<unknown, unknown> {
   constructor(private schema: ZodSchema) {}
 
-  transform(value: any, metadata: ArgumentMetadata) {
+  transform(value: unknown, metadata: ArgumentMetadata): unknown {
     if (metadata.type === 'custom') {
       return value;
     }
 
     try {
-      const parsedValue = this.schema.parse(value);
+      const parsedValue: unknown = this.schema.parse(value);
       return parsedValue;
     } catch (error) {
       if (error instanceof ZodError) {
         throw new BadRequestException({
           message: 'Validation failed',
-          errors: error.issues.map((err: any) => ({
+          errors: error.issues.map((err) => ({
             field: err.path.join('.'),
             message: err.message,
           })),

@@ -48,10 +48,13 @@ export class EmailService {
         html: options.html,
         text: options.text,
       });
-      this.logger.log(`Email sent to ${options.to}: ${options.subject}`);
-    } catch (error) {
+      this.logger.log(
+        `Email sent to ${Array.isArray(options.to) ? options.to.join(', ') : options.to}: ${options.subject}`,
+      );
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
       this.logger.error(
-        `Failed to send email to ${options.to}: ${error.message}`,
+        `Failed to send email to ${Array.isArray(options.to) ? options.to.join(', ') : options.to}: ${msg}`,
       );
       // Don't throw — email failure should not break the API flow
     }
@@ -96,7 +99,7 @@ export class EmailService {
     subject: string,
     body: string,
     category: string,
-    metadata?: any,
+    metadata?: Record<string, unknown>,
   ): Promise<void> {
     const formattedSubject = `[Official Notice] ${subject}`;
     await this.sendMail(
@@ -175,7 +178,7 @@ export class EmailService {
     role: string,
     tempPassword?: string,
   ): string {
-    const appUrl = this.config.get('app.appUrl', 'http://localhost:3000');
+    const appUrl = this.config.get<string>('app.appUrl') as string;
     return `
       <!DOCTYPE html>
       <html>
@@ -197,9 +200,9 @@ export class EmailService {
     subject: string,
     body: string,
     category: string,
-    metadata?: any,
+    metadata?: Record<string, unknown>,
   ): string {
-    const appUrl = this.config.get('app.appUrl', 'http://localhost:3000');
+    const appUrl = this.config.get<string>('app.appUrl') as string;
     const catUpper = (category || 'ANNOUNCEMENT').toUpperCase();
 
     let badgeBg = '#2563eb';
@@ -218,11 +221,12 @@ export class EmailService {
       badgeText = '💳 FEE SCHEDULE ADVISORY';
     }
 
-    const actionUrl = metadata?.actionUrl
-      ? metadata.actionUrl.startsWith('http')
-        ? metadata.actionUrl
-        : `${appUrl}${metadata.actionUrl}`
-      : null;
+    const actionUrl =
+      metadata?.actionUrl && typeof metadata.actionUrl === 'string'
+        ? metadata.actionUrl.startsWith('http')
+          ? metadata.actionUrl
+          : `${appUrl}${metadata.actionUrl}`
+        : null;
 
     const formattedBody = (body || '')
       .split('\n')

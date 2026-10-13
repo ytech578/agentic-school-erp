@@ -56,14 +56,14 @@ export function TeacherDashboard({ user }: { user: any }) {
   const pendingGradingCount = data?.pendingGradingCount ?? 0;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.75rem" }}>
+    <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "1.75rem" }}>
       {/* Teacher Workspace Hero with CoPilot Launcher */}
       <div style={{
         background: "linear-gradient(135deg, #064E3B 0%, #065F46 50%, #047857 100%)",
         borderRadius: "var(--radius-2xl)",
-        padding: "2rem 2.25rem",
+        padding: "2.25rem 2.5rem",
         color: "#FFFFFF",
-        boxShadow: "var(--shadow-xl), 0 0 24px rgba(6, 95, 70, 0.25)",
+        boxShadow: "var(--shadow-xl), 0 10px 30px -10px rgba(6, 95, 70, 0.4)",
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
@@ -71,22 +71,23 @@ export function TeacherDashboard({ user }: { user: any }) {
         gap: "1.5rem",
         position: "relative",
         overflow: "hidden",
+        border: "1px solid rgba(167, 243, 208, 0.2)",
       }}>
-        {/* Glow orb decoration */}
-        <div style={{
+        {/* Animated Glow orb decoration */}
+        <div className="animate-float" style={{
           position: "absolute",
           top: "-40px",
           right: "-40px",
-          width: "220px",
-          height: "220px",
+          width: "240px",
+          height: "240px",
           borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(110, 231, 183, 0.2) 0%, transparent 70%)",
+          background: "radial-gradient(circle, rgba(110, 231, 183, 0.25) 0%, transparent 70%)",
           pointerEvents: "none",
         }} />
 
         <div style={{ zIndex: 1, maxWidth: "620px" }}>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", background: "rgba(16, 185, 129, 0.25)", border: "1px solid rgba(167, 243, 208, 0.3)", borderRadius: "var(--radius-full)", padding: "0.25rem 0.75rem", marginBottom: "0.5rem" }}>
-            <Sparkles size={13} style={{ color: "#A7F3D0" }} />
+          <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", background: "rgba(16, 185, 129, 0.25)", border: "1px solid rgba(167, 243, 208, 0.3)", borderRadius: "var(--radius-full)", padding: "0.25rem 0.75rem", marginBottom: "0.5rem", backdropFilter: "blur(4px)" }}>
+            <Sparkles size={13} style={{ color: "#A7F3D0" }} className="animate-pulse" />
             <span style={{ fontSize: "11px", fontWeight: 700, color: "#D1FAE5", letterSpacing: "0.05em", textTransform: "uppercase" }}>
               Teacher Workspace & AI CoPilot
             </span>
@@ -104,14 +105,16 @@ export function TeacherDashboard({ user }: { user: any }) {
           <Button
             variant="secondary"
             onClick={() => router.push('/teacher-copilot')}
+            className="card-hover-lift"
             style={{
               display: "inline-flex",
               alignItems: "center",
               gap: "0.4rem",
-              background: "rgba(255, 255, 255, 0.15)",
+              background: "rgba(255, 255, 255, 0.18)",
               color: "#FFFFFF",
-              border: "1px solid rgba(255, 255, 255, 0.3)",
+              border: "1px solid rgba(255, 255, 255, 0.35)",
               backdropFilter: "blur(8px)",
+              transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
             }}
           >
             <Sparkles size={15} /> Lesson Planner
@@ -119,14 +122,16 @@ export function TeacherDashboard({ user }: { user: any }) {
           <Button
             variant="secondary"
             onClick={() => router.push('/teacher-copilot/marks')}
+            className="card-hover-lift"
             style={{
               display: "inline-flex",
               alignItems: "center",
               gap: "0.4rem",
-              background: "rgba(255, 255, 255, 0.15)",
+              background: "rgba(255, 255, 255, 0.18)",
               color: "#FFFFFF",
-              border: "1px solid rgba(255, 255, 255, 0.3)",
+              border: "1px solid rgba(255, 255, 255, 0.35)",
               backdropFilter: "blur(8px)",
+              transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
             }}
           >
             <Edit3 size={15} /> Bulk Marks Entry
@@ -134,14 +139,16 @@ export function TeacherDashboard({ user }: { user: any }) {
           <Button
             variant="secondary"
             onClick={() => router.push('/ptm')}
+            className="card-hover-lift"
             style={{
               display: "inline-flex",
               alignItems: "center",
               gap: "0.4rem",
-              background: "rgba(255, 255, 255, 0.15)",
+              background: "rgba(255, 255, 255, 0.18)",
               color: "#FFFFFF",
-              border: "1px solid rgba(255, 255, 255, 0.3)",
+              border: "1px solid rgba(255, 255, 255, 0.35)",
               backdropFilter: "blur(8px)",
+              transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
             }}
           >
             <CalendarClock size={15} /> PTM Schedule
@@ -149,14 +156,16 @@ export function TeacherDashboard({ user }: { user: any }) {
           <Button
             variant="secondary"
             onClick={() => router.push('/teacher-copilot/assignments')}
+            className="card-hover-lift"
             style={{
               display: "inline-flex",
               alignItems: "center",
               gap: "0.4rem",
-              background: "rgba(255, 255, 255, 0.15)",
+              background: "rgba(255, 255, 255, 0.18)",
               color: "#FFFFFF",
-              border: "1px solid rgba(255, 255, 255, 0.3)",
+              border: "1px solid rgba(255, 255, 255, 0.35)",
               backdropFilter: "blur(8px)",
+              transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
             }}
           >
             <FileText size={15} /> Assignments Hub
@@ -244,7 +253,7 @@ export function TeacherDashboard({ user }: { user: any }) {
               Teacher Academic & Operations Toolkit
             </CardTitle>
             <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", margin: 0 }}>
-              PTM parent scheduling, student discipline, certificates, and payroll access
+              PTM parent conferences, student discipline, curriculum plans, and payroll compensation
             </p>
           </div>
           <span style={{ fontSize: "11px", fontWeight: 700, padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", background: "rgba(16, 185, 129, 0.1)", color: "var(--status-success)" }}>
@@ -279,12 +288,12 @@ export function TeacherDashboard({ user }: { user: any }) {
                 tag: "Behavior",
               },
               {
-                title: "Student Certificates",
-                desc: "Verify issued character, merit, and bonafide student certificates",
-                href: "/certificates",
-                icon: FileCheck,
+                title: "Curriculum & Lesson Plans",
+                desc: "Design syllabus, digital lesson plans, and teaching milestones",
+                href: "/curriculum",
+                icon: BookOpen,
                 color: "#2563EB",
-                tag: "Credentials",
+                tag: "Curriculum",
               },
               {
                 title: "My Payslips & Salary",
@@ -308,13 +317,14 @@ export function TeacherDashboard({ user }: { user: any }) {
                 <div
                   key={tool.title}
                   onClick={() => router.push(tool.href)}
+                  className="card-hover-lift"
                   style={{
                     padding: "1rem",
                     borderRadius: "var(--radius-xl)",
                     background: "var(--bg-app)",
                     border: "1px solid var(--border-default)",
                     cursor: "pointer",
-                    transition: "all 0.2s ease",
+                    transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
                     display: "flex",
                     flexDirection: "column",
                     justifyContent: "space-between",
@@ -396,6 +406,7 @@ export function TeacherDashboard({ user }: { user: any }) {
                   return (
                     <div
                       key={slot.id || idx}
+                      className="card-hover-lift"
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -404,7 +415,7 @@ export function TeacherDashboard({ user }: { user: any }) {
                         borderRadius: "var(--radius-lg)",
                         background: isSub ? "rgba(245, 158, 11, 0.08)" : (idx === 0 ? "var(--brand-blue-subtle)" : "var(--bg-app)"),
                         border: isSub ? "1px solid rgba(245, 158, 11, 0.35)" : (idx === 0 ? "1px solid var(--brand-blue)" : "1px solid var(--border-default)"),
-                        transition: "all 0.2s ease",
+                        transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: "0.875rem" }}>
@@ -502,6 +513,7 @@ export function TeacherDashboard({ user }: { user: any }) {
                 {pendingAssignments.map((assignment: any) => (
                   <div
                     key={assignment.id}
+                    className="card-hover-lift"
                     style={{
                       padding: "0.875rem 1rem",
                       borderRadius: "var(--radius-lg)",
@@ -510,6 +522,7 @@ export function TeacherDashboard({ user }: { user: any }) {
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
+                      transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
                     }}
                   >
                     <div>
@@ -569,6 +582,7 @@ export function TeacherDashboard({ user }: { user: any }) {
             {classes.map((c: any) => (
               <div
                 key={c.id}
+                className="card-hover-lift"
                 style={{
                   padding: "1.25rem",
                   borderRadius: "var(--radius-xl)",
@@ -578,6 +592,7 @@ export function TeacherDashboard({ user }: { user: any }) {
                   flexDirection: "column",
                   justifyContent: "space-between",
                   gap: "1rem",
+                  transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
                 }}
               >
                 <div>

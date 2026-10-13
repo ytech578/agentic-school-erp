@@ -385,4 +385,54 @@ describe('PayrollService', () => {
       );
     });
   });
+
+  describe('getMyPayslips', () => {
+    it('should return empty payslips if no staff profile is linked to user', async () => {
+      prisma.staff.findFirst.mockResolvedValue(null);
+
+      const res = await service.getMyPayslips(mockSchoolId, 'unlinked-user');
+      expect(res.staff).toBeNull();
+      expect(res.payslips).toEqual([]);
+    });
+
+    it('should return staff profile and payslips for authenticated teacher', async () => {
+      const mockStaff = {
+        id: 'staff-1',
+        userId: 'user-teacher-1',
+        schoolId: mockSchoolId,
+        salaryStructure: {
+          basicSalary: 30000,
+          hra: 12000,
+          da: 6000,
+          conveyance: 1600,
+          medicalAllowance: 1250,
+          specialAllowance: 5000,
+        },
+        user: { firstName: 'Teacher', lastName: 'Kumar' },
+      };
+      prisma.staff.findFirst.mockResolvedValue(mockStaff);
+      prisma.payslip.findMany.mockResolvedValue([
+        {
+          id: 'ps-1',
+          staffId: 'staff-1',
+          schoolId: mockSchoolId,
+          basicSalary: 30000,
+          hra: 12000,
+          da: 6000,
+          allowances: 7850,
+          grossSalary: 55850,
+          netSalary: 49850,
+          cycle: { month: 9, year: 2026, workingDays: 30 },
+          presentDays: 30,
+          lossOfPayDays: 0,
+        },
+      ]);
+
+      const res = await service.getMyPayslips(mockSchoolId, 'user-teacher-1');
+      expect(res.staff).toBeDefined();
+      expect(res.salaryStructure).toBeDefined();
+      expect(res.payslips.length).toBe(1);
+      expect(res.payslips[0].month).toBe(9);
+    });
+  });
 });

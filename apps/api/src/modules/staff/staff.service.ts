@@ -18,10 +18,6 @@ export class StaffService {
     private cache: TenantCacheService,
   ) {}
 
-  async getDefaultSchoolId(): Promise<string | null> {
-    const school = await this.prisma.school.findFirst({ select: { id: true } });
-    return school?.id || null;
-  }
 
   async createStaff(schoolId: string, data: CreateStaffInput) {
     const validSchoolId = requireSchoolId(schoolId, 'Create staff');

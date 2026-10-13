@@ -21,6 +21,7 @@ async function bootstrap() {
 
   const port = process.env.PORT || 4000;
   const apiPrefix = process.env.API_PREFIX || 'api';
+  if (!process.env.CORS_ORIGIN && process.env.NODE_ENV === 'production') { throw new Error('CORS_ORIGIN is required in production'); }
   const rawCorsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000';
   const corsOrigin = rawCorsOrigin.includes(',')
     ? rawCorsOrigin.split(',').map((o) => o.trim())

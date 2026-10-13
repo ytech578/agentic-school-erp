@@ -5,7 +5,13 @@ import { ConfigService } from '@nestjs/config';
 
 describe('FcmService', () => {
   let service: FcmService;
-  let prisma: jest.Mocked<any>;
+  let prisma: {
+    deviceToken: {
+      upsert: jest.Mock;
+      deleteMany: jest.Mock;
+      findMany: jest.Mock;
+    };
+  };
 
   beforeEach(async () => {
     prisma = {
@@ -49,13 +55,13 @@ describe('FcmService', () => {
     expect(prisma.deviceToken.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { token: 'fcm-token-123' },
-        create: expect.objectContaining({
+        create: {
           userId: 'user-1',
           schoolId: 'school-1',
           token: 'fcm-token-123',
           platform: 'ANDROID',
-        }),
-      }),
+        },
+      }) as unknown,
     );
     expect(res).toBeDefined();
   });

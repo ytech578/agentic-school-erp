@@ -45,27 +45,50 @@ export class NotificationsService implements OnModuleDestroy {
         process.env.REDIS_URL ||
         'redis://localhost:6379';
       try {
-        this.redisPub = new Redis(redisUrl, {
+        const redisOptions = {
           maxRetriesPerRequest: 1,
           enableOfflineQueue: false,
-        });
-        this.redisSub = new Redis(redisUrl, {
-          maxRetriesPerRequest: 1,
-          enableOfflineQueue: false,
-        });
+          connectTimeout: 3000,
+          retryStrategy: (times: number) => {
+            if (times > 2) {
+              return null; // Stop reconnecting if Redis is unavailable
+            }
+            return Math.min(times * 1000, 2000);
+          },
+        };
+
+        this.redisPub = new Redis(redisUrl, redisOptions);
+        this.redisSub = new Redis(redisUrl, redisOptions);
+
+        let pubWarned = false;
+        let subWarned = false;
 
         this.redisPub.on('error', (err) => {
-          this.logger.warn(`Redis pub client error: ${err.message}`);
-        });
-        this.redisSub.on('error', (err) => {
-          this.logger.warn(`Redis sub client error: ${err.message}`);
-        });
-
-        this.redisSub.subscribe('erp_notifications_channel', (err) => {
-          if (err) {
-            this.logger.warn(`Redis subscribe failed: ${err.message}`);
+          if (!pubWarned) {
+            pubWarned = true;
+            this.logger.warn(
+              `Redis pub client offline: ${err.message}. Operating in local events mode.`,
+            );
           }
         });
+        this.redisSub.on('error', (err) => {
+          if (!subWarned) {
+            subWarned = true;
+            this.logger.warn(
+              `Redis sub client offline: ${err.message}. Operating in local events mode.`,
+            );
+          }
+        });
+
+        // Only subscribe once the Redis connection is ready and writable
+        this.redisSub.on('ready', () => {
+          this.redisSub
+            ?.subscribe('erp_notifications_channel')
+            .catch((err) => {
+              this.logger.warn(`Redis subscribe failed: ${err.message}`);
+            });
+        });
+
         this.redisSub.on('message', (channel, message) => {
           if (channel === 'erp_notifications_channel') {
             try {

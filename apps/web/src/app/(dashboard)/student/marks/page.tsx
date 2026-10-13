@@ -67,8 +67,10 @@ export default function StudentMarksPage() {
     fetchRemedial();
   }, []);
 
-  const handleOpenPractice = (subject: string, topic: string) => {
-    setPracticeTarget({ subject, topic });
+  const handleOpenPractice = (subject: string, topic?: string) => {
+    const safeSubject = subject?.trim() || "Mathematics";
+    const safeTopic = topic?.trim() || `${safeSubject} Core Revision`;
+    setPracticeTarget({ subject: safeSubject, topic: safeTopic });
     setPracticeModalOpen(true);
   };
 
@@ -343,14 +345,14 @@ export default function StudentMarksPage() {
                               color: "var(--status-danger)",
                             }}
                           >
-                            Score: {gap.currentScore}%
+                            Score: {gap.currentScore ?? gap.percentage ?? 0}%
                           </span>
                         </div>
                         <h4 style={{ margin: "0 0 0.35rem", fontSize: "var(--text-base)", fontWeight: 700, color: "var(--text-primary)" }}>
-                          {gap.topic}
+                          {gap.topic || gap.weakTopic || `${gap.subject} Core Foundations`}
                         </h4>
                         <p style={{ margin: 0, fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                          {gap.recommendedAction}
+                          {gap.recommendedAction || "30-minute interactive diagnostic practice & flashcard review"}
                         </p>
                       </div>
 
@@ -364,7 +366,7 @@ export default function StudentMarksPage() {
                         <Button
                           size="sm"
                           variant="primary"
-                          onClick={() => handleOpenPractice(gap.subject, gap.topic)}
+                          onClick={() => handleOpenPractice(gap.subject, gap.topic || gap.weakTopic || `${gap.subject} Core Mastery`)}
                           style={{
                             fontSize: "11px",
                             display: "flex",

@@ -88,11 +88,11 @@ describe('Multi-Tenant Systematic Data Isolation (Change #4)', () => {
       });
 
       await expect(
-        usersService.updateUser(
-          'user_beta',
-          { firstName: 'Attacker' },
-          { id: 'admin_1', schoolId: SCHOOL_1, role: 'SCHOOL_ADMIN' },
-        ),
+        usersService.updateUser('user_beta', { firstName: 'Attacker' }, {
+          id: 'admin_1',
+          schoolId: SCHOOL_1,
+          role: 'SCHOOL_ADMIN',
+        } as any),
       ).rejects.toThrow(NotFoundException);
 
       expect(mockPrisma.user.update).not.toHaveBeenCalled();
@@ -374,7 +374,7 @@ describe('Multi-Tenant Systematic Data Isolation (Change #4)', () => {
         id: 'super_admin_user',
         role: 'SUPER_ADMIN' as UserRole,
         schoolId: null,
-      },
+      } as any,
     };
 
     const schoolAdminReq = {
@@ -382,7 +382,7 @@ describe('Multi-Tenant Systematic Data Isolation (Change #4)', () => {
         id: 'school_admin_user',
         role: 'SCHOOL_ADMIN' as UserRole,
         schoolId: SCHOOL_1,
-      },
+      } as any,
     };
 
     const schoolAdminNoSchoolReq = {
@@ -390,7 +390,7 @@ describe('Multi-Tenant Systematic Data Isolation (Change #4)', () => {
         id: 'school_admin_bad',
         role: 'SCHOOL_ADMIN' as UserRole,
         schoolId: null,
-      },
+      } as any,
     };
 
     beforeEach(() => {

@@ -76,7 +76,8 @@ export class AuditLogInterceptor implements NestInterceptor {
               if (request.method === 'DELETE') action = AuditAction.DELETE;
 
               const controllerName =
-                context.getClass()?.name?.replace(/Controller$/, '') || 'System';
+                context.getClass()?.name?.replace(/Controller$/, '') ||
+                'System';
 
               let resourceId: string | null = null;
               if (typeof request.params?.id === 'string') {
@@ -120,10 +121,9 @@ export class AuditLogInterceptor implements NestInterceptor {
                       : '') ||
                     ''
                   ).slice(0, 45),
-                  userAgent: String(request.headers?.['user-agent'] || '').slice(
-                    0,
-                    255,
-                  ),
+                  userAgent: String(
+                    request.headers?.['user-agent'] || '',
+                  ).slice(0, 255),
                   before: beforeState
                     ? (beforeState as Prisma.InputJsonValue)
                     : Prisma.DbNull,
@@ -134,7 +134,9 @@ export class AuditLogInterceptor implements NestInterceptor {
               });
             } catch (err: unknown) {
               const message = err instanceof Error ? err.message : String(err);
-              this.logger.warn(`Failed to record audit activity log: ${message}`);
+              this.logger.warn(
+                `Failed to record audit activity log: ${message}`,
+              );
             }
           })();
         },

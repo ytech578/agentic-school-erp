@@ -303,10 +303,23 @@ export class PtmService {
     const bookedSlot = await this.prisma.$transaction(async (tx) => {
       const slot = await tx.ptmSlot.findFirst({
         where: { id: slotId, schoolId: validSchoolId },
+        include: { session: true },
       });
 
       if (!slot) {
         throw new NotFoundException(`PTM slot not found.`);
+      }
+
+      // Validate that session date has not passed
+      const sessionDateRaw = (slot as any).session?.date;
+      if (sessionDateRaw) {
+        const sessionDate = new Date(sessionDateRaw);
+        sessionDate.setHours(23, 59, 59, 999);
+        if (sessionDate.getTime() < Date.now()) {
+          throw new BadRequestException(
+            'Cannot book a slot for a past or completed PTM session.',
+          );
+        }
       }
 
       if (slot.status !== 'AVAILABLE') {

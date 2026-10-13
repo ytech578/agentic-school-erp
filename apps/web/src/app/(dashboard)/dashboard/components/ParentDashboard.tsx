@@ -3,8 +3,8 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/Button";
 import {
-  ShieldCheck, Calendar as CalendarIcon, CheckCircle, ChevronRight,
-  User, Bell, Car, Award, Send, AlertTriangle, BrainCircuit, CreditCard,
+  Calendar as CalendarIcon, CheckCircle, ChevronRight,
+  User, Bell, Car, Award, AlertTriangle, BrainCircuit, CreditCard,
   CalendarClock, FileCheck, ArrowRight
 } from "lucide-react";
 import { apiClient } from "@/lib/axios";
