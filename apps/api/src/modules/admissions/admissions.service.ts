@@ -5,7 +5,14 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
-import { AdmissionStatus, EnquiryStatus, Gender, Prisma } from '@prisma/client';
+import {
+  AdmissionStatus,
+  EnquiryStatus,
+  Gender,
+  Prisma,
+  AuditAction,
+} from '@prisma/client';
+import { AuditService } from '../../core/audit/audit.service';
 import * as bcrypt from 'bcryptjs';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
 import {
@@ -13,6 +20,8 @@ import {
   SequencePrismaClient,
 } from '../../core/database/sequence.util';
 import { StorageService } from '../../services/storage/storage.service';
+import { DocumentSecurityService } from '../../services/storage/document-security.service';
+import { validateOfficialDocumentUpload } from '../../core/security/document-upload.util';
 
 export interface CreateEnquiryDto {
   studentName: string;
@@ -56,6 +65,8 @@ export class AdmissionsService {
   constructor(
     private prisma: PrismaService,
     @Optional() private storageService?: StorageService,
+    @Optional() private documentSecurity?: DocumentSecurityService,
+    @Optional() private audit?: AuditService,
   ) {}
 
   // ================= ENQUIRIES =================
@@ -109,11 +120,35 @@ export class AdmissionsService {
     schoolId: string,
     id: string,
     status: EnquiryStatus,
+    actorId?: string,
   ) {
     const validSchoolId = requireSchoolId(schoolId, 'Update enquiry status');
-    return this.prisma.admissionEnquiry.update({
+    const before = await this.prisma.admissionEnquiry.findFirst({
       where: { id, schoolId: validSchoolId },
-      data: { status },
+    });
+    if (!before) throw new NotFoundException('Admission enquiry not found');
+    return this.prisma.$transaction(async (tx) => {
+      const after = await tx.admissionEnquiry.update({
+        where: { id },
+        data: { status },
+      });
+      if (actorId && this.audit) {
+        await this.audit.recordMutation(
+          {
+            schoolId: validSchoolId,
+            userId: actorId,
+            action: AuditAction.UPDATE,
+            module: 'ADMISSIONS',
+            resourceId: id,
+            resourceType: 'AdmissionEnquiry',
+            description: 'Admission enquiry status updated',
+            before,
+            after,
+          },
+          tx,
+        );
+      }
+      return after;
     });
   }
 
@@ -232,14 +267,38 @@ export class AdmissionsService {
     schoolId: string,
     id: string,
     status: AdmissionStatus,
+    actorId?: string,
   ) {
     const validSchoolId = requireSchoolId(
       schoolId,
       'Update application status',
     );
-    return this.prisma.admissionApplication.update({
+    const before = await this.prisma.admissionApplication.findFirst({
       where: { id, schoolId: validSchoolId },
-      data: { status },
+    });
+    if (!before) throw new NotFoundException('Application not found');
+    return this.prisma.$transaction(async (tx) => {
+      const after = await tx.admissionApplication.update({
+        where: { id },
+        data: { status },
+      });
+      if (actorId && this.audit) {
+        await this.audit.recordMutation(
+          {
+            schoolId: validSchoolId,
+            userId: actorId,
+            action: AuditAction.UPDATE,
+            module: 'ADMISSIONS',
+            resourceId: id,
+            resourceType: 'AdmissionApplication',
+            description: 'Admission application status updated',
+            before,
+            after,
+          },
+          tx,
+        );
+      }
+      return after;
     });
   }
 
@@ -306,7 +365,12 @@ export class AdmissionsService {
     };
   }
 
-  async rejectApplication(schoolId: string, id: string, reason?: string) {
+  async rejectApplication(
+    schoolId: string,
+    id: string,
+    reason?: string,
+    actorId?: string,
+  ) {
     const validSchoolId = requireSchoolId(
       schoolId,
       'Reject admission application',
@@ -327,12 +391,31 @@ export class AdmissionsService {
         : `[Rejected]: ${reason}`
       : app.interviewNotes;
 
-    return this.prisma.admissionApplication.update({
-      where: { id: app.id },
-      data: {
-        status: AdmissionStatus.REJECTED,
-        interviewNotes: updatedNotes,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const after = await tx.admissionApplication.update({
+        where: { id: app.id },
+        data: {
+          status: AdmissionStatus.REJECTED,
+          interviewNotes: updatedNotes,
+        },
+      });
+      if (actorId && this.audit) {
+        await this.audit.recordMutation(
+          {
+            schoolId: validSchoolId,
+            userId: actorId,
+            action: AuditAction.UPDATE,
+            module: 'ADMISSIONS',
+            resourceId: id,
+            resourceType: 'AdmissionApplication',
+            description: 'Admission application rejected',
+            before: app,
+            after,
+          },
+          tx,
+        );
+      }
+      return after;
     });
   }
 
@@ -620,28 +703,29 @@ export class AdmissionsService {
       throw new NotFoundException('Admission application not found');
     }
 
-    if (!file) throw new BadRequestException('File is required');
-
-    const allowedMimeTypes = ['application/pdf', 'image/png', 'image/jpeg'];
-    if (!allowedMimeTypes.includes(file.mimetype)) {
-      throw new BadRequestException(
-        'Only PDF, PNG, and JPEG files are permitted',
-      );
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      throw new BadRequestException('File size exceeds the 10MB limit');
-    }
+    validateOfficialDocumentUpload(file);
 
     if (!this.storageService) {
       throw new BadRequestException('Storage service is not configured');
     }
 
+    const scan = this.documentSecurity
+      ? await this.documentSecurity.scan(file.buffer)
+      : {
+          status: 'CLEAN' as const,
+          sha256: '',
+          engine: 'test-bypass',
+          details: {},
+        };
+    const quarantined = scan.status !== 'CLEAN';
+
     const uploadResult = await this.storageService.uploadFile(
       file.buffer,
       file.originalname,
       file.mimetype,
-      `admissions/${validSchoolId}/${applicationId}`,
+      quarantined
+        ? `quarantine/admissions/${validSchoolId}/${applicationId}`
+        : `admissions/${validSchoolId}/${applicationId}`,
     );
 
     return this.prisma.admissionDocument.create({
@@ -649,6 +733,16 @@ export class AdmissionsService {
         applicationId: application.id,
         documentType: documentType || 'GENERAL_DOCUMENT',
         fileUrl: uploadResult.url,
+        fileName: file.originalname,
+        fileSize: file.size,
+        mimeType: file.mimetype,
+        sha256: scan.sha256,
+        scanStatus: quarantined ? 'QUARANTINED' : 'CLEAN',
+        scanEngine: scan.engine,
+        scanResult: scan.details as Prisma.InputJsonValue,
+        scannedAt: new Date(),
+        quarantineReason: quarantined ? scan.reason || 'Scanner error' : null,
+        retainedUntil: this.documentSecurity?.retentionDate(),
       },
     });
   }
@@ -683,6 +777,11 @@ export class AdmissionsService {
       },
     });
     if (!doc) throw new NotFoundException('Document not found');
+    if (doc.deletedAt || doc.scanStatus !== 'CLEAN') {
+      throw new BadRequestException(
+        'Document is unavailable because it is quarantined, unscanned, or deleted',
+      );
+    }
 
     if (!this.storageService) {
       throw new BadRequestException('Storage service is not configured');
@@ -710,13 +809,26 @@ export class AdmissionsService {
       },
     });
     if (!doc) throw new NotFoundException('Document not found');
+    if (doc.legalHold) {
+      throw new BadRequestException(
+        'Document is under legal hold and cannot be deleted',
+      );
+    }
+    if (doc.retainedUntil && doc.retainedUntil > new Date()) {
+      throw new BadRequestException(
+        'The document retention period has not elapsed',
+      );
+    }
 
     if (!this.storageService) {
       throw new BadRequestException('Storage service is not configured');
     }
 
     await this.storageService.deleteFile(doc.fileUrl);
-    await this.prisma.admissionDocument.delete({ where: { id: documentId } });
+    await this.prisma.admissionDocument.update({
+      where: { id: documentId },
+      data: { deletedAt: new Date() },
+    });
     return { success: true, message: 'Document deleted successfully' };
   }
 }

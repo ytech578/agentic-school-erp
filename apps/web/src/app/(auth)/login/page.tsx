@@ -6,9 +6,11 @@ import Link from "next/link";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { 
-  Mail, Lock, AlertCircle, Loader2, Eye, EyeOff, 
-  ShieldCheck, HelpCircle, Building2, X, AlertTriangle
+import {
+  Mail, Lock, AlertCircle, Loader2, Eye, EyeOff,
+  ShieldCheck, HelpCircle, Building2, X, AlertTriangle,
+  KeyRound, Fingerprint, ExternalLink, ArrowRight,
+  GraduationCap, UsersRound
 } from "lucide-react";
 import { LoginSchema } from "@school-erp/shared/src/schemas/auth.schema";
 import { apiClient } from "@/lib/axios";
@@ -16,23 +18,30 @@ import { useAuthStore } from "@/store/auth.store";
 import { getAuthorizedRedirect } from "@/lib/role-routes";
 
 type LoginFormValues = z.input<typeof LoginSchema>;
+type SsoProvider = { name: string; slug: string; type: "OIDC" | "SAML" };
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawReturnUrl = searchParams.get("returnUrl") || "/dashboard";
   const { setAuth } = useAuthStore();
-  
+
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [capsLockActive, setCapsLockActive] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [schoolCode, setSchoolCode] = useState("");
+  const [ssoProviders, setSsoProviders] = useState<SsoProvider[]>([]);
+  const [discoveringSso, setDiscoveringSso] = useState(false);
+  const [ssoMessage, setSsoMessage] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
     setValue,
+    resetField,
     formState: { errors, isSubmitting },
   } = useForm<LoginFormValues>({
     resolver: zodResolver(LoginSchema),
@@ -51,6 +60,8 @@ function LoginForm() {
         setValue("email", savedEmail);
         queueMicrotask(() => setRememberMe(true));
       }
+      const savedSchoolCode = localStorage.getItem("erp_school_code");
+      if (savedSchoolCode) queueMicrotask(() => setSchoolCode(savedSchoolCode));
     } catch {
       // localStorage may be restricted
     }
@@ -59,6 +70,47 @@ function LoginForm() {
   // Keyboard handler for Caps Lock detection
   const handlePasswordKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     setCapsLockActive(e.getModifierState("CapsLock"));
+  };
+
+  const returnToCredentials = () => {
+    setMfaRequired(false);
+    setGlobalError(null);
+    resetField("otp");
+    setValue("password", "");
+  };
+
+  const discoverSso = async () => {
+    const normalized = schoolCode.trim().toUpperCase();
+    if (!normalized) {
+      setSsoMessage("Enter your school code to discover enterprise sign-in options.");
+      return;
+    }
+    setDiscoveringSso(true);
+    setSsoMessage(null);
+    try {
+      const response = await apiClient.get(`/sso/${encodeURIComponent(normalized)}/providers`);
+      const providers = (response.data?.data || []) as SsoProvider[];
+      setSsoProviders(providers);
+      localStorage.setItem("erp_school_code", normalized);
+      if (!providers.length) setSsoMessage("No enabled SSO provider was found for this school.");
+    } catch (error: unknown) {
+      const apiError = error as { response?: { data?: { message?: string } } };
+      setSsoProviders([]);
+      setSsoMessage(apiError.response?.data?.message || "Unable to discover SSO providers.");
+    } finally {
+      setDiscoveringSso(false);
+    }
+  };
+
+  const startSso = (provider: SsoProvider) => {
+    const normalized = schoolCode.trim().toUpperCase();
+    const callback = `${window.location.origin}/auth/sso/callback?returnUrl=${encodeURIComponent(rawReturnUrl)}`;
+    // A full browser navigation is required because this API route redirects
+    // to an external identity provider.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign(
+      `/api/sso/${encodeURIComponent(normalized)}/${encodeURIComponent(provider.slug)}/start?returnUrl=${encodeURIComponent(callback)}`,
+    );
   };
 
   const onSubmit = async (data: LoginFormValues) => {
@@ -82,11 +134,19 @@ function LoginForm() {
       const destination = getAuthorizedRedirect(rawReturnUrl, user?.role);
       router.push(destination);
     } catch (error: unknown) {
-      const axiosError = error as { response?: { status?: number; data?: { message?: string } } };
+      const axiosError = error as { response?: { status?: number; data?: { message?: string; error?: string } } };
       const rawMsg = axiosError.response?.data?.message;
+      const errorCode = axiosError.response?.data?.error;
       const status = axiosError.response?.status;
 
-      if (status === 401 || rawMsg === "Unauthorized") {
+      if (errorCode === "MFA_REQUIRED") {
+        setMfaRequired(true);
+        setGlobalError(null);
+      } else if (status === 401 && mfaRequired) {
+        // Once the password has been accepted and the MFA step is visible, a
+        // subsequent 401 describes the second factor, not the password.
+        setGlobalError(rawMsg || "Invalid or expired authenticator/recovery code.");
+      } else if (status === 401 || rawMsg === "Unauthorized") {
         setGlobalError("Invalid email or password. Please verify your school credentials and try again.");
       } else if (rawMsg) {
         setGlobalError(rawMsg);
@@ -97,55 +157,84 @@ function LoginForm() {
   };
 
   return (
-    <div className="login-page">
-      {/* Left content area */}
-      <div className="login-left">
-        {/* Logo above the card */}
-        <div className="login-logo">
-          <div className="login-logo-icon">
-            <svg width="42" height="42" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M24 2L4 12V26C4 37.05 12.85 47.4 24 50C35.15 47.4 44 37.05 44 26V12L24 2Z" fill="#1a3a6b" />
-              <path d="M24 6L8 15V26C8 35.2 15.2 44.1 24 46.5C32.8 44.1 40 35.2 40 26V15L24 6Z" fill="#2563eb" />
-              <text x="24" y="32" textAnchor="middle" fontSize="18" fontWeight="bold" fill="white">🎓</text>
-            </svg>
+    <div className="enterprise-login-page">
+      <aside className="identity-brand-panel" aria-label="Agentic School ERP security overview">
+        <div className="identity-brand-content">
+          <div className="identity-brand-header">
+            <div className="identity-brand-mark" aria-hidden="true">
+              <GraduationCap size={27} strokeWidth={2.2} />
+            </div>
+            <div>
+              <span className="identity-brand-name">Agentic School ERP</span>
+              <span className="identity-school-name">Sunrise International School</span>
+            </div>
           </div>
-          <div className="login-logo-text">
-            <span className="login-logo-name">Agentic School ERP</span>
-            <span className="login-logo-tagline">Sunrise International School · Session 2026-27</span>
+
+          <div className="identity-brand-message">
+            <h1>One secure workspace <em>for your entire school.</em></h1>
+            <p>Simplify administration, empower educators, and create better learning outcomes—all in one trusted platform.</p>
+          </div>
+
+          <div className="identity-trust-list">
+            <div className="identity-trust-item">
+              <span className="identity-trust-icon"><ShieldCheck size={20} /></span>
+              <div>
+                <strong>99.9%</strong>
+                <span>Service uptime</span>
+              </div>
+            </div>
+            <div className="identity-trust-item">
+              <span className="identity-trust-icon"><Lock size={20} /></span>
+              <div>
+                <strong>Your data stays private</strong>
+                <span>Encrypted &amp; compliant</span>
+              </div>
+            </div>
+            <div className="identity-trust-item">
+              <span className="identity-trust-icon"><UsersRound size={20} /></span>
+              <div>
+                <strong>Trusted by educators</strong>
+                <span>Across the country</span>
+              </div>
+            </div>
           </div>
         </div>
+      </aside>
 
-        {/* Floating login card */}
-        <div className="login-card">
-          <div className="login-card-header">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.2rem" }}>
-              <h1 className="login-title">Sign In</h1>
-              <span className="portal-badge">Official Portal</span>
-            </div>
-            <p className="login-subtitle">Enter your institutional credentials to access your portal</p>
+      <main className="identity-login-shell">
+        <section className="identity-login-card" aria-labelledby="login-heading">
+          <div className="identity-login-header">
+            <span className="identity-login-kicker">Welcome to</span>
+            <h2 id="login-heading">{mfaRequired ? "Verify your identity" : "Agentic School ERP"}</h2>
+            <p>
+              {mfaRequired
+                ? "Enter your authenticator code or a recovery code to complete sign-in."
+                : "Sign in with your institutional account"}
+            </p>
           </div>
 
-          {/* Error Banner */}
           {globalError && (
-            <div className="global-error">
-              <AlertCircle size={16} style={{ flexShrink: 0, marginTop: "1px" }} />
+            <div className="global-error" role="alert" aria-live="polite">
+              <AlertCircle size={17} aria-hidden="true" />
               <span>{globalError}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit(onSubmit)} className="login-form">
-            {/* Email */}
+          <form onSubmit={handleSubmit(onSubmit)} method="post" className="login-form">
             <div className="form-group">
-              <label className="form-label" htmlFor="email">Institutional Email / Username</label>
+              <label className="form-label" htmlFor="email">Institutional email</label>
               <div className="input-container">
-                <Mail className="input-icon" size={17} />
+                <Mail className="input-icon" size={18} aria-hidden="true" />
                 <input
                   id="email"
                   type="email"
                   placeholder="name@sunriseschool.edu.in"
                   className={`form-input ${errors.email ? "has-error" : ""}`}
                   disabled={isSubmitting}
+                  readOnly={mfaRequired}
                   autoComplete="email"
+                  aria-readonly={mfaRequired}
+                  aria-invalid={Boolean(errors.email)}
                   suppressHydrationWarning
                   {...register("email")}
                 />
@@ -153,28 +242,29 @@ function LoginForm() {
               {errors.email && <span className="error-message">{errors.email.message}</span>}
             </div>
 
-            {/* Password */}
             <div className="form-group">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div className="form-label-row">
                 <label className="form-label" htmlFor="password">Password</label>
                 {capsLockActive && (
                   <span className="caps-lock-warning">
-                    <AlertTriangle size={11} /> Caps Lock is ON
+                    <AlertTriangle size={11} /> Caps Lock is on
                   </span>
                 )}
               </div>
               <div className="input-container">
-                <Lock className="input-icon" size={17} />
+                <Lock className="input-icon" size={18} aria-hidden="true" />
                 <input
                   id="password"
                   type={showPassword ? "text" : "password"}
-                  placeholder="••••••••••••"
+                  placeholder="Enter your password"
                   className={`form-input ${errors.password ? "has-error" : ""}`}
                   disabled={isSubmitting}
-                  style={{ paddingRight: "2.75rem" }}
+                  readOnly={mfaRequired}
                   autoComplete="current-password"
+                  aria-readonly={mfaRequired}
                   onKeyDown={handlePasswordKey}
                   onKeyUp={handlePasswordKey}
+                  aria-invalid={Boolean(errors.password)}
                   suppressHydrationWarning
                   {...register("password")}
                 />
@@ -182,16 +272,38 @@ function LoginForm() {
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="password-toggle"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                   title={showPassword ? "Hide password" : "Show password"}
-                  tabIndex={-1}
                 >
-                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
               {errors.password && <span className="error-message">{errors.password.message}</span>}
             </div>
 
-            {/* Remember me + Forgot password */}
+            {mfaRequired && (
+              <div className="form-group mfa-challenge">
+                <label className="form-label" htmlFor="otp">Authenticator or recovery code</label>
+                <div className="input-container">
+                  <KeyRound className="input-icon" size={18} aria-hidden="true" />
+                  <input
+                    id="otp"
+                    type="text"
+                    autoComplete="one-time-code"
+                    autoCapitalize="characters"
+                    placeholder="6-digit or recovery code"
+                    className={`form-input ${errors.otp ? "has-error" : ""}`}
+                    disabled={isSubmitting}
+                    aria-invalid={Boolean(errors.otp)}
+                    autoFocus
+                    {...register("otp")}
+                  />
+                </div>
+                {errors.otp && <span className="error-message">{errors.otp.message}</span>}
+                <span className="field-hint">Recovery codes can be used once in place of an authenticator code.</span>
+              </div>
+            )}
+
             <div className="login-options">
               <label className="remember-me">
                 <input
@@ -199,50 +311,88 @@ function LoginForm() {
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
                 />
-                <span>Remember me</span>
+                <span>Remember this device</span>
               </label>
-              <Link href="/forgot-password" className="forgot-link">Forgot Password?</Link>
+              {mfaRequired ? (
+                <button type="button" className="change-account-button" onClick={returnToCredentials}>
+                  Use another account
+                </button>
+              ) : (
+                <Link href="/forgot-password" className="forgot-link">Forgot password?</Link>
+              )}
             </div>
 
-            {/* Sign In button */}
             <button type="submit" className="btn-signin" disabled={isSubmitting} suppressHydrationWarning>
               {isSubmitting ? (
-                <><Loader2 className="spinner" size={17} /> Authenticating...</>
+                <><Loader2 className="spinner" size={18} /> Authenticating...</>
               ) : (
-                "Sign In to ERP"
+                <>{mfaRequired ? "Verify and sign in" : "Continue"}<ArrowRight size={18} /></>
               )}
             </button>
           </form>
 
-          {/* Institutional Help & Directory Notice */}
-          <div className="helpdesk-banner">
-            <div className="helpdesk-icon">
-              <Building2 size={16} />
-            </div>
-            <div className="helpdesk-text">
-              <span>Credentials provisioned by school admin.</span>
-              <button 
-                type="button" 
-                onClick={() => setShowHelpModal(true)} 
-                className="helpdesk-link"
-              >
-                Need login help? &rarr;
-              </button>
-            </div>
-          </div>
+          {!mfaRequired && (
+            <>
+              <div className="enterprise-divider"><span>or</span></div>
+              <div className="sso-discovery">
+                <div className="sso-heading">
+                  <strong>Enterprise SSO</strong>
+                  <label htmlFor="school-code">Enter school code</label>
+                </div>
+                <div className="sso-school-row">
+                  <div className="input-container">
+                    <Building2 className="input-icon" size={18} aria-hidden="true" />
+                    <input
+                      id="school-code"
+                      value={schoolCode}
+                      onChange={(event) => setSchoolCode(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void discoverSso();
+                        }
+                      }}
+                      className="form-input"
+                      placeholder="e.g. SIS2026"
+                      autoComplete="organization"
+                    />
+                  </div>
+                  <button type="button" className="btn-discover-sso" onClick={() => void discoverSso()} disabled={discoveringSso}>
+                    {discoveringSso ? <Loader2 className="spinner" size={17} /> : <Fingerprint size={17} />}
+                    Continue with SSO
+                  </button>
+                </div>
+                {ssoMessage && <p className="sso-message" role="status">{ssoMessage}</p>}
+                {ssoProviders.length > 0 && (
+                  <div className="sso-provider-list">
+                    {ssoProviders.map((provider) => (
+                      <button key={provider.slug} type="button" className="btn-sso-provider" onClick={() => startSso(provider)}>
+                        <ShieldCheck size={17} />
+                        <span>Continue with {provider.name}</span>
+                        <small>{provider.type}</small>
+                        <ExternalLink size={14} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
-          {/* Security Trust Assurance */}
-          <div className="security-trust-badge">
-            <ShieldCheck size={13} style={{ color: "#059669" }} />
-            <span>256-Bit SSL Encrypted · Role-Based Security</span>
+          <div className="identity-security-strip">
+            <ShieldCheck size={16} aria-hidden="true" />
+            <span>Secure access • MFA protected</span>
           </div>
-        </div>
+        </section>
 
-        {/* Footer */}
-        <div className="login-footer">
-          © 2026 Sunrise International School · Powered by Agentic ERP
-        </div>
-      </div>
+        <footer className="identity-login-footer">
+          <span>© 2026 Sunrise International School</span>
+          <span aria-hidden="true">•</span>
+          <button type="button" onClick={() => setShowHelpModal(true)}>Help &amp; support</button>
+          <span aria-hidden="true">•</span>
+          <span>Session 2026–27</span>
+        </footer>
+      </main>
 
       {/* ========================================================
           INSTITUTIONAL HELPDESK MODAL
@@ -265,8 +415,8 @@ function LoginForm() {
                   </p>
                 </div>
               </div>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => setShowHelpModal(false)}
                 className="modal-close-btn"
               >
@@ -304,8 +454,8 @@ function LoginForm() {
             </div>
 
             <div className="modal-footer">
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => setShowHelpModal(false)}
                 className="btn-modal-close"
               >

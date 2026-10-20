@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -30,8 +28,10 @@ services:
     container_name: school_erp_pgbouncer
     restart: always
     environment:
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
+      # PgBouncer authenticates the NOBYPASSRLS application role. Database
+      # ownership/migrations remain isolated behind DB_USER on PostgreSQL.
+      DB_USER: ${DB_RUNTIME_USER}
+      DB_PASSWORD: ${DB_RUNTIME_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: ${DB_NAME}
@@ -66,6 +66,26 @@ services:
         reservations:
           memory: 128M
 
+  clamav:
+    image: clamav/clamav:1.4.3
+    container_name: school_erp_clamav
+    restart: always
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping=1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2048M
+        reservations:
+          memory: 1024M
+
   api:
     build:
       context: .
@@ -74,7 +94,12 @@ services:
     restart: always
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@pgbouncer:5432/${DB_NAME}?pgbouncer=true
+      ERP_DEPLOYMENT_MODE: ${ERP_DEPLOYMENT_MODE:-on-premises}
+      APP_RUNTIME_ENV_ONLY: 'true'
+      ON_PREMISES_DATABASE_HOSTS: ${ON_PREMISES_DATABASE_HOSTS:-pgbouncer,postgres}
+      ON_PREMISES_ALLOW_EXTERNAL_AI: ${ON_PREMISES_ALLOW_EXTERNAL_AI:-false}
+      DATABASE_URL: postgresql://${DB_RUNTIME_USER}:${DB_RUNTIME_PASSWORD}@pgbouncer:5432/${DB_NAME}?pgbouncer=true
+      DATABASE_RLS_ENABLED: 'true'
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
@@ -85,12 +110,28 @@ services:
       SMTP_PASS: ${SMTP_PASS}
       APP_URL: ${APP_URL}
       API_URL: ${API_URL}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      API_PREFIX: ${API_PREFIX:-api}
+      PORT: 4000
       STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      STORAGE_LOCAL_PATH: /app/apps/api/uploads
       AWS_REGION: ${AWS_REGION:-ap-south-1}
       AWS_S3_BUCKET: ${AWS_S3_BUCKET}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-${AWS_S3_BUCKET:-}}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AADHAAR_ENCRYPTION_KEY: ${AADHAAR_ENCRYPTION_KEY}
+      PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY}
+      MFA_RECOVERY_CODE_PEPPER: ${MFA_RECOVERY_CODE_PEPPER}
+      BREAK_GLASS_REQUIRED: 'true'
+      MALWARE_SCAN_REQUIRED: 'true'
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
+      DOCUMENT_RETENTION_DAYS: ${DOCUMENT_RETENTION_DAYS:-2555}
     # Security: API is NOT directly exposed to public internet; reverse proxied strictly through Nginx
     depends_on:
       postgres:
@@ -99,8 +140,10 @@ services:
         condition: service_started
       redis:
         condition: service_started
+      clamav:
+        condition: service_healthy
     volumes:
-      - uploads:/app/uploads
+      - uploads:/app/apps/api/uploads
     deploy:
       resources:
         limits:
@@ -154,4 +197,6 @@ volumes:
   redis_data:
     driver: local
   uploads:
+    driver: local
+  clamav_data:
     driver: local

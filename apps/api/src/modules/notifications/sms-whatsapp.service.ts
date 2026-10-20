@@ -1,4 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 export interface DispatchResult {
@@ -17,6 +21,7 @@ export class SmsWhatsAppService {
   private readonly twilioFrom?: string;
   private readonly whatsappToken?: string;
   private readonly whatsappPhoneId?: string;
+  private readonly isProduction: boolean;
 
   constructor(private config: ConfigService) {
     this.twilioSid = this.config.get<string>('TWILIO_ACCOUNT_SID');
@@ -24,6 +29,7 @@ export class SmsWhatsAppService {
     this.twilioFrom = this.config.get<string>('TWILIO_PHONE_NUMBER');
     this.whatsappToken = this.config.get<string>('WHATSAPP_API_TOKEN');
     this.whatsappPhoneId = this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
+    this.isProduction = this.config.get<string>('NODE_ENV') === 'production';
   }
 
   async sendSMS(toPhone: string, text: string): Promise<DispatchResult> {
@@ -77,7 +83,13 @@ export class SmsWhatsAppService {
       }
     }
 
-    // High-fidelity simulation mode
+    if (this.isProduction) {
+      throw new ServiceUnavailableException(
+        'SMS gateway is unavailable or not configured',
+      );
+    }
+
+    // Development/test simulation mode only.
     const simulatedId = `sms_sim_${Date.now().toString(36)}`;
     this.logger.log(
       `[SMS Gateway Simulated] -> ${cleanPhone}: "${text}" (Ref: ${simulatedId})`,
@@ -151,7 +163,13 @@ export class SmsWhatsAppService {
       }
     }
 
-    // High-fidelity simulation mode
+    if (this.isProduction) {
+      throw new ServiceUnavailableException(
+        'WhatsApp gateway is unavailable or not configured',
+      );
+    }
+
+    // Development/test simulation mode only.
     const simulatedId = `wa_sim_${Date.now().toString(36)}`;
     this.logger.log(
       `[WhatsApp Gateway Simulated] -> ${cleanPhone}: Template [${templateName}] with ${JSON.stringify(parameters)} (Ref: ${simulatedId})`,

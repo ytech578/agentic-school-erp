@@ -18,7 +18,12 @@ export interface PeerMatchDetail {
 
 export interface OriginalityReport {
   overallSimilarityScore: number; // 0 to 100
-  status: 'CLEAN' | 'ACCEPTABLE' | 'MODERATE_SIMILARITY' | 'HIGH_SIMILARITY' | 'FLAGGED_PLAGIARISM';
+  status:
+    | 'CLEAN'
+    | 'ACCEPTABLE'
+    | 'MODERATE_SIMILARITY'
+    | 'HIGH_SIMILARITY'
+    | 'FLAGGED_PLAGIARISM';
   isPlagiarized: boolean;
   highestMatchPercentage: number;
   peerMatches: PeerMatchDetail[];
@@ -58,7 +63,11 @@ export class PlagiarismService {
   /**
    * Extracts consecutive verbatim matching phrases (minimum 4 words).
    */
-  private extractVerbatimMatches(textA: string, textB: string, minWords = 4): string[] {
+  private extractVerbatimMatches(
+    textA: string,
+    textB: string,
+    minWords = 4,
+  ): string[] {
     const wordsA = textA
       .toLowerCase()
       .replace(/[^\w\s]/g, '')
@@ -135,8 +144,12 @@ export class PlagiarismService {
       if (peer.studentId === candidateStudentId || !peer.content) continue;
 
       const score = this.calculateSimilarity(candidateText, peer.content);
-      if (score >= 15) { // 15% threshold for noticeable similarity
-        const matchedPhrases = this.extractVerbatimMatches(candidateText, peer.content);
+      if (score >= 15) {
+        // 15% threshold for noticeable similarity
+        const matchedPhrases = this.extractVerbatimMatches(
+          candidateText,
+          peer.content,
+        );
         peerMatches.push({
           peerSubmissionId: peer.id || peer.submissionId || 'peer',
           peerStudentId: peer.studentId,
@@ -176,7 +189,8 @@ export class PlagiarismService {
         peerMatches: [],
         wordCount,
         evaluatedAt: new Date().toISOString(),
-        summary: 'Submission text is too short for meaningful plagiarism evaluation.',
+        summary:
+          'Submission text is too short for meaningful plagiarism evaluation.',
       };
     }
 
@@ -188,7 +202,8 @@ export class PlagiarismService {
 
     let status: OriginalityReport['status'] = 'CLEAN';
     let isPlagiarized = false;
-    let summary = 'Work demonstrates high original thought with no peer collisions detected.';
+    let summary =
+      'Work demonstrates high original thought with no peer collisions detected.';
 
     if (highestScore >= 50) {
       status = 'FLAGGED_PLAGIARISM';
@@ -237,4 +252,3 @@ export class PlagiarismService {
     );
   }
 }
-

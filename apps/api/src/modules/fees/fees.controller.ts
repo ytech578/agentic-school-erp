@@ -137,6 +137,7 @@ export class FeesController {
   ) {
     return this.feesService.createRazorpayOrder(
       req.user.schoolId,
+      req.user,
       data.studentId,
       data.amount,
       data.academicYearId,
@@ -160,7 +161,7 @@ export class FeesController {
   ) {
     return this.feesService.verifyRazorpayPayment(
       req.user.schoolId,
-      req.user.id,
+      req.user,
       data,
     );
   }
@@ -218,7 +219,7 @@ export class FeesController {
     'STUDENT',
   )
   getReceiptDetails(@Request() req: any, @Param('id') id: string) {
-    return this.feesService.getReceiptDetails(req.user.schoolId, id);
+    return this.feesService.getReceiptDetails(req.user.schoolId, id, req.user);
   }
 
   @Get('invoices')
@@ -239,7 +240,7 @@ export class FeesController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.feesService.getFeeInvoices(req.user.schoolId, {
+    return this.feesService.getFeeInvoices(req.user.schoolId, req.user, {
       academicYearId,
       studentId,
       paymentStatus,

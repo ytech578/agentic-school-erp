@@ -13,6 +13,10 @@ out/
 .env.local
 .env.production
 .env.development.local
+.env.runtime
+.env.authentik
+.env.authentik.*
+.env.recovery
 
 # Credentials and sensitive data exports (NEVER commit these)
 *.credentials.csv

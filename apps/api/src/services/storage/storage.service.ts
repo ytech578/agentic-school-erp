@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Readable } from 'stream';
+import { randomUUID } from 'node:crypto';
 import {
   S3Client,
   PutObjectCommand,
@@ -49,21 +50,55 @@ export class StorageService {
   private readonly s3Client?: S3Client;
 
   constructor(private config: ConfigService) {
-    this.driver =
-      (this.config.get<string>('STORAGE_DRIVER', 'local').toLowerCase() as
-        'local' | 's3') || 'local';
+    const configuredDriver =
+      this.config.get<string>('STORAGE_DRIVER') ||
+      this.config.get<string>('STORAGE_PROVIDER') ||
+      'local';
+    this.driver = configuredDriver.toLowerCase() as 'local' | 's3';
     this.uploadDir = this.config.get<string>(
       'STORAGE_LOCAL_PATH',
       path.join(process.cwd(), 'storage', 'uploads'),
     );
-    this.s3Bucket = this.config.get<string>('S3_BUCKET_NAME');
+    this.s3Bucket =
+      this.config.get<string>('S3_BUCKET_NAME') ||
+      this.config.get<string>('AWS_S3_BUCKET');
     this.s3Endpoint = this.config.get<string>('S3_ENDPOINT');
     this.s3PublicUrl = this.config.get<string>('S3_PUBLIC_BASE_URL');
 
+    if (this.driver !== 'local' && this.driver !== 's3') {
+      throw new InternalServerErrorException('Unsupported storage driver');
+    }
+
+    if (this.driver === 's3' && !this.s3Bucket) {
+      throw new InternalServerErrorException(
+        'S3 storage requires S3_BUCKET_NAME (or AWS_S3_BUCKET)',
+      );
+    }
+
     if (this.driver === 's3' && this.s3Bucket) {
-      const region = this.config.get<string>('AWS_REGION', 'ap-south-1');
-      const accessKeyId = this.config.get<string>('AWS_ACCESS_KEY_ID');
-      const secretAccessKey = this.config.get<string>('AWS_SECRET_ACCESS_KEY');
+      const region =
+        this.config.get<string>('S3_REGION') ||
+        this.config.get<string>('AWS_REGION') ||
+        this.config.get<string>('AWS_S3_REGION') ||
+        (this.s3Endpoint ? 'auto' : 'ap-south-1');
+      const accessKeyId =
+        this.config.get<string>('S3_ACCESS_KEY_ID') ||
+        this.config.get<string>('AWS_ACCESS_KEY_ID');
+      const secretAccessKey =
+        this.config.get<string>('S3_SECRET_ACCESS_KEY') ||
+        this.config.get<string>('AWS_SECRET_ACCESS_KEY');
+      if (this.s3Endpoint) {
+        const endpoint = new URL(this.s3Endpoint);
+        if (
+          endpoint.username ||
+          endpoint.password ||
+          (endpoint.protocol !== 'https:' &&
+            this.config.get<string>('NODE_ENV') === 'production')
+        )
+          throw new InternalServerErrorException(
+            'Private object storage requires a credential-free HTTPS endpoint',
+          );
+      }
 
       this.s3Client = new S3Client({
         region,
@@ -88,8 +123,10 @@ export class StorageService {
     mimeType: string,
     folder: string = 'general',
   ): Promise<UploadResult> {
+    this.assertSafeFolder(folder);
+    this.assertContentMatchesMimeType(buffer, mimeType);
     const ext = path.extname(originalName);
-    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}${ext}`;
+    const fileName = `${Date.now()}-${randomUUID()}${ext}`;
 
     if (this.driver === 's3' && this.s3Bucket && this.s3Client) {
       try {
@@ -103,9 +140,8 @@ export class StorageService {
 
         await this.s3Client.send(command);
 
-        const targetUrl = this.s3PublicUrl
-          ? `${this.s3PublicUrl.replace(/\/$/, '')}/${s3Key}`
-          : `s3://${this.s3Bucket}/${s3Key}`;
+        // Persist a private object locator, never a public CDN URL.
+        const targetUrl = `s3://${this.s3Bucket}/${s3Key}`;
 
         this.logger.log(`Uploaded to S3: ${s3Key}`);
         return {
@@ -117,15 +153,16 @@ export class StorageService {
         };
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        this.logger.warn(
-          `S3 upload failed, falling back to local storage: ${msg}`,
+        this.logger.warn(`Cloud upload failed: ${msg}`);
+        throw new InternalServerErrorException(
+          'Cloud storage upload failed; refusing local fallback',
         );
       }
     }
 
     // Default Local Filesystem Driver (Stored privately)
-    const folderPath = path.join(this.uploadDir, folder);
-    const filePath = path.join(folderPath, fileName);
+    const filePath = this.localPath(`/uploads/${folder}/${fileName}`);
+    const folderPath = path.dirname(filePath);
 
     if (!fs.existsSync(folderPath)) {
       fs.mkdirSync(folderPath, { recursive: true });
@@ -146,16 +183,78 @@ export class StorageService {
   }
 
   private extractS3Key(fileUrl: string): string {
-    let s3Key = fileUrl;
+    let s3Key: string;
     if (fileUrl.startsWith('s3://')) {
-      s3Key = fileUrl.replace(`s3://${this.s3Bucket}/`, '');
-    } else if (fileUrl.startsWith('http')) {
+      const prefix = `s3://${this.s3Bucket}/`;
+      if (!fileUrl.startsWith(prefix))
+        throw new BadRequestException(
+          'Object belongs to a different storage bucket',
+        );
+      s3Key = fileUrl.slice(prefix.length);
+    } else {
       const urlObj = new URL(fileUrl);
-      s3Key = urlObj.pathname
-        .replace(`/${this.s3Bucket}/`, '')
-        .replace(/^\//, '');
+      const bases = [
+        this.s3PublicUrl,
+        this.s3Endpoint
+          ? `${this.s3Endpoint.replace(/\/$/, '')}/${this.s3Bucket}`
+          : undefined,
+      ].filter((value): value is string => Boolean(value));
+      const base = bases
+        .map((value) => new URL(value))
+        .find(
+          (value) =>
+            value.origin === urlObj.origin &&
+            urlObj.pathname.startsWith(value.pathname.replace(/\/$/, '') + '/'),
+        );
+      if (!base) throw new BadRequestException('Untrusted object-storage URL');
+      s3Key = decodeURIComponent(
+        urlObj.pathname.slice(base.pathname.replace(/\/$/, '').length + 1),
+      );
     }
+    if (
+      !s3Key ||
+      s3Key.includes('\\') ||
+      s3Key.split('/').some((part) => !part || part === '.' || part === '..')
+    )
+      throw new BadRequestException('Invalid object key');
     return s3Key;
+  }
+
+  private assertSafeFolder(folder: string) {
+    if (!/^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(folder))
+      throw new BadRequestException('Invalid upload folder');
+  }
+
+  private localPath(fileUrl: string) {
+    if (
+      !fileUrl.startsWith('/uploads/') ||
+      fileUrl.includes('\\') ||
+      fileUrl.includes('\0')
+    )
+      throw new BadRequestException('Invalid private file locator');
+    const relative = fileUrl.slice('/uploads/'.length);
+    if (
+      relative.split('/').some((part) => !part || part === '..' || part === '.')
+    )
+      throw new BadRequestException(
+        'Invalid file path (path traversal detected)',
+      );
+    const base = path.resolve(this.uploadDir);
+    const target = path.resolve(base, relative);
+    if (!target.startsWith(base + path.sep))
+      throw new BadRequestException('Invalid private file path');
+    let ancestor = target;
+    while (!fs.existsSync(ancestor)) ancestor = path.dirname(ancestor);
+    const realAncestor = fs.realpathSync(ancestor);
+    const realBase = fs.realpathSync(base);
+    if (
+      realAncestor !== realBase &&
+      !realAncestor.startsWith(realBase + path.sep)
+    )
+      throw new BadRequestException(
+        'Storage symlink escapes the upload directory',
+      );
+    return target;
   }
 
   async getFileStream(fileUrl: string): Promise<FileStreamResult> {
@@ -165,9 +264,8 @@ export class StorageService {
       this.s3Bucket &&
       this.s3Client
     ) {
+      const s3Key = this.extractS3Key(fileUrl);
       try {
-        const s3Key = this.extractS3Key(fileUrl);
-
         const command = new GetObjectCommand({
           Bucket: this.s3Bucket,
           Key: s3Key,
@@ -194,15 +292,7 @@ export class StorageService {
     }
 
     // Local filesystem stream with path traversal protection
-    const relativePath = fileUrl.replace(/^\/uploads\//, '');
-    const normalizedRelative = path.normalize(relativePath).replace(/^(\.\.[\/\\])+/, '');
-    const resolvedPath = path.resolve(this.uploadDir, normalizedRelative);
-    const resolvedUploadDir = path.resolve(this.uploadDir);
-
-    if (!resolvedPath.startsWith(resolvedUploadDir)) {
-      throw new BadRequestException('Invalid file path (path traversal detected)');
-    }
-    const filePath = resolvedPath;
+    const filePath = this.localPath(fileUrl);
 
     if (!fs.existsSync(filePath)) {
       throw new NotFoundException('Requested file not found on local storage');
@@ -236,9 +326,8 @@ export class StorageService {
       this.s3Bucket &&
       this.s3Client
     ) {
+      const s3Key = this.extractS3Key(fileUrl);
       try {
-        const s3Key = this.extractS3Key(fileUrl);
-
         const command = new DeleteObjectCommand({
           Bucket: this.s3Bucket,
           Key: s3Key,
@@ -249,19 +338,14 @@ export class StorageService {
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         this.logger.warn(`Failed to delete S3 object: ${msg}`);
+        throw new InternalServerErrorException(
+          'Cloud object deletion failed; document state was not changed',
+        );
       }
     }
 
     // Local filesystem deletion with path traversal protection
-    const relativePath = fileUrl.replace(/^\/uploads\//, '');
-    const normalizedRelative = path.normalize(relativePath).replace(/^(\.\.[\/\\])+/, '');
-    const resolvedPath = path.resolve(this.uploadDir, normalizedRelative);
-    const resolvedUploadDir = path.resolve(this.uploadDir);
-
-    if (!resolvedPath.startsWith(resolvedUploadDir)) {
-      throw new BadRequestException('Invalid file path (path traversal detected)');
-    }
-    const filePath = resolvedPath;
+    const filePath = this.localPath(fileUrl);
 
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
@@ -275,6 +359,13 @@ export class StorageService {
     mimeType: string,
     expiresIn = 900,
   ): Promise<{ uploadUrl: string; fileKey: string }> {
+    this.assertSafeFolder(folder);
+    if (fileName !== path.basename(fileName) || /[\\/\0]/.test(fileName))
+      throw new BadRequestException('Invalid upload file name');
+    if (!Number.isInteger(expiresIn) || expiresIn < 1 || expiresIn > 900)
+      throw new BadRequestException(
+        'Upload URL expiry must be between 1 and 900 seconds',
+      );
     if (!this.s3Client || !this.s3Bucket) {
       throw new InternalServerErrorException(
         'S3 driver is not configured for presigned uploads',
@@ -295,6 +386,45 @@ export class StorageService {
   private ensureUploadDir() {
     if (!fs.existsSync(this.uploadDir)) {
       fs.mkdirSync(this.uploadDir, { recursive: true });
+    }
+  }
+
+  /**
+   * Do not trust multipart MIME metadata alone. The public document endpoints
+   * allow only a small set of binary formats, so reject a file whose magic
+   * bytes contradict its declared type before it reaches persistent storage.
+   */
+  private assertContentMatchesMimeType(buffer: Buffer, mimeType: string): void {
+    const matches = (signature: number[]) =>
+      buffer.length >= signature.length &&
+      signature.every((byte, index) => buffer[index] === byte);
+
+    const isPdf = buffer.subarray(0, 5).toString('ascii') === '%PDF-';
+    const isPng = matches([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const isJpeg = matches([0xff, 0xd8, 0xff]);
+    const isZip =
+      matches([0x50, 0x4b, 0x03, 0x04]) || matches([0x50, 0x4b, 0x05, 0x06]);
+
+    const valid =
+      (mimeType === 'application/pdf' && isPdf) ||
+      (mimeType === 'image/png' && isPng) ||
+      (mimeType === 'image/jpeg' && isJpeg) ||
+      (mimeType === 'application/zip' && isZip) ||
+      (mimeType ===
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document' &&
+        isZip) ||
+      ![
+        'application/pdf',
+        'image/png',
+        'image/jpeg',
+        'application/zip',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ].includes(mimeType);
+
+    if (!valid) {
+      throw new BadRequestException(
+        'Uploaded file content does not match its declared file type',
+      );
     }
   }
 }

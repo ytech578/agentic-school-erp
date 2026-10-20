@@ -55,4 +55,21 @@ describe('TransformInterceptor', () => {
     expect(res.statusCode).toBe(201);
     expect(res.data).toEqual({ foo: 'bar' });
   });
+
+  it('preserves the raw SCIM protocol envelope', async () => {
+    const payload = {
+      schemas: ['urn:ietf:params:scim:api:messages:2.0:ListResponse'],
+      Resources: [],
+    };
+    const context = {
+      switchToHttp: () => ({
+        getResponse: () => ({ statusCode: 200 }),
+        getRequest: () => ({ originalUrl: '/api/v1/scim/v2/Users' }),
+      }),
+    } as unknown as ExecutionContext;
+    const result = await firstValueFrom(
+      interceptor.intercept(context, { handle: () => of(payload) }),
+    );
+    expect(result).toEqual(payload);
+  });
 });

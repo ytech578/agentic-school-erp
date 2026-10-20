@@ -1,0 +1,46 @@
+{
+  "school": {
+    "name": "",
+    "code": "",
+    "emailDomain": "",
+    "administratorEmail": ""
+  },
+  "deployment": {
+    "mode": "",
+    "server": "",
+    "approvedDataLocation": "",
+    "appOrigin": "",
+    "apiOrigin": "",
+    "identityOrigin": "",
+    "operator": "",
+    "documentStorage": "",
+    "backupDestination": "",
+    "recoveryKeyCustodian": "",
+    "alertOwner": ""
+  },
+  "identity": {
+    "issuer": "",
+    "clientId": "",
+    "samlRequired": false
+  },
+  "acceptance": {
+    "serverCapacityAndLoad": null,
+    "trustedTlsAndRenewal": null,
+    "rlsRuntimeAndTenantIsolation": null,
+    "privateDocumentsAndMalware": null,
+    "documentRetentionAndLegalHold": null,
+    "independentEncryptedBackup": null,
+    "databaseAndDocumentRestore": null,
+    "providerPitr": null,
+    "signedOidcAndReplayDenial": null,
+    "mfaAndRecovery": null,
+    "wrongSchoolAndDomainDenied": null,
+    "jitDisabledAndUnassignedUserDenied": null,
+    "scimLifecycleAndSessionRevocation": null,
+    "breakGlassDualControl": null,
+    "identityRestoreAndLogin": null,
+    "monitoringAndAlerts": null,
+    "schoolOwnerApproval": null,
+    "samlSignedAssertion": null
+  }
+}

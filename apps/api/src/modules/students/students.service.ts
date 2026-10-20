@@ -8,21 +8,32 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { StorageService } from '../../services/storage/storage.service';
+import { DocumentSecurityService } from '../../services/storage/document-security.service';
 import { CreateStudentInput, UpdateStudentInput } from '@school-erp/shared';
 import * as bcrypt from 'bcryptjs';
-import { Prisma, Gender, BloodGroup, DocumentType } from '@prisma/client';
+import {
+  Prisma,
+  Gender,
+  BloodGroup,
+  DocumentType,
+  AuditAction,
+} from '@prisma/client';
+import { AuditService } from '../../core/audit/audit.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
 import {
   encryptSensitiveField,
   decryptSensitiveField,
   maskAadhaarNumber,
 } from '../../core/security/crypto.util';
+import { validateOfficialDocumentUpload } from '../../core/security/document-upload.util';
 
 @Injectable()
 export class StudentsService {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly storageService?: StorageService,
+    @Optional() private readonly documentSecurity?: DocumentSecurityService,
+    @Optional() private readonly audit?: AuditService,
   ) {}
 
   async createStudent(schoolId: string, data: CreateStudentInput) {
@@ -372,7 +383,12 @@ export class StudentsService {
     return { message: 'Risk scores updated successfully', updatedCount };
   }
 
-  async updateStudent(schoolId: string, id: string, data: UpdateStudentInput) {
+  async updateStudent(
+    schoolId: string,
+    id: string,
+    data: UpdateStudentInput,
+    actorId?: string,
+  ) {
     const validSchoolId = requireSchoolId(schoolId, 'Update student');
     const student = await this.prisma.student.findFirst({
       where: { id, schoolId: validSchoolId },
@@ -503,6 +519,41 @@ export class StudentsService {
         }
       }
 
+      if (actorId && this.audit) {
+        const after = await tx.student.findUnique({
+          where: { id: student.id },
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                phone: true,
+                status: true,
+              },
+            },
+            guardians: true,
+          },
+        });
+        const safeUser = { ...student.user } as Record<string, unknown>;
+        delete safeUser.passwordHash;
+        await this.audit.recordMutation(
+          {
+            schoolId: validSchoolId,
+            userId: actorId,
+            action: AuditAction.UPDATE,
+            module: 'STUDENTS',
+            resourceId: student.id,
+            resourceType: 'Student',
+            description: 'Student profile updated',
+            before: { ...student, user: safeUser },
+            after,
+          },
+          tx,
+        );
+      }
+
       return this.getStudentById(schoolId, student.id);
     });
   }
@@ -605,6 +656,7 @@ export class StudentsService {
       status?: 'ACTIVE' | 'TRANSFERRED' | 'DROPPED' | 'GRADUATED';
       reason?: string;
     },
+    actorId?: string,
   ) {
     const validSchoolId = requireSchoolId(schoolId, 'Update student status');
 
@@ -651,6 +703,31 @@ export class StudentsService {
             data: { status: 'ACTIVE', leftAt: null },
           });
         }
+      }
+
+      if (actorId && this.audit) {
+        await this.audit.recordMutation(
+          {
+            schoolId: validSchoolId,
+            userId: actorId,
+            action: AuditAction.UPDATE,
+            module: 'STUDENTS',
+            resourceId: student.id,
+            resourceType: 'Student',
+            description: 'Student account status updated',
+            before: {
+              isActive: student.isActive,
+              userStatus: student.user.status,
+            },
+            after: {
+              isActive: updatedStudent.isActive,
+              userStatus: data.isActive ? 'ACTIVE' : 'INACTIVE',
+              enrollmentStatus: data.status,
+              reason: data.reason,
+            },
+          },
+          tx,
+        );
       }
 
       return {
@@ -711,6 +788,7 @@ export class StudentsService {
     },
     documentType: DocumentType,
     uploadedById?: string,
+    currentUser?: { id: string; role: string; schoolId?: string },
   ) {
     const validSchoolId = requireSchoolId(schoolId, 'Upload student document');
     const student = await this.prisma.student.findFirst({
@@ -720,28 +798,31 @@ export class StudentsService {
       throw new NotFoundException('Student not found in this school');
     }
 
-    if (!file) throw new BadRequestException('File is required');
+    await this.assertStudentDocumentAccess(student.id, currentUser);
 
-    const allowedMimeTypes = ['application/pdf', 'image/png', 'image/jpeg'];
-    if (!allowedMimeTypes.includes(file.mimetype)) {
-      throw new BadRequestException(
-        'Only PDF, PNG, and JPEG files are permitted for student records',
-      );
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      throw new BadRequestException('File size exceeds the 10MB limit');
-    }
+    validateOfficialDocumentUpload(file);
 
     if (!this.storageService) {
       throw new BadRequestException('Storage service is not configured');
     }
 
+    const scan = this.documentSecurity
+      ? await this.documentSecurity.scan(file.buffer)
+      : {
+          status: 'CLEAN' as const,
+          sha256: '',
+          engine: 'test-bypass',
+          details: {},
+        };
+    const quarantined = scan.status !== 'CLEAN';
+
     const uploadResult = await this.storageService.uploadFile(
       file.buffer,
       file.originalname,
       file.mimetype,
-      `students/${validSchoolId}/${studentId}`,
+      quarantined
+        ? `quarantine/students/${validSchoolId}/${studentId}`
+        : `students/${validSchoolId}/${studentId}`,
     );
 
     return this.prisma.studentDocument.create({
@@ -753,11 +834,22 @@ export class StudentsService {
         fileSize: file.size,
         mimeType: file.mimetype,
         uploadedById,
+        sha256: scan.sha256,
+        scanStatus: quarantined ? 'QUARANTINED' : 'CLEAN',
+        scanEngine: scan.engine,
+        scanResult: scan.details as Prisma.InputJsonValue,
+        scannedAt: new Date(),
+        quarantineReason: quarantined ? scan.reason || 'Scanner error' : null,
+        retainedUntil: this.documentSecurity?.retentionDate(),
       },
     });
   }
 
-  async getStudentDocuments(schoolId: string, studentId: string) {
+  async getStudentDocuments(
+    schoolId: string,
+    studentId: string,
+    currentUser: { id: string; role: string; schoolId?: string },
+  ) {
     const validSchoolId = requireSchoolId(schoolId, 'List student documents');
     const student = await this.prisma.student.findFirst({
       where: { id: studentId, schoolId: validSchoolId },
@@ -768,6 +860,7 @@ export class StudentsService {
       },
     });
     if (!student) throw new NotFoundException('Student not found');
+    await this.assertStudentDocumentAccess(student.id, currentUser);
     return student.documents;
   }
 
@@ -787,24 +880,17 @@ export class StudentsService {
     });
     if (!student) throw new NotFoundException('Student not found');
 
-    if (currentUser.role === 'STUDENT' && student.userId !== currentUser.id) {
-      throw new ForbiddenException(
-        'Access denied: You can only access your own documents',
-      );
-    }
-    if (
-      currentUser.role === 'PARENT' &&
-      !student.guardians.some((g) => g.userId === currentUser.id)
-    ) {
-      throw new ForbiddenException(
-        'Access denied: You can only access your ward documents',
-      );
-    }
+    await this.assertStudentDocumentAccess(student.id, currentUser, student);
 
     const doc = await this.prisma.studentDocument.findFirst({
       where: { id: documentId, studentId: student.id },
     });
     if (!doc) throw new NotFoundException('Document not found');
+    if (doc.deletedAt || doc.scanStatus !== 'CLEAN') {
+      throw new ForbiddenException(
+        'Document is unavailable because it is quarantined, unscanned, or deleted',
+      );
+    }
 
     if (!this.storageService) {
       throw new BadRequestException('Storage service is not configured');
@@ -814,6 +900,44 @@ export class StudentsService {
       doc.fileUrl,
     );
     return { doc, fileStreamResult };
+  }
+
+  /** Enforces object-level access for child/student document operations. */
+  private async assertStudentDocumentAccess(
+    studentId: string,
+    currentUser?: { id: string; role: string; schoolId?: string },
+    loadedStudent?: {
+      userId: string;
+      guardians: Array<{ userId: string | null }>;
+    },
+  ): Promise<void> {
+    // Administrative and teaching users are authorized by the controller RBAC.
+    if (!currentUser || !['STUDENT', 'PARENT'].includes(currentUser.role)) {
+      return;
+    }
+
+    const student =
+      loadedStudent ||
+      (await this.prisma.student.findUnique({
+        where: { id: studentId },
+        include: { guardians: { select: { userId: true } } },
+      }));
+
+    if (!student) throw new NotFoundException('Student not found');
+
+    if (currentUser.role === 'STUDENT' && student.userId !== currentUser.id) {
+      throw new ForbiddenException(
+        'Access denied: You can only access your own documents',
+      );
+    }
+    if (
+      currentUser.role === 'PARENT' &&
+      !student.guardians.some((guardian) => guardian.userId === currentUser.id)
+    ) {
+      throw new ForbiddenException(
+        'Access denied: You can only access your ward documents',
+      );
+    }
   }
 
   async deleteStudentDocument(
@@ -829,13 +953,26 @@ export class StudentsService {
       },
     });
     if (!doc) throw new NotFoundException('Document not found');
+    if (doc.legalHold) {
+      throw new ForbiddenException(
+        'Document is under legal hold and cannot be deleted',
+      );
+    }
+    if (doc.retainedUntil && doc.retainedUntil > new Date()) {
+      throw new ForbiddenException(
+        'The document retention period has not elapsed',
+      );
+    }
 
     if (!this.storageService) {
       throw new BadRequestException('Storage service is not configured');
     }
 
     await this.storageService.deleteFile(doc.fileUrl);
-    await this.prisma.studentDocument.delete({ where: { id: documentId } });
+    await this.prisma.studentDocument.update({
+      where: { id: documentId },
+      data: { deletedAt: new Date() },
+    });
     return { success: true, message: 'Document deleted successfully' };
   }
 }

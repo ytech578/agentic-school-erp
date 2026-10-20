@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Request, Response } from 'express';
+import { ZodError } from 'zod';
+import { isScimRequest } from '../http/protocol-response';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
@@ -17,8 +19,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
+    const requestPath = request.url.split('?')[0];
 
-    let status = HttpStatus.INTERNAL_SERVER_ERROR;
+    let status: number = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
     let error = 'INTERNAL_SERVER_ERROR';
     let details: unknown = undefined;
@@ -36,12 +39,29 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       ) {
         const res = exceptionResponse as Record<string, unknown>;
         message = (res.message as string) || message;
-        error = (res.error as string) || error;
+        // Domain error codes (for example MFA_REQUIRED) are safe, stable
+        // machine-readable signals for the client. Prefer them over Nest's
+        // generic "Unauthorized" label when one is supplied.
+        error =
+          (typeof res.code === 'string' ? res.code : undefined) ||
+          (res.error as string) ||
+          error;
         details = res.details;
       }
     }
 
     // ─── Prisma Errors ─────────────────────────────────────────────────
+    else if (exception instanceof ZodError) {
+      status = HttpStatus.BAD_REQUEST;
+      message = 'Validation failed';
+      error = 'VALIDATION_ERROR';
+      details = exception.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message,
+      }));
+    }
+
+    // Prisma query errors
     else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
       switch (exception.code) {
         case 'P2002': {
@@ -97,14 +117,29 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       error,
       message,
       ...(details ? { details } : {}),
-      path: request.url,
+      path: requestPath,
       timestamp: new Date().toISOString(),
     };
 
     this.logger.warn(
-      `${request.method} ${request.url} → ${status}: ${message}`,
+      `${request.method} ${requestPath} → ${status}: ${message}`,
     );
 
+    if (isScimRequest(request)) {
+      response
+        .status(status)
+        .type('application/scim+json')
+        .json({
+          schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'],
+          status: String(status),
+          detail:
+            status >= 500
+              ? 'The provisioning request could not be completed'
+              : message,
+          ...(status === 409 ? { scimType: 'uniqueness' } : {}),
+        });
+      return;
+    }
     response.status(status).json(responseBody);
   }
 }

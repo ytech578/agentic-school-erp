@@ -1,0 +1,19 @@
+# Requires Docker Compose 2.24.4+ for !override. No on-prem DB is started by default.
+services:
+  postgres:
+    profiles: [on-premises-only]
+  pgbouncer:
+    profiles: [on-premises-only]
+  api:
+    depends_on: !override
+      redis: { condition: service_started }
+      clamav: { condition: service_healthy }
+    environment:
+      ERP_DEPLOYMENT_MODE: cloud
+      DATABASE_URL: ${DATABASE_URL:?Provide the verified cloud RLS runtime URL}
+      STORAGE_DRIVER: s3
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:?Create approved private object storage before cloud deployment}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_REGION: ${S3_REGION:-auto}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?Dedicated document-storage access key required}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?Dedicated document-storage secret required}

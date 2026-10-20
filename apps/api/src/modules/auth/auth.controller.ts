@@ -9,6 +9,8 @@ import {
   HttpCode,
   HttpStatus,
   Logger,
+  Delete,
+  Param,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -28,6 +30,9 @@ import {
   LoginSchema,
   ForgotPasswordSchema,
   ResetPasswordSchema,
+  MfaSetupSchema,
+  MfaVerifySchema,
+  MfaDisableSchema,
 } from '@school-erp/shared';
 import type { JwtPayload } from '@school-erp/shared';
 
@@ -134,6 +139,78 @@ export class AuthController {
   async getMe(@CurrentUser() user: JwtPayload) {
     const profile = await this.authService.getMe(user.sub);
     return { data: profile };
+  }
+
+  @Post('mfa/setup')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Begin authenticator MFA enrollment' })
+  async setupMfa(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+    const dto = MfaSetupSchema.parse(body);
+    return {
+      data: await this.authService.beginMfaEnrollment(user.sub, dto.password),
+      message: 'Scan the QR code, then confirm enrollment',
+    };
+  }
+
+  @Post('mfa/verify')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Confirm MFA enrollment and issue recovery codes' })
+  async verifyMfa(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+    const dto = MfaVerifySchema.parse(body);
+    return {
+      data: await this.authService.confirmMfaEnrollment(user.sub, dto.token),
+      message:
+        'MFA enabled. Store recovery codes securely; they are shown once.',
+    };
+  }
+
+  @Delete('mfa')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Disable MFA and revoke all sessions' })
+  async disableMfa(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+    const dto = MfaDisableSchema.parse(body);
+    await this.authService.disableMfa(user.sub, dto.password, dto.token);
+    return { data: null, message: 'MFA disabled; please sign in again' };
+  }
+
+  @Get('sessions')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'List signed-in devices and sessions' })
+  async sessions(@CurrentUser() user: JwtPayload) {
+    return {
+      data: await this.authService.listSessions(user.sub, user.sessionId),
+    };
+  }
+
+  @Delete('sessions/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Revoke one session owned by the current user' })
+  async revokeSession(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') sessionId: string,
+  ) {
+    await this.authService.revokeSession(user.sub, sessionId);
+    return { data: null, message: 'Session revoked' };
+  }
+
+  @Post('sessions/revoke-others')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Revoke all sessions except the current one' })
+  async revokeOtherSessions(@CurrentUser() user: JwtPayload) {
+    const result = await this.authService.revokeOtherSessions(
+      user.sub,
+      user.sessionId,
+    );
+    return {
+      data: { revoked: result.count },
+      message: 'Other sessions revoked',
+    };
   }
 
   @Post('forgot-password')

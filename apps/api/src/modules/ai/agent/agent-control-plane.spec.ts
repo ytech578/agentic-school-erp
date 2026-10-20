@@ -22,6 +22,7 @@ import {
   AGENT_TOOL_HANDLERS,
 } from './handlers';
 import { PrismaService } from '../../../core/database/prisma.service';
+import { AuditService } from '../../../core/audit/audit.service';
 import { AgentActionStatus } from '@prisma/client';
 import { HRService } from '../../hr/hr.service';
 import { AssignmentsService } from '../../assignments/assignments.service';
@@ -148,12 +149,14 @@ const adminCtx = {
 describe('AgentControlPlaneService — Hardened Control Plane', () => {
   let service: AgentControlPlaneService;
   let prisma: ReturnType<typeof buildPrismaMock>;
+  let audit: { recordMutation: jest.Mock };
   let policyService: AgentPolicyService;
   let hrService: Partial<HRService>;
   let assignmentsService: Partial<AssignmentsService>;
 
   beforeEach(async () => {
     prisma = buildPrismaMock();
+    audit = { recordMutation: jest.fn().mockResolvedValue({}) };
     assignmentsService = {
       createAssignment: jest.fn().mockResolvedValue({
         id: 'assign-1',
@@ -215,6 +218,7 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
           inject: toolHandlers,
         },
         { provide: PrismaService, useValue: prisma },
+        { provide: AuditService, useValue: audit },
         {
           provide: HRService,
           useValue: new HRService(prisma as unknown as PrismaService),
@@ -1359,13 +1363,11 @@ describe('AgentControlPlaneService — Hardened Control Plane', () => {
           }),
         }),
       );
-      expect(prisma.activityLog.create).toHaveBeenCalledWith(
+      expect(audit.recordMutation).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            schoolId: 'school-1',
-            userId: 'user-admin',
-            module: 'AI_CONTROL_PLANE',
-          }),
+          schoolId: 'school-1',
+          userId: 'user-admin',
+          module: 'AI_CONTROL_PLANE',
         }),
       );
     });

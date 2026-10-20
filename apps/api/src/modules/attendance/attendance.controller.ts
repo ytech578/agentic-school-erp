@@ -49,7 +49,7 @@ export class AttendanceController {
   @ApiBearerAuth('JWT-auth')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
-  @UsePipes(new ZodValidationPipe(MarkAttendanceSchema as any))
+  @UsePipes(new ZodValidationPipe(MarkAttendanceSchema))
   async markAttendance(@Request() req: any, @Body() parsedData: any) {
     return this.service.markAttendance(
       req.user.schoolId,

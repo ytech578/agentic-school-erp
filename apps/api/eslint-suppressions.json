@@ -1,0 +1,1069 @@
+{
+  "src/main.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/activities/activities.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/activities/activities.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "src/modules/admissions/admissions.controller.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/admissions/admissions.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 11
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 16
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/modules/admissions/admissions.service.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/ai/agent/agent-architecture.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "@typescript-eslint/require-await": {
+      "count": 1
+    }
+  },
+  "src/modules/ai/agent/agent-control-plane.service.ts": {
+    "@typescript-eslint/no-unsafe-enum-comparison": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 3
+    }
+  },
+  "src/modules/ai/agent/agent-control-plane.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 56
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 32
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 56
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 9
+    },
+    "@typescript-eslint/require-await": {
+      "count": 5
+    }
+  },
+  "src/modules/ai/agent/agent-tool-dispatcher.spec.ts": {
+    "@typescript-eslint/unbound-method": {
+      "count": 2
+    }
+  },
+  "src/modules/ai/agent/agent-tool-dispatcher.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/modules/ai/agent/idempotency.util.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "no-useless-escape": {
+      "count": 1
+    }
+  },
+  "src/modules/ai/ai-enterprise-agents.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/modules/ai/ai-rbac.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 11
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    },
+    "@typescript-eslint/unbound-method": {
+      "count": 11
+    }
+  },
+  "src/modules/ai/ai-resilience.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "@typescript-eslint/require-await": {
+      "count": 4
+    }
+  },
+  "src/modules/ai/ai-resilience.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 9
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 16
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/modules/ai/ai-tenant-isolation.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/ai/ai.scheduler.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 2
+    }
+  },
+  "src/modules/ai/ai.service.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 10
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 25
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 4
+    },
+    "no-empty": {
+      "count": 3
+    }
+  },
+  "src/modules/alumni/alumni.controller.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 15
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/modules/alumni/alumni.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 16
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 20
+    }
+  },
+  "src/modules/alumni/alumni.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 7
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/assignments/assignments.controller.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 11
+    }
+  },
+  "src/modules/assignments/assignments.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 16
+    }
+  },
+  "src/modules/assignments/assignments.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 22
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 41
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 2
+    },
+    "no-empty": {
+      "count": 2
+    }
+  },
+  "src/modules/attendance/attendance.controller.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 6
+    }
+  },
+  "src/modules/attendance/attendance.service.spec.ts": {
+    "@typescript-eslint/no-require-imports": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 9
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 13
+    }
+  },
+  "src/modules/auth/auth.controller.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 2
+    }
+  },
+  "src/modules/auth/auth.module.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "src/modules/auth/auth.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    }
+  },
+  "src/modules/auth/guards/jwt-refresh.guard.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "src/modules/auth/strategies/jwt-refresh.strategy.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 2
+    }
+  },
+  "src/modules/auth/strategies/jwt.strategy.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 2
+    }
+  },
+  "src/modules/certificates/certificates.controller.ts": {
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 16
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/modules/certificates/certificates.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 15
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 18
+    }
+  },
+  "src/modules/certificates/certificates.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 11
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 16
+    }
+  },
+  "src/modules/classes/academic-api-security.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 6
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 29
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 33
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/modules/classes/academic-integrity-closure.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 14
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 21
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/modules/classes/classes-crud.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 7
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 9
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/classes/classes.controller.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 17
+    }
+  },
+  "src/modules/classes/classes.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 12
+    }
+  },
+  "src/modules/classes/teacher-assignment-api.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 8
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 8
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/modules/curriculum/academic-integrity.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 8
+    }
+  },
+  "src/modules/curriculum/academic-invariants.spec.ts": {
+    "@typescript-eslint/require-await": {
+      "count": 1
+    }
+  },
+  "src/modules/curriculum/curriculum-seed.service.ts": {
+    "@typescript-eslint/no-misused-promises": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 18
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 26
+    },
+    "@typescript-eslint/require-await": {
+      "count": 1
+    }
+  },
+  "src/modules/curriculum/curriculum.controller.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 23
+    }
+  },
+  "src/modules/curriculum/curriculum.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 21
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 48
+    }
+  },
+  "src/modules/dashboard/dashboard.controller.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 8
+    }
+  },
+  "src/modules/dashboard/dashboard.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 8
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 35
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 55
+    }
+  },
+  "src/modules/dashboard/dashboard.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 3
+    }
+  },
+  "src/modules/discipline/discipline.controller.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 12
+    }
+  },
+  "src/modules/discipline/discipline.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 9
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 28
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 35
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/discipline/discipline.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 10
+    }
+  },
+  "src/modules/dpdp/dpdp.controller.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 24
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/dpdp/dpdp.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 9
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 11
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/dpdp/dpdp.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 8
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 18
+    }
+  },
+  "src/modules/exams/exams.controller.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 18
+    }
+  },
+  "src/modules/exams/exams.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 11
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 5
+    }
+  },
+  "src/modules/exams/exams.service.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "src/modules/fees/fees-razorpay.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 6
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 10
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/require-await": {
+      "count": 1
+    }
+  },
+  "src/modules/fees/fees-receipt.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 6
+    }
+  },
+  "src/modules/fees/fees-webhook.controller.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "src/modules/fees/fees.controller.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 25
+    }
+  },
+  "src/modules/fees/fees.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/modules/fees/fees.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 91
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 87
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 3
+    },
+    "@typescript-eslint/require-await": {
+      "count": 1
+    }
+  },
+  "src/modules/hr/hr.controller.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 21
+    }
+  },
+  "src/modules/hr/hr.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 6
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 10
+    }
+  },
+  "src/modules/hr/hr.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 13
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 8
+    }
+  },
+  "src/modules/messages/messages.controller.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 14
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/messages/messages.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 2
+    }
+  },
+  "src/modules/messages/messages.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 3
+    }
+  },
+  "src/modules/notifications/notifications-major-email.spec.ts": {
+    "@typescript-eslint/no-require-imports": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 10
+    }
+  },
+  "src/modules/notifications/notifications.controller.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 11
+    }
+  },
+  "src/modules/notifications/notifications.gateway.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "@typescript-eslint/require-await": {
+      "count": 1
+    }
+  },
+  "src/modules/notifications/notifications.service.spec.ts": {
+    "@typescript-eslint/no-require-imports": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 3
+    }
+  },
+  "src/modules/notifications/notifications.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 9
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 12
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/notifications/sms-whatsapp.service.spec.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/notifications/sms-whatsapp.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/payroll/payroll.controller.ts": {
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 7
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 30
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 2
+    }
+  },
+  "src/modules/payroll/payroll.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 6
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 24
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 29
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/payroll/payroll.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 34
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 29
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/ptm/ptm.controller.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 16
+    }
+  },
+  "src/modules/ptm/ptm.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 16
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 19
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/modules/ptm/ptm.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 6
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 12
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 2
+    }
+  },
+  "src/modules/reports/reports.controller.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 7
+    }
+  },
+  "src/modules/reports/reports.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 16
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 3
+    }
+  },
+  "src/modules/schools/academic-year-locked.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 10
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 14
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/modules/schools/academic-years.controller.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 6
+    }
+  },
+  "src/modules/schools/schools.controller.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 6
+    }
+  },
+  "src/modules/staff/staff.controller.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/require-await": {
+      "count": 1
+    }
+  },
+  "src/modules/staff/staff.service.spec.ts": {
+    "@typescript-eslint/no-require-imports": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 2
+    },
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  },
+  "src/modules/staff/staff.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 16
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/modules/students/student-enrollment.controller.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 5
+    }
+  },
+  "src/modules/students/student-enrollment.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 9
+    }
+  },
+  "src/modules/students/students-promotion.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 6
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 7
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 14
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/modules/students/students.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 8
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 10
+    }
+  },
+  "src/modules/students/students.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 7
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 35
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/modules/subscriptions/subscriptions.controller.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 8
+    }
+  },
+  "src/modules/subscriptions/subscriptions.service.spec.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 13
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 13
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/subscriptions/subscriptions.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/modules/timetable/timetable.controller.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 9
+    }
+  },
+  "src/modules/timetable/timetable.service.spec.ts": {
+    "@typescript-eslint/no-require-imports": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "src/modules/timetable/timetable.service.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 29
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 36
+    }
+  }
+}

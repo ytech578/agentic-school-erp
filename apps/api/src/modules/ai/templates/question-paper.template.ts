@@ -14,7 +14,9 @@ export interface FallbackQuestionPaperParams {
  * Generates a formal, standardized fallback examination paper with optional marking scheme.
  * Modularized out of AIService to reduce bloat and support deterministic curriculum testing.
  */
-export function buildFallbackQuestionPaper(params: FallbackQuestionPaperParams): string {
+export function buildFallbackQuestionPaper(
+  params: FallbackQuestionPaperParams,
+): string {
   const {
     schoolName,
     board,

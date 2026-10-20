@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../../core/database/prisma.service';
+import { AuditService } from '../../../core/audit/audit.service';
 import {
   TOOL_REGISTRY,
   ToolDefinition,
@@ -84,6 +85,7 @@ export class AgentControlPlaneService {
     private readonly prisma: PrismaService,
     private readonly policy: AgentPolicyService,
     private readonly dispatcher: AgentToolDispatcher,
+    private readonly audit: AuditService,
   ) {}
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1084,26 +1086,26 @@ export class AgentControlPlaneService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   private async writeAudit(payload: AuditPayload): Promise<void> {
-    await this.prisma.activityLog.create({
-      data: {
-        schoolId: payload.schoolId,
-        userId: payload.userId,
-        action: 'UPDATE',
-        module: 'AI_CONTROL_PLANE',
-        resourceId: payload.resourceId ?? payload.actionId,
-        resourceType: payload.resourceType,
-        description: payload.label,
-        after: {
-          actionId: payload.actionId,
-          toolName: payload.toolName,
-          riskLevel: payload.riskLevel,
-          status: payload.status,
-          correlationId: payload.correlationId,
-          ...(payload.failureReason
-            ? { failureReason: payload.failureReason }
-            : {}),
-        },
+    await this.audit.recordMutation({
+      schoolId: payload.schoolId,
+      userId: payload.userId,
+      action: 'UPDATE',
+      module: 'AI_CONTROL_PLANE',
+      resourceId: payload.resourceId ?? payload.actionId,
+      resourceType: payload.resourceType,
+      description: payload.label,
+      before: null,
+      after: {
+        actionId: payload.actionId,
+        toolName: payload.toolName,
+        riskLevel: payload.riskLevel,
+        status: payload.status,
+        correlationId: payload.correlationId,
+        ...(payload.failureReason
+          ? { failureReason: payload.failureReason }
+          : {}),
       },
+      correlationId: payload.correlationId,
     });
   }
 

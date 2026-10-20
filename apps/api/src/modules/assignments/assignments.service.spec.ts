@@ -1289,14 +1289,19 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
         id: assignmentId,
         schoolId,
       });
-      prisma.student.findFirst.mockResolvedValue({ id: studentId, userId, schoolId });
+      prisma.student.findFirst.mockResolvedValue({
+        id: studentId,
+        userId,
+        schoolId,
+      });
       prisma.assignmentSubmission.findUnique.mockResolvedValue(null);
       prisma.assignmentSubmission.findMany.mockResolvedValue([
         {
           id: 'peer-sub-1',
           studentId: 'peer-student-2',
           feedback: JSON.stringify({
-            submissionText: 'The process of cellular respiration converts glucose into ATP molecules in mitochondria.',
+            submissionText:
+              'The process of cellular respiration converts glucose into ATP molecules in mitochondria.',
           }),
         },
       ]);
@@ -1306,7 +1311,8 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
         studentId,
         status: 'SUBMITTED',
         feedback: JSON.stringify({
-          submissionText: 'Cellular respiration converts glucose into ATP molecules in mitochondria.',
+          submissionText:
+            'Cellular respiration converts glucose into ATP molecules in mitochondria.',
         }),
       });
 
@@ -1315,7 +1321,8 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
         assignmentId,
         userId,
         {
-          content: 'Cellular respiration converts glucose into ATP molecules in mitochondria.',
+          content:
+            'Cellular respiration converts glucose into ATP molecules in mitochondria.',
         },
       );
 
@@ -1331,10 +1338,17 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
       prisma.student.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.submitStudentAssignment('school-123', 'assign-1', 'unknown-user', {
-          content: 'My homework answers',
-        }),
-      ).rejects.toThrow('Authenticated student profile not found in this school');
+        service.submitStudentAssignment(
+          'school-123',
+          'assign-1',
+          'unknown-user',
+          {
+            content: 'My homework answers',
+          },
+        ),
+      ).rejects.toThrow(
+        'Authenticated student profile not found in this school',
+      );
     });
 
     it('should run on-demand plagiarism check for existing submission', async () => {
@@ -1351,7 +1365,8 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
         assignmentId,
         studentId,
         feedback: JSON.stringify({
-          submissionText: 'The photosynthesis mechanism produces glucose and oxygen from carbon dioxide and water.',
+          submissionText:
+            'The photosynthesis mechanism produces glucose and oxygen from carbon dioxide and water.',
         }),
       });
       prisma.assignmentSubmission.findMany.mockResolvedValue([]);
@@ -1370,4 +1385,3 @@ describe('AssignmentsService — Change #9A Hardened Academic Context', () => {
     });
   });
 });
-

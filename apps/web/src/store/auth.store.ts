@@ -10,6 +10,8 @@ export interface AuthUser {
   schoolId: string | null;
   avatarUrl?: string;
   permissions?: string[];
+  twoFactorEnabled?: boolean;
+  mfaEnrolledAt?: string | null;
 }
 
 interface AuthState {

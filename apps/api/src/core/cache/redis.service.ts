@@ -154,6 +154,22 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     this.fallbackStore.delete(key);
   }
 
+  async getAndDelete(key: string): Promise<string | null> {
+    if (this.isConnected && this.client) {
+      try {
+        return await this.client.getdel(key);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `Redis GETDEL failed for "${key}", checking memory fallback: ${message}`,
+        );
+      }
+    }
+    const value = await this.get(key);
+    this.fallbackStore.delete(key);
+    return value;
+  }
+
   getStatus(): {
     connected: boolean;
     mode: 'REDIS' | 'CIRCUIT_BREAKER_MEMORY';

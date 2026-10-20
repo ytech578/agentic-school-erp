@@ -14,6 +14,7 @@ import {
   CompletePtmSlotDto,
 } from './dto/ptm.dto';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { RunWithSystemDatabaseContext } from '../../core/database/system-database-context.decorator';
 
 @Injectable()
 export class PtmService {
@@ -629,6 +630,7 @@ export class PtmService {
   // ─── 4. SCHEDULED CRON: 24-HOUR PTM REMINDER ────────────────────────────
 
   @Cron(CronExpression.EVERY_HOUR)
+  @RunWithSystemDatabaseContext()
   async sendUpcomingPtmReminders() {
     try {
       const now = new Date();

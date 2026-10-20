@@ -6,6 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { RunWithSystemDatabaseContext } from '../../core/database/system-database-context.decorator';
 import { PrismaService } from '../../core/database/prisma.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
 import {
@@ -27,6 +28,7 @@ export class DpdpService {
 
   // ─── GDPR/DPDP DATA RETENTION POLICY (Auto-Purge Scheduler) ───────────────
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  @RunWithSystemDatabaseContext()
   async purgeOldAuditLogs() {
     this.logger.log(
       'Running GDPR/DPDP data retention policy: purging old activity logs...',

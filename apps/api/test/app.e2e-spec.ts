@@ -4,7 +4,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 
-describe('AppController (e2e)', () => {
+describe('Application health (e2e)', () => {
   let app: INestApplication<App>;
 
   beforeEach(async () => {
@@ -16,11 +16,25 @@ describe('AppController (e2e)', () => {
     await app.init();
   });
 
-  it('/ (GET)', () => {
+  it('/health (GET)', () => {
     return request(app.getHttpServer())
-      .get('/')
+      .get('/health')
       .expect(200)
-      .expect('Hello World!');
+      .expect((response) => {
+        const body = (response as { body: { status?: unknown } }).body;
+        expect(body.status).toBe('ok');
+      });
+  });
+
+  it('/auth/login rejects invalid payloads with 400', () => {
+    return request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'not-an-email', password: '' })
+      .expect(400)
+      .expect((response) => {
+        const body = (response as { body: { error?: unknown } }).body;
+        expect(body.error).toBe('VALIDATION_ERROR');
+      });
   });
 
   afterEach(async () => {

@@ -3,21 +3,17 @@ import { of } from 'rxjs';
 import { AuditLogInterceptor } from './audit-log.interceptor';
 import { AuditAction } from '@prisma/client';
 
-import { PrismaService } from '../database/prisma.service';
+import { AuditService } from '../audit/audit.service';
 
 describe('AuditLogInterceptor (E-001)', () => {
   let interceptor: AuditLogInterceptor;
-  let mockPrisma: { activityLog: { create: jest.Mock } };
+  let mockAudit: { recordMutation: jest.Mock };
 
   beforeEach(() => {
-    mockPrisma = {
-      activityLog: {
-        create: jest.fn().mockResolvedValue({ id: 'log-123' }),
-      },
+    mockAudit = {
+      recordMutation: jest.fn().mockResolvedValue({ id: 'log-123' }),
     };
-    interceptor = new AuditLogInterceptor(
-      mockPrisma as unknown as PrismaService,
-    );
+    interceptor = new AuditLogInterceptor(mockAudit as unknown as AuditService);
   });
 
   const createMockContext = (
@@ -63,7 +59,7 @@ describe('AuditLogInterceptor (E-001)', () => {
 
     interceptor.intercept(context, handler).subscribe({
       next: () => {
-        expect(mockPrisma.activityLog.create).not.toHaveBeenCalled();
+        expect(mockAudit.recordMutation).not.toHaveBeenCalled();
         done();
       },
     });
@@ -75,7 +71,7 @@ describe('AuditLogInterceptor (E-001)', () => {
 
     interceptor.intercept(context, handler).subscribe({
       next: () => {
-        expect(mockPrisma.activityLog.create).not.toHaveBeenCalled();
+        expect(mockAudit.recordMutation).not.toHaveBeenCalled();
         done();
       },
     });
@@ -97,22 +93,17 @@ describe('AuditLogInterceptor (E-001)', () => {
 
     interceptor.intercept(context, handler).subscribe({
       next: () => {
-        // Allow microtask queue to process the async tap
-        setTimeout(() => {
-          expect(mockPrisma.activityLog.create).toHaveBeenCalledWith(
-            expect.objectContaining({
-              data: expect.objectContaining({
-                schoolId: 'school-1',
-                userId: 'user-admin',
-                action: AuditAction.DELETE,
-                module: 'STUDENTS',
-                resourceId: 'stud-123',
-                resourceType: 'Students',
-              }) as Record<string, unknown>,
-            }),
-          );
-          done();
-        }, 10);
+        expect(mockAudit.recordMutation).toHaveBeenCalledWith(
+          expect.objectContaining({
+            schoolId: 'school-1',
+            userId: 'user-admin',
+            action: AuditAction.DELETE,
+            module: 'STUDENTS',
+            resourceId: 'stud-123',
+            resourceType: 'Students',
+          }),
+        );
+        done();
       },
     });
   });
@@ -132,19 +123,15 @@ describe('AuditLogInterceptor (E-001)', () => {
 
     interceptor.intercept(context, handler).subscribe({
       next: () => {
-        setTimeout(() => {
-          expect(mockPrisma.activityLog.create).toHaveBeenCalledWith(
-            expect.objectContaining({
-              data: expect.objectContaining({
-                schoolId: 'school-1',
-                userId: 'user-teacher',
-                action: AuditAction.CREATE,
-                module: 'STUDENTS',
-              }) as Record<string, unknown>,
-            }),
-          );
-          done();
-        }, 10);
+        expect(mockAudit.recordMutation).toHaveBeenCalledWith(
+          expect.objectContaining({
+            schoolId: 'school-1',
+            userId: 'user-teacher',
+            action: AuditAction.CREATE,
+            module: 'STUDENTS',
+          }),
+        );
+        done();
       },
     });
   });

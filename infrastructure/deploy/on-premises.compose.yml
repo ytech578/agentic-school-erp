@@ -1,0 +1,10 @@
+# Overlay: docker compose -f docker-compose.yml -f infrastructure/deploy/on-premises.compose.yml ...
+services:
+  api:
+    environment:
+      ERP_DEPLOYMENT_MODE: on-premises
+      STORAGE_DRIVER: local
+      ON_PREMISES_DATABASE_HOSTS: pgbouncer,postgres
+      ON_PREMISES_ALLOW_EXTERNAL_AI: ${ON_PREMISES_ALLOW_EXTERNAL_AI:-false}
+      # Blank by default. External AI is a separate school-approved decision.
+      GEMINI_API_KEY: ${ON_PREMISES_GEMINI_API_KEY:-}

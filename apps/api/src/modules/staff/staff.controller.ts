@@ -40,7 +40,9 @@ export class StaffController {
       }
       return targetSchoolId.trim();
     }
-    throw new ForbiddenException('Valid school context is required (fail-closed)');
+    throw new ForbiddenException(
+      'Valid school context is required (fail-closed)',
+    );
   }
 
   @Get('departments')

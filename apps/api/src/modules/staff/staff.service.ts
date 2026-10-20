@@ -18,7 +18,6 @@ export class StaffService {
     private cache: TenantCacheService,
   ) {}
 
-
   async createStaff(schoolId: string, data: CreateStaffInput) {
     const validSchoolId = requireSchoolId(schoolId, 'Create staff');
 

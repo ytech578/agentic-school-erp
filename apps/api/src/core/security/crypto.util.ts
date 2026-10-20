@@ -9,8 +9,7 @@ const PREFIX = 'enc:v1:';
  */
 export function getPiiEncryptionKey(): Buffer {
   const envKey =
-    process.env.PII_ENCRYPTION_KEY ||
-    process.env.AADHAAR_ENCRYPTION_KEY;
+    process.env.PII_ENCRYPTION_KEY || process.env.AADHAAR_ENCRYPTION_KEY;
 
   if (envKey) {
     if (envKey.length === 64 && /^[0-9a-fA-F]+$/.test(envKey)) {

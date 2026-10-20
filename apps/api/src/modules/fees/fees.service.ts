@@ -4,12 +4,20 @@ import {
   NotFoundException,
   Logger,
   Optional,
+  ForbiddenException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateFeeStructureInput, CollectFeeInput } from '@school-erp/shared';
-import { FeePaymentStatus, FeePaymentMode, FeeFrequency } from '@prisma/client';
+import {
+  FeePaymentStatus,
+  FeePaymentMode,
+  FeeFrequency,
+  AuditAction,
+} from '@prisma/client';
+import { AuditService } from '../../core/audit/audit.service';
 import { requireSchoolId } from '../../core/tenant/tenant.util';
 import { generateNextSequence } from '../../core/database/sequence.util';
 import { resolveActiveAcademicYear } from '../../core/academic/academic-year.util';
@@ -42,6 +50,16 @@ export function normalizeFeePaymentMode(mode?: string): FeePaymentMode {
   }
 }
 
+interface FeeAccessActor {
+  id: string;
+  role: string;
+}
+
+interface RazorpayCredentials {
+  keyId: string;
+  keySecret: string;
+}
+
 @Injectable()
 export class FeesService {
   private readonly logger = new Logger(FeesService.name);
@@ -49,6 +67,7 @@ export class FeesService {
   constructor(
     private prisma: PrismaService,
     @Optional() private configService?: ConfigService,
+    @Optional() private audit?: AuditService,
   ) {}
 
   private async resolveAcademicYearId(
@@ -495,78 +514,21 @@ export class FeesService {
   }
 
   async processParentPayment(
-    schoolId: string,
-    userId: string,
-    data: {
+    _schoolId: string,
+    _userId: string,
+    _data: {
       studentId: string;
       amount: number;
       paymentMode: string;
       transactionRef?: string;
     },
   ) {
-    const validSchoolId = requireSchoolId(schoolId);
-
-    // Verify student belongs to school and guardian is linked to student
-    const guardian = await this.prisma.guardian.findFirst({
-      where: {
-        userId,
-        studentId: data.studentId,
-        student: { schoolId: validSchoolId },
-      },
-    });
-    if (!guardian) {
-      throw new NotFoundException('Student not found for this guardian');
-    }
-
-    const academicYear =
-      (await this.prisma.academicYear.findFirst({
-        where: { schoolId: validSchoolId, isActive: true },
-      })) ||
-      (await this.prisma.academicYear.findFirst({
-        where: { schoolId: validSchoolId },
-      }));
-    if (!academicYear) throw new BadRequestException('No academic year found');
-
-    const year = new Date().getFullYear();
-    const receiptNumber = await generateNextSequence(
-      this.prisma,
-      validSchoolId,
-      'RCT',
-      year,
+    // A UTR/reference supplied by a browser is not proof of settlement. Parent
+    // payments must complete through the verified gateway/webhook flow; offline
+    // transfers require a staff reconciliation workflow before a receipt exists.
+    throw new BadRequestException(
+      'Direct parent payment confirmation is disabled. Complete payment through the secure gateway or contact the school for offline reconciliation.',
     );
-
-    const remarks = data.transactionRef
-      ? `Online Payment via Parent Portal (UTR/Ref: ${data.transactionRef})`
-      : 'Online Payment via Parent Portal';
-
-    const payment = await this.prisma.feePayment.create({
-      data: {
-        schoolId: validSchoolId,
-        studentId: data.studentId,
-        academicYearId: academicYear.id,
-        totalAmount: data.amount,
-        paidAmount: data.amount,
-        outstandingAmount: 0,
-        paymentMode: normalizeFeePaymentMode(data.paymentMode),
-        paymentStatus: FeePaymentStatus.PAID,
-        remarks,
-        collectedById: userId,
-        paymentDate: new Date(),
-      },
-    });
-
-    const receipt = await this.prisma.receipt.create({
-      data: {
-        feePaymentId: payment.id,
-        receiptNumber,
-      },
-    });
-
-    return {
-      success: true,
-      paymentId: payment.id,
-      receiptNumber: receipt.receiptNumber,
-    };
   }
 
   async getPaymentSettings(schoolId: string, userRole?: string) {
@@ -702,33 +664,31 @@ export class FeesService {
       updatedBy: userId,
     };
 
-    await this.prisma.systemConfig?.upsert?.({
-      where: {
-        schoolId_key: {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.systemConfig.upsert({
+        where: {
+          schoolId_key: {
+            schoolId: validSchoolId,
+            key: 'PAYMENT_SETTINGS',
+          },
+        },
+        update: { value: updatedValue, isPublic: true },
+        create: {
           schoolId: validSchoolId,
           key: 'PAYMENT_SETTINGS',
+          value: updatedValue,
+          isPublic: true,
         },
-      },
-      update: {
-        value: updatedValue,
-        isPublic: true,
-      },
-      create: {
-        schoolId: validSchoolId,
-        key: 'PAYMENT_SETTINGS',
-        value: updatedValue,
-        isPublic: true,
-      },
-    });
-
-    // Also sync to School.settings
-    if (this.prisma.school?.update) {
-      const school = await this.prisma.school?.findUnique?.({
-        where: { id: validSchoolId },
       });
-      const currentSettings = (school?.settings as any) || {};
-      await this.prisma.school
-        .update({
+
+      // Keep the backwards-compatible school settings projection in the same
+      // transaction so readers never observe a partially-applied change.
+      if (tx.school?.update) {
+        const school = await tx.school.findUnique({
+          where: { id: validSchoolId },
+        });
+        const currentSettings = (school?.settings as any) || {};
+        await tx.school.update({
           where: { id: validSchoolId },
           data: {
             settings: {
@@ -744,11 +704,31 @@ export class FeesService {
               },
             },
           },
-        })
-        .catch((e: any) =>
-          this.logger.warn(`Could not sync School.settings: ${e.message}`),
+        });
+      }
+
+      if (this.audit) {
+        const redact = (value: Record<string, unknown>) => ({
+          ...value,
+          razorpayKeySecret: value.razorpayKeySecret ? '[REDACTED]' : '',
+          accountNumber: value.accountNumber ? '[REDACTED]' : '',
+        });
+        await this.audit.recordMutation(
+          {
+            schoolId: validSchoolId,
+            userId,
+            action: AuditAction.UPDATE,
+            module: 'FEES',
+            resourceId: existing?.id ?? 'PAYMENT_SETTINGS',
+            resourceType: 'SystemConfig',
+            description: 'Payment settings updated',
+            before: redact(existingVal),
+            after: redact(updatedValue),
+          },
+          tx,
         );
-    }
+      }
+    });
 
     this.logger.log(
       `Payment settings updated for school ${validSchoolId} by user ${userId}`,
@@ -771,12 +751,17 @@ export class FeesService {
 
   async createRazorpayOrder(
     schoolId: string,
+    actor: FeeAccessActor,
     studentId: string,
     amount: number,
     academicYearId?: string,
   ) {
     const validSchoolId = requireSchoolId(schoolId, 'Create Razorpay order');
-    if (amount <= 0) {
+    if (
+      !Number.isFinite(amount) ||
+      amount <= 0 ||
+      !Number.isSafeInteger(Math.round(amount * 100))
+    ) {
       throw new BadRequestException('Order amount must be greater than zero');
     }
 
@@ -788,55 +773,79 @@ export class FeesService {
       throw new NotFoundException('Student not found');
     }
 
+    await this.assertActorCanAccessStudent(validSchoolId, studentId, actor);
+
     // Retrieve school custom payment settings
     const paymentSettings = await this.getPaymentSettings(
       validSchoolId,
       'SUPER_ADMIN',
     );
 
-    const keyId =
-      paymentSettings.razorpayKeyId ||
-      this.configService?.get<string>('RAZORPAY_KEY_ID') ||
-      'rzp_test_placeholder_key';
-    const keySecret =
-      this.configService?.get<string>('RAZORPAY_KEY_SECRET') ||
-      'rzp_test_secret_placeholder';
+    const { keyId, keySecret } =
+      await this.getRazorpayCredentials(validSchoolId);
     const currency = 'INR';
+    const resolvedYearId = await this.resolveAcademicYearId(
+      validSchoolId,
+      academicYearId,
+    );
+    const outstandingDue = await this.getStudentOutstandingDue(
+      validSchoolId,
+      studentId,
+      resolvedYearId,
+    );
+    if (outstandingDue <= 0) {
+      throw new BadRequestException(
+        'There is no outstanding fee due for this student',
+      );
+    }
+    if (amount > outstandingDue) {
+      throw new BadRequestException(
+        'Payment amount exceeds the verified outstanding fee due',
+      );
+    }
     const amountInPaise = Math.round(amount * 100);
     const receiptTag = `rcpt_${student.admissionNumber || student.id.slice(-6)}_${Date.now().toString().slice(-4)}`;
 
-    let orderId = `order_${Date.now().toString(36).toUpperCase()}_${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-
-    // If active live credentials configured, call Razorpay Orders API
-    if (keyId && keySecret && !keyId.includes('placeholder')) {
-      try {
-        const authHeader =
-          'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
-        const response = await fetch('https://api.razorpay.com/v1/orders', {
-          method: 'POST',
-          headers: {
-            Authorization: authHeader,
-            'Content-Type': 'application/json',
+    const authHeader =
+      'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+    let orderId: string;
+    try {
+      const response = await fetch('https://api.razorpay.com/v1/orders', {
+        method: 'POST',
+        headers: {
+          Authorization: authHeader,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: amountInPaise,
+          currency,
+          receipt: receiptTag,
+          notes: {
+            schoolId: validSchoolId,
+            studentId,
+            academicYearId: resolvedYearId,
+            studentName:
+              `${student.user.firstName} ${student.user.lastName}`.trim(),
           },
-          body: JSON.stringify({
-            amount: amountInPaise,
-            currency,
-            receipt: receiptTag,
-            notes: {
-              schoolId: validSchoolId,
-              studentId,
-              studentName:
-                `${student.user.firstName} ${student.user.lastName}`.trim(),
-            },
-          }),
-        });
-        if (response.ok) {
-          const resData: any = await response.json();
-          orderId = resData.id;
-        }
-      } catch (err: any) {
-        this.logger.warn(
-          `Razorpay API call fallback to order generation: ${err.message}`,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(
+          `Razorpay order request failed with HTTP ${response.status}`,
+        );
+      }
+      const resData = (await response.json()) as { id?: string };
+      if (!resData.id) throw new Error('Razorpay did not return an order ID');
+      orderId = resData.id;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Tests must not call a real gateway; production and development always fail closed.
+      if (this.configService?.get<string>('NODE_ENV') === 'test') {
+        orderId = `order_test_${crypto.randomBytes(8).toString('hex')}`;
+      } else {
+        this.logger.error(`Razorpay order creation failed: ${message}`);
+        throw new ServiceUnavailableException(
+          'Unable to create secure payment order',
         );
       }
     }
@@ -885,7 +894,7 @@ export class FeesService {
 
   async verifyRazorpayPayment(
     schoolId: string,
-    userId: string,
+    actor: FeeAccessActor,
     data: {
       orderId: string;
       paymentId: string;
@@ -897,22 +906,31 @@ export class FeesService {
     },
   ) {
     const validSchoolId = requireSchoolId(schoolId, 'Verify Razorpay payment');
-    const keySecret =
-      this.configService?.get<string>('RAZORPAY_KEY_SECRET') ||
-      'rzp_test_secret_placeholder';
+    if (!Number.isFinite(data.amount) || data.amount <= 0) {
+      throw new BadRequestException('Payment amount must be greater than zero');
+    }
+    const { keyId, keySecret } =
+      await this.getRazorpayCredentials(validSchoolId);
+    await this.assertActorCanAccessStudent(
+      validSchoolId,
+      data.studentId,
+      actor,
+    );
 
-    // Verify cryptographic HMAC signature if live secret is available
-    if (keySecret && !keySecret.includes('placeholder')) {
-      const generatedSignature = crypto
-        .createHmac('sha256', keySecret)
-        .update(`${data.orderId}|${data.paymentId}`)
-        .digest('hex');
+    const generatedSignature = crypto
+      .createHmac('sha256', keySecret)
+      .update(`${data.orderId}|${data.paymentId}`)
+      .digest('hex');
 
-      if (generatedSignature !== data.signature) {
-        throw new BadRequestException(
-          'Invalid Razorpay signature verification failed',
-        );
-      }
+    const actualSignature = Buffer.from(data.signature, 'utf8');
+    const expectedSignature = Buffer.from(generatedSignature, 'utf8');
+    if (
+      actualSignature.length !== expectedSignature.length ||
+      !crypto.timingSafeEqual(actualSignature, expectedSignature)
+    ) {
+      throw new BadRequestException(
+        'Invalid Razorpay signature verification failed',
+      );
     }
 
     const resolvedYearId = await this.resolveAcademicYearId(
@@ -920,10 +938,28 @@ export class FeesService {
       data.academicYearId,
     );
 
-    // Automatically record fee collection and issue sequential receipt
-    return this.collectFee(validSchoolId, userId, {
+    const verifiedPayment = await this.getVerifiedRazorpayPayment(
+      keyId,
+      keySecret,
+      data.orderId,
+      data.paymentId,
+      validSchoolId,
+      data.studentId,
+      resolvedYearId,
+      data.amount,
+    );
+
+    const existingPayment = await this.prisma.feePayment.findFirst({
+      where: { schoolId: validSchoolId, transactionRef: data.paymentId },
+    });
+    if (existingPayment) {
+      throw new BadRequestException('This payment has already been recorded');
+    }
+
+    // Persist only the gateway-verified amount, never a client-supplied amount.
+    return this.collectFee(validSchoolId, actor.id, {
       studentId: data.studentId,
-      amountPaid: data.amount,
+      amountPaid: verifiedPayment.amount / 100,
       paymentMode: FeePaymentMode.ONLINE_UPI,
       transactionRef: data.paymentId,
       academicYearId: resolvedYearId,
@@ -931,6 +967,180 @@ export class FeesService {
         data.remarks ||
         `Online payment via Razorpay / UPI (Order: ${data.orderId})`,
     });
+  }
+
+  private async assertActorCanAccessStudent(
+    schoolId: string,
+    studentId: string,
+    actor: FeeAccessActor,
+  ): Promise<void> {
+    if (!['PARENT', 'STUDENT'].includes(actor.role)) return;
+
+    if (actor.role === 'STUDENT') {
+      const student = await this.prisma.student.findFirst({
+        where: { id: studentId, schoolId, userId: actor.id },
+        select: { id: true },
+      });
+      if (!student) {
+        throw new ForbiddenException(
+          'You can only access your own fee records',
+        );
+      }
+      return;
+    }
+
+    const guardian = await this.prisma.guardian.findFirst({
+      where: { userId: actor.id, studentId, student: { schoolId } },
+      select: { id: true },
+    });
+    if (!guardian) {
+      throw new ForbiddenException(
+        'You can only access fee records for your ward',
+      );
+    }
+  }
+
+  private async getStudentOutstandingDue(
+    schoolId: string,
+    studentId: string,
+    academicYearId: string,
+  ): Promise<number> {
+    const student = await this.prisma.student.findFirst({
+      where: { id: studentId, schoolId },
+      select: {
+        enrollments: {
+          where: { status: 'ACTIVE' },
+          select: { section: { select: { classId: true } } },
+          take: 1,
+        },
+      },
+    });
+    const classId = student?.enrollments[0]?.section.classId;
+    if (!classId)
+      throw new BadRequestException('Student has no active class enrollment');
+
+    const structure = await this.prisma.feeStructure.findFirst({
+      where: { schoolId, academicYearId, classId, isActive: true },
+      include: { items: true },
+    });
+    if (!structure) {
+      throw new BadRequestException(
+        'No active fee structure is configured for this student',
+      );
+    }
+
+    const payments = await this.prisma.feePayment.findMany({
+      where: {
+        schoolId,
+        studentId,
+        academicYearId,
+        paymentStatus: {
+          in: [FeePaymentStatus.PAID, FeePaymentStatus.PARTIAL],
+        },
+      },
+      select: { paidAmount: true },
+    });
+    const totalFee = structure.items.reduce(
+      (sum, item) => sum + Number(item.amount),
+      0,
+    );
+    const totalPaid = payments.reduce(
+      (sum, payment) => sum + Number(payment.paidAmount),
+      0,
+    );
+    return Math.max(0, totalFee - totalPaid);
+  }
+
+  private async getRazorpayCredentials(
+    schoolId: string,
+  ): Promise<RazorpayCredentials> {
+    const config = await this.prisma.systemConfig?.findUnique?.({
+      where: { schoolId_key: { schoolId, key: 'PAYMENT_SETTINGS' } },
+    });
+    const settings =
+      (config?.value as Record<string, unknown> | undefined) || {};
+    const keyId =
+      (settings.razorpayKeyId as string | undefined) ||
+      this.configService?.get<string>('RAZORPAY_KEY_ID') ||
+      '';
+    const keySecret =
+      (settings.razorpayKeySecret as string | undefined) ||
+      this.configService?.get<string>('RAZORPAY_KEY_SECRET') ||
+      '';
+    if (
+      !keyId ||
+      !keySecret ||
+      keyId.toLowerCase().includes('placeholder') ||
+      keySecret.toLowerCase().includes('placeholder')
+    ) {
+      throw new ServiceUnavailableException(
+        'Online payment gateway is not securely configured for this school',
+      );
+    }
+    return { keyId, keySecret };
+  }
+
+  private async getVerifiedRazorpayPayment(
+    keyId: string,
+    keySecret: string,
+    orderId: string,
+    paymentId: string,
+    schoolId: string,
+    studentId: string,
+    academicYearId: string,
+    clientAmount: number,
+  ): Promise<{ amount: number }> {
+    const authHeader =
+      'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+    try {
+      const response = await fetch(
+        `https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}`,
+        { headers: { Authorization: authHeader } },
+      );
+      if (!response.ok) {
+        throw new Error(
+          `Razorpay payment lookup failed with HTTP ${response.status}`,
+        );
+      }
+      const payment = (await response.json()) as {
+        amount?: number;
+        order_id?: string;
+        status?: string;
+        notes?: Record<string, string>;
+      };
+      const paymentAmount = payment.amount;
+      if (
+        payment.order_id !== orderId ||
+        payment.status !== 'captured' ||
+        payment.notes?.schoolId !== schoolId ||
+        payment.notes?.studentId !== studentId ||
+        payment.notes?.academicYearId !== academicYearId ||
+        !Number.isInteger(paymentAmount) ||
+        !paymentAmount ||
+        paymentAmount <= 0
+      ) {
+        throw new BadRequestException(
+          'Gateway payment details do not match this fee request',
+        );
+      }
+      if (Math.round(clientAmount * 100) !== paymentAmount) {
+        throw new BadRequestException(
+          'Client payment amount does not match the gateway payment',
+        );
+      }
+      return { amount: paymentAmount };
+    } catch (err: unknown) {
+      if (err instanceof BadRequestException) throw err;
+      // This deterministic test-only branch avoids external gateway calls in unit tests.
+      if (this.configService?.get<string>('NODE_ENV') === 'test') {
+        return { amount: Math.round(clientAmount * 100) };
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Razorpay payment verification failed: ${message}`);
+      throw new ServiceUnavailableException(
+        'Unable to verify payment with gateway',
+      );
+    }
   }
 
   async handleRazorpayWebhook(
@@ -1019,7 +1229,11 @@ export class FeesService {
     return { received: true };
   }
 
-  async getReceiptDetails(schoolId: string, identifier: string) {
+  async getReceiptDetails(
+    schoolId: string,
+    identifier: string,
+    actor?: FeeAccessActor,
+  ) {
     const validSchoolId = requireSchoolId(schoolId, 'Get receipt details');
 
     const payment = (await this.prisma.feePayment.findFirst({
@@ -1058,6 +1272,13 @@ export class FeesService {
 
     if (!payment) {
       throw new NotFoundException('Receipt or payment record not found');
+    }
+    if (actor) {
+      await this.assertActorCanAccessStudent(
+        validSchoolId,
+        payment.student.id,
+        actor,
+      );
     }
 
     const [school, academicYear, feeHeads] = await Promise.all([
@@ -1135,6 +1356,7 @@ export class FeesService {
 
   async getFeeInvoices(
     schoolId: string,
+    actor: FeeAccessActor,
     filters?: {
       academicYearId?: string;
       studentId?: string;
@@ -1150,8 +1372,23 @@ export class FeesService {
       : undefined;
 
     const where: any = { schoolId: validSchoolId };
+    if (actor.role === 'STUDENT') {
+      const student = await this.prisma.student.findFirst({
+        where: { schoolId: validSchoolId, userId: actor.id },
+        select: { id: true },
+      });
+      where.studentId = student?.id || '__no_access__';
+    } else if (actor.role === 'PARENT') {
+      const guardians = await this.prisma.guardian.findMany({
+        where: { userId: actor.id, student: { schoolId: validSchoolId } },
+        select: { studentId: true },
+      });
+      where.studentId = { in: guardians.map((guardian) => guardian.studentId) };
+    }
     if (resolvedYearId) where.academicYearId = resolvedYearId;
-    if (filters?.studentId) where.studentId = filters.studentId;
+    if (filters?.studentId && !['PARENT', 'STUDENT'].includes(actor.role)) {
+      where.studentId = filters.studentId;
+    }
     if (filters?.paymentStatus && filters.paymentStatus !== 'ALL') {
       where.paymentStatus = filters.paymentStatus;
     }

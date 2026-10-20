@@ -13,6 +13,8 @@ export interface AuthenticatedUser {
   role: UserRole;
   schoolId: string | null;
   sessionId: string;
+  authMethod?: 'PASSWORD' | 'OIDC' | 'SAML' | 'BREAK_GLASS';
+  amr?: string[];
   iat?: number;
   exp?: number;
 }

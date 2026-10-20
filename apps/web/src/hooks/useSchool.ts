@@ -23,19 +23,8 @@ export interface SchoolProfile {
 }
 
 const DEFAULT_SCHOOL: SchoolProfile = {
-  name: "Sunrise Public School",
-  code: "DEMO001",
-  address: "123, Education Street, Knowledge Nagar",
-  city: "Vjayawada",
-  state: "Andhra Pradesh",
-  pinCode: "411001",
+  name: "",
   country: "India",
-  phone: "+91-20-12345678",
-  email: "info@sunriseschool.edu.in",
-  website: "https://sunriseschool.edu.in",
-  principalName: "Dr. Rajesh Sharma",
-  affiliationNo: "CBSE/2025/12345",
-  boardType: "CBSE",
 };
 
 export function useSchool() {
@@ -53,7 +42,7 @@ export function useSchool() {
         });
       }
     } catch {
-      // Graceful fallback to default school profile
+      // Keep fields blank instead of presenting another institution's data.
     } finally {
       setIsLoading(false);
     }
@@ -89,17 +78,17 @@ export function useSchool() {
 
   return {
     school,
-    schoolName: school.name || "Sunrise Public School",
-    code: school.code || "DEMO001",
-    affiliationNo: school.affiliationNo || "CBSE/2025/12345",
-    fullAddress: fullAddress || "123, Education Street, Knowledge Nagar, Vjayawada, Andhra Pradesh - 411001",
-    phone: school.phone || "+91-20-12345678",
-    email: school.email || "info@sunriseschool.edu.in",
-    website: school.website || "https://sunriseschool.edu.in",
-    principalName: school.principalName || "Dr. Rajesh Sharma",
-    boardType: school.boardType || "CBSE",
-    city: school.city || "Vjayawada",
-    state: school.state || "Andhra Pradesh",
+    schoolName: school.name || "School name not configured",
+    code: school.code || "Not configured",
+    affiliationNo: school.affiliationNo || "Not configured",
+    fullAddress: fullAddress || "Address not configured",
+    phone: school.phone || "Contact not configured",
+    email: school.email || "Email not configured",
+    website: school.website || "Website not configured",
+    principalName: school.principalName || "Principal not configured",
+    boardType: school.boardType || "Board not configured",
+    city: school.city || "",
+    state: school.state || "",
     isLoading,
     refetch: fetchSchool,
   };

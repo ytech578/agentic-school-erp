@@ -118,10 +118,14 @@ describe('FeesService', () => {
       prisma.feePayment.findMany.mockResolvedValue(mockPayments);
       prisma.feePayment.count.mockResolvedValue(1);
 
-      const res = await service.getFeeInvoices(mockSchoolId, {
-        page: 1,
-        limit: 10,
-      });
+      const res = await service.getFeeInvoices(
+        mockSchoolId,
+        { id: 'admin-1', role: 'SCHOOL_ADMIN' },
+        {
+          page: 1,
+          limit: 10,
+        },
+      );
 
       expect(res).toBeDefined();
       expect(Array.isArray(res)).toBe(true);

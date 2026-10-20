@@ -12,6 +12,7 @@ import {
   SubscriptionStatusEnum,
 } from './dto/subscription.dto';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { RunWithSystemDatabaseContext } from '../../core/database/system-database-context.decorator';
 
 const PLAN_PRESETS: Record<
   SubscriptionPlanEnum,
@@ -318,6 +319,7 @@ export class SubscriptionsService {
    * Monthly reset of AI token usage on the 1st day of every month at midnight
    */
   @Cron(CronExpression.EVERY_1ST_DAY_OF_MONTH_AT_MIDNIGHT)
+  @RunWithSystemDatabaseContext()
   async resetMonthlyAiTokens() {
     this.logger.log(
       'Executing monthly reset of AI token usage counters across all schools...',
@@ -343,6 +345,7 @@ export class SubscriptionsService {
    * Daily check for expired subscriptions (renewsAt < now and status in ACTIVE, TRIALING) -> PAST_DUE
    */
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  @RunWithSystemDatabaseContext()
   async checkSubscriptionExpirations() {
     this.logger.log('Checking for expired subscriptions...');
     try {

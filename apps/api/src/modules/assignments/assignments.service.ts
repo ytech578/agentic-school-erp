@@ -519,7 +519,8 @@ export class AssignmentsService {
           data.marksObtained !== undefined && data.marksObtained !== null
             ? data.marksObtained
             : undefined,
-        feedback: finalFeedback !== undefined ? finalFeedback : existing?.feedback,
+        feedback:
+          finalFeedback !== undefined ? finalFeedback : existing?.feedback,
       },
     });
   }
@@ -597,7 +598,12 @@ export class AssignmentsService {
         }
       }
 
-      return { submissionText, attachmentUrl, originalityReport, teacherFeedback };
+      return {
+        submissionText,
+        attachmentUrl,
+        originalityReport,
+        teacherFeedback,
+      };
     };
 
     for (const e of enrollments) {
@@ -994,4 +1000,3 @@ export class AssignmentsService {
     return report;
   }
 }
-

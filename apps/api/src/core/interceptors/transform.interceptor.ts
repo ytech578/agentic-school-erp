@@ -7,6 +7,7 @@ import {
 import type { Response } from 'express';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
+import { isScimRequest } from '../http/protocol-response';
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -27,6 +28,15 @@ export class TransformInterceptor<T> implements NestInterceptor<
     next: CallHandler,
   ): Observable<ApiResponse<T>> {
     const response = context.switchToHttp().getResponse<Response>();
+    const request = context
+      .switchToHttp()
+      .getRequest?.<{ originalUrl?: string; url?: string }>();
+    if (
+      isScimRequest(request) ||
+      response?.getHeader?.('Content-Type') === 'application/samlmetadata+xml'
+    ) {
+      return next.handle() as Observable<ApiResponse<T>>;
+    }
 
     return next.handle().pipe(
       map((data: unknown) => {

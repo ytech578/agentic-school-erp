@@ -70,9 +70,13 @@ export class JwtRefreshStrategy extends PassportStrategy(
 
     const tokenHash = hashRefreshToken(refreshToken);
 
-    const session = await this.prisma.userSession.findUnique({
-      where: { refreshToken: tokenHash },
-    });
+    const findSession = () =>
+      this.prisma.userSession.findUnique({
+        where: { refreshToken: tokenHash },
+      });
+    const session = this.prisma.runAsSystem
+      ? await this.prisma.runAsSystem(findSession)
+      : await findSession();
 
     if (
       !session ||

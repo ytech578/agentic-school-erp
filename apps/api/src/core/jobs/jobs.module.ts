@@ -1,9 +1,6 @@
-import { Module, Logger } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import Redis from 'ioredis';
-
-const logger = new Logger('JobsModule');
 
 @Module({
   imports: [
@@ -19,31 +16,21 @@ const logger = new Logger('JobsModule');
         const host = url.hostname === 'localhost' ? '127.0.0.1' : url.hostname;
         const port = parseInt(url.port || '6379', 10);
 
-        // Resilient ioredis client with error handler to prevent unhandled ECONNREFUSED process crash
-        const redisClient = new Redis({
-          host,
-          port,
-          username: url.username || undefined,
-          password: url.password || undefined,
-          maxRetriesPerRequest: null,
-          enableOfflineQueue: false,
-          connectTimeout: 3000,
-          retryStrategy: (times: number) => {
-            if (times > 3) {
-              return null; // Stop aggressive retries when Redis is not running in dev
-            }
-            return Math.min(times * 1000, 2000);
-          },
-        });
-
-        redisClient.on('error', (err: Error) => {
-          logger.warn(
-            `Background Jobs Queue: Redis unavailable (${err.message}). Resilient fallback engaged.`,
-          );
-        });
-
         return {
-          connection: redisClient,
+          // Pass connection options instead of an externally-owned client.
+          // BullMQ then owns and closes every connection during application
+          // shutdown, preventing leaked sockets in deploys and test runners.
+          connection: {
+            host,
+            port,
+            username: url.username || undefined,
+            password: url.password || undefined,
+            maxRetriesPerRequest: null,
+            enableOfflineQueue: false,
+            connectTimeout: 3000,
+            retryStrategy: (times: number) =>
+              times > 3 ? null : Math.min(times * 1000, 2000),
+          },
           defaultJobOptions: {
             removeOnComplete: 1000,
             removeOnFail: 5000,
@@ -61,4 +48,3 @@ const logger = new Logger('JobsModule');
   exports: [BullModule],
 })
 export class JobsModule {}
-

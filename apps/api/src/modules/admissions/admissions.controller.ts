@@ -68,6 +68,7 @@ export class AdmissionsController {
       req.user.schoolId,
       id,
       status,
+      req.user.id,
     );
   }
 
@@ -114,6 +115,7 @@ export class AdmissionsController {
       req.user.schoolId,
       id,
       status,
+      req.user.id,
     );
   }
 
@@ -137,6 +139,7 @@ export class AdmissionsController {
       req.user.schoolId,
       id,
       reason,
+      req.user.id,
     );
   }
 

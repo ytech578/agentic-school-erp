@@ -14,6 +14,16 @@ describe('FeesService - Razorpay Integration (Part 2)', () => {
       student: {
         findFirst: jest.fn(),
       },
+      guardian: {
+        findFirst: jest.fn(),
+      },
+      feeStructure: {
+        findFirst: jest.fn().mockResolvedValue({ items: [{ amount: 20000 }] }),
+      },
+      feePayment: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
       academicYear: {
         findFirst: jest
           .fn()
@@ -35,6 +45,7 @@ describe('FeesService - Razorpay Integration (Part 2)', () => {
         if (key === 'RAZORPAY_KEY_ID') return 'rzp_test_sampleKey123';
         if (key === 'RAZORPAY_KEY_SECRET') return 'secret_key_abc123';
         if (key === 'RAZORPAY_WEBHOOK_SECRET') return 'webhook_secret_xyz';
+        if (key === 'NODE_ENV') return 'test';
         return null;
       }),
     };
@@ -73,10 +84,12 @@ describe('FeesService - Razorpay Integration (Part 2)', () => {
         lastName: 'Kumar',
         email: 'rohan@example.com',
       },
+      enrollments: [{ section: { classId: 'class-10' } }],
     });
 
     const order = await service.createRazorpayOrder(
       'school-1',
+      { id: 'admin-1', role: 'SCHOOL_ADMIN' },
       'student-1',
       4500,
     );
@@ -93,6 +106,7 @@ describe('FeesService - Razorpay Integration (Part 2)', () => {
     mockPrisma.student.findFirst.mockResolvedValue({
       id: 'student-1',
       user: { firstName: 'Rohan', lastName: 'Kumar' },
+      enrollments: [{ section: { classId: 'class-10' } }],
     });
 
     const orderId = 'order_ABC123';
@@ -104,7 +118,7 @@ describe('FeesService - Razorpay Integration (Part 2)', () => {
 
     const result = await service.verifyRazorpayPayment(
       'school-1',
-      'parent-user-1',
+      { id: 'admin-1', role: 'SCHOOL_ADMIN' },
       {
         orderId,
         paymentId,
@@ -133,13 +147,17 @@ describe('FeesService - Razorpay Integration (Part 2)', () => {
     });
 
     await expect(
-      service.verifyRazorpayPayment('school-1', 'parent-user-1', {
-        orderId: 'order_FAKE',
-        paymentId: 'pay_FORGED',
-        signature: 'invalid_tampered_signature',
-        studentId: 'student-1',
-        amount: 5000,
-      }),
+      service.verifyRazorpayPayment(
+        'school-1',
+        { id: 'admin-1', role: 'SCHOOL_ADMIN' },
+        {
+          orderId: 'order_FAKE',
+          paymentId: 'pay_FORGED',
+          signature: 'invalid_tampered_signature',
+          studentId: 'student-1',
+          amount: 5000,
+        },
+      ),
     ).rejects.toThrow('Invalid Razorpay signature verification failed');
   });
 
@@ -152,6 +170,7 @@ describe('FeesService - Razorpay Integration (Part 2)', () => {
         lastName: 'Kumar',
         email: 'rohan@example.com',
       },
+      enrollments: [{ section: { classId: 'class-10' } }],
     });
     mockPrisma.school = {
       findUnique: jest
@@ -161,6 +180,7 @@ describe('FeesService - Razorpay Integration (Part 2)', () => {
 
     const order = await service.createRazorpayOrder(
       'school-1',
+      { id: 'admin-1', role: 'SCHOOL_ADMIN' },
       'student-1',
       12500,
     );
@@ -210,7 +230,7 @@ describe('FeesService - Razorpay Integration (Part 2)', () => {
     expect(settings.bankName).toBe('ICICI Bank');
   });
 
-  it('processes parent payment with authentic UTR reference and sequential receipt', async () => {
+  it('rejects unverified direct parent payment confirmation', async () => {
     mockPrisma.guardian = {
       findFirst: jest
         .fn()
@@ -230,27 +250,13 @@ describe('FeesService - Razorpay Integration (Part 2)', () => {
         .mockResolvedValue({ id: 'rcpt-1', receiptNumber: 'RCT-2026-0042' }),
     };
 
-    const res = await service.processParentPayment(
-      'school-1',
-      'parent-user-1',
-      {
+    await expect(
+      service.processParentPayment('school-1', 'parent-user-1', {
         studentId: 'student-1',
         amount: 8500,
         paymentMode: 'ONLINE_UPI',
         transactionRef: 'UPI-UTR-987654321012',
-      },
-    );
-
-    expect(res.success).toBe(true);
-    expect(res.receiptNumber).toBe('RCT-2026-0042');
-    expect(mockPrisma.feePayment.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          paidAmount: 8500,
-          paymentMode: 'ONLINE_UPI',
-          remarks: expect.stringContaining('UPI-UTR-987654321012'),
-        }),
       }),
-    );
+    ).rejects.toThrow('Direct parent payment confirmation is disabled');
   });
 });

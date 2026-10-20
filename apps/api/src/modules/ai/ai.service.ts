@@ -2069,14 +2069,15 @@ Format in clean Markdown without raw HTML or unescaped LaTeX.`;
         return buildFallbackQuestions();
       }
       return raw.map((q, idx) => {
-        const rawOpts = Array.isArray(q.options) && q.options.length > 0
-          ? q.options.map((opt: any) => String(opt ?? ''))
-          : [
-              'Identify the given known values and determine the target variable.',
-              'Skip initial parameter checks and estimate the answer directly.',
-              'Invert the final equation without applying algebraic symmetry.',
-              'Assume all boundary conditions are zero.',
-            ];
+        const rawOpts =
+          Array.isArray(q.options) && q.options.length > 0
+            ? q.options.map((opt: any) => String(opt ?? ''))
+            : [
+                'Identify the given known values and determine the target variable.',
+                'Skip initial parameter checks and estimate the answer directly.',
+                'Invert the final equation without applying algebraic symmetry.',
+                'Assume all boundary conditions are zero.',
+              ];
         const correctIdx =
           typeof q.correctIndex === 'number' &&
           q.correctIndex >= 0 &&
@@ -2090,13 +2091,23 @@ Format in clean Markdown without raw HTML or unescaped LaTeX.`;
 
         return {
           id: q.id || idx + 1,
-          question: String(q.question || `In ${s}, which statement best describes "${t}"?`),
+          question: String(
+            q.question || `In ${s}, which statement best describes "${t}"?`,
+          ),
           options: rawOpts,
           correctIndex: correctIdx,
           correctAnswer: correctAns,
-          hint: String(q.hint || 'Review foundational definitions and step-by-step calculations.'),
-          explanation: String(q.explanation || `The conceptually accurate choice is: ${correctAns}`),
-          conceptRecap: String(q.conceptRecap || `Fundamental anchor for ${t}.`),
+          hint: String(
+            q.hint ||
+              'Review foundational definitions and step-by-step calculations.',
+          ),
+          explanation: String(
+            q.explanation ||
+              `The conceptually accurate choice is: ${correctAns}`,
+          ),
+          conceptRecap: String(
+            q.conceptRecap || `Fundamental anchor for ${t}.`,
+          ),
           bloomLevel: q.bloomLevel || 'Understanding',
         };
       });

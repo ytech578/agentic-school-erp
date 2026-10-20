@@ -1,0 +1,6 @@
+name_prefix                  = "acme-school-erp-prod"
+primary_region               = "ap-south-1"
+dr_region                    = "ap-southeast-1"
+vpc_id                       = "vpc-00000000000000000"
+database_subnet_ids          = ["subnet-00000000000000001", "subnet-00000000000000002"]
+application_security_group_id = "sg-00000000000000000"

@@ -82,11 +82,9 @@ export class NotificationsService implements OnModuleDestroy {
 
         // Only subscribe once the Redis connection is ready and writable
         this.redisSub.on('ready', () => {
-          this.redisSub
-            ?.subscribe('erp_notifications_channel')
-            .catch((err) => {
-              this.logger.warn(`Redis subscribe failed: ${err.message}`);
-            });
+          this.redisSub?.subscribe('erp_notifications_channel').catch((err) => {
+            this.logger.warn(`Redis subscribe failed: ${err.message}`);
+          });
         });
 
         this.redisSub.on('message', (channel, message) => {

@@ -1,21 +1,7 @@
 import type { Metadata } from "next";
-import { Inter, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { Toaster } from "react-hot-toast";
-
-
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap",
-});
-
-const plusJakarta = Plus_Jakarta_Sans({
-  subsets: ["latin"],
-  variable: "--font-jakarta",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "Agentic School ERP",
@@ -45,7 +31,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={`${inter.variable} ${plusJakarta.variable}`}>
+      <body>
         <ThemeProvider>
           <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
           {children}

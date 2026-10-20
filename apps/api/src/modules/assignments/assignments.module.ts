@@ -9,4 +9,3 @@ import { PlagiarismService } from './plagiarism.service';
   exports: [AssignmentsService, PlagiarismService],
 })
 export class AssignmentsModule {}
-

@@ -30,7 +30,9 @@ export class SchoolsController {
   @Get()
   @UseGuards(RolesGuard)
   @Roles('SUPER_ADMIN')
-  @ApiOperation({ summary: 'List all onboarded schools (with metrics - Super Admin only)' })
+  @ApiOperation({
+    summary: 'List all onboarded schools (with metrics - Super Admin only)',
+  })
   findAll() {
     return this.schoolsService.findAll();
   }

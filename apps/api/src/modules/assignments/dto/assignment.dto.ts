@@ -172,7 +172,8 @@ export class SubmitAssignmentDto {
 export class StudentSubmitAssignmentDto {
   @ApiProperty({
     description: 'Submission text content (answers, solution text, or essay)',
-    example: 'Photosynthesis is the process used by plants and other organisms to convert light energy into chemical energy.',
+    example:
+      'Photosynthesis is the process used by plants and other organisms to convert light energy into chemical energy.',
   })
   @IsString()
   content: string;
@@ -185,4 +186,3 @@ export class StudentSubmitAssignmentDto {
   @IsOptional()
   attachmentUrl?: string;
 }
-

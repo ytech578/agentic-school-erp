@@ -6,13 +6,16 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
   Save, School, Calendar, DollarSign, Users, Plus, CheckCircle2,
-  User, Settings2, Shield, Bell, Lock, ShieldAlert, Loader2,
-  Building2, GraduationCap, CreditCard, UserCog, Pencil, X, Check,
-  Phone, Mail, Camera, LogOut, Key, ToggleRight, Info, ChevronRight, BookOpen,
+  User, Settings2, Shield, Bell, ShieldAlert, Loader2,
+  Building2, GraduationCap, CreditCard, UserCog, Pencil, X,
+  Phone, Mail, Camera, ToggleRight, Info, ChevronRight, BookOpen,
   MessageSquare, Send, Radio, Smartphone, AlertCircle, Terminal, RefreshCw, Zap,
 } from "lucide-react";
 import { useAuthStore } from "@/store/auth.store";
 import { CurriculumManager } from "@/components/curriculum/CurriculumManager";
+import { AccountSecurityPanel } from "@/components/security/AccountSecurityPanel";
+import { EnterpriseIdentityPanel } from "@/components/security/EnterpriseIdentityPanel";
+import { SecurityOperationsPanel } from "@/components/security/SecurityOperationsPanel";
 
 type SettingsTab = "profile" | "school" | "curriculum" | "academic" | "feeheads" | "gateways" | "users" | "preferences" | "security";
 
@@ -129,33 +132,28 @@ export default function SettingsPage() {
   // Prefs
   const [prefs, setPrefs] = useState({ emailNotif: true, smsNotif: false, weeklyReport: true });
 
-  // Password
-  const [pwForm, setPwForm] = useState({ current: "", next: "", confirm: "" });
-  const [savingPw, setSavingPw] = useState(false);
-
   // Gateways
   const [gatewayConfig, setGatewayConfig] = useState({
     mode: "SANDBOX" as "LIVE" | "SANDBOX",
     smsProvider: "TWILIO" as "TWILIO" | "FAST2SMS" | "GUPSHUP",
-    twilioSid: "AC983742194827103847582910398472",
-    twilioAuthToken: "••••••••••••••••••••••••••••••••",
-    twilioFrom: "+12025550192",
+    twilioSid: "",
+    twilioAuthToken: "",
+    twilioFrom: "",
     fast2smsApiKey: "",
-    fast2smsSenderId: "EDUSPH",
+    fast2smsSenderId: "",
     gupshupApiKey: "",
-    gupshupAppName: "EdusphereERP",
-    whatsappToken: "EAAG_meta_prod_cloud_token_placeholder",
-    whatsappPhoneId: "109823485729103",
-    whatsappBusinessId: "772619485021948",
+    gupshupAppName: "",
+    whatsappToken: "",
+    whatsappPhoneId: "",
+    whatsappBusinessId: "",
     enableAutoAttendanceSms: true,
     enableFeeReceiptWhatsApp: true,
     enableExamReportAlert: true,
   });
-  const [testPhone, setTestPhone] = useState("+91 98765 43210");
+  const [testPhone, setTestPhone] = useState("");
   const [testChannel, setTestChannel] = useState<"SMS" | "WHATSAPP">("SMS");
   const [testMsg, setTestMsg] = useState("Edusphere Test Dispatch: Gateway verification alert.");
   const [sendingTest, setSendingTest] = useState(false);
-  const [savingGateways, setSavingGateways] = useState(false);
   const [lastDispatchResult, setLastDispatchResult] = useState<any>(null);
 
   const isAdmin = ["SUPER_ADMIN", "SCHOOL_ADMIN"].includes(currentUser?.role || "");
@@ -528,31 +526,9 @@ export default function SettingsPage() {
             {/* ── Security ─────────────────────────────────────── */}
             {tab === "security" && (
               <div className="settings-content" style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-                <SettingsCard>
-                  <SectionHeader title="Change Password" subtitle="Keep your account secure with a strong password" />
-                  <div style={{ display: "flex", flexDirection: "column", gap: "1rem", maxWidth: "480px" }}>
-                    <Input label="Current Password" type="password" placeholder="Enter current password" value={pwForm.current} onChange={e => setPwForm(f => ({ ...f, current: e.target.value }))} leftIcon={<Lock size={15} />} />
-                    <Input label="New Password" type="password" placeholder="Minimum 8 characters" value={pwForm.next} onChange={e => setPwForm(f => ({ ...f, next: e.target.value }))} leftIcon={<Key size={15} />} />
-                    <Input label="Confirm New Password" type="password" placeholder="Repeat new password" value={pwForm.confirm} onChange={e => setPwForm(f => ({ ...f, confirm: e.target.value }))} leftIcon={<Key size={15} />} />
-                    <div style={{ paddingTop: "0.5rem" }}>
-                      <Button isLoading={savingPw}>Update Password</Button>
-                    </div>
-                  </div>
-                </SettingsCard>
-
-                <SettingsCard>
-                  <SectionHeader title="Active Sessions" subtitle="Devices currently signed in to your account" />
-                  <div style={{ display: "flex", alignItems: "center", gap: "1rem", padding: "1rem", background: "var(--bg-app)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-default)" }}>
-                    <div style={{ width: "40px", height: "40px", borderRadius: "var(--radius-md)", background: "var(--success-light)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--success)", flexShrink: 0 }}>
-                      <Check size={20} />
-                    </div>
-                    <div>
-                      <p style={{ fontWeight: 600, fontSize: "var(--text-sm)" }}>This device — {typeof window !== "undefined" ? navigator.platform : "Windows"}</p>
-                      <p style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)" }}>Active now · Sunrise School ERP</p>
-                    </div>
-                    <span style={{ marginLeft: "auto", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", background: "var(--success-light)", color: "var(--success)", fontSize: "var(--text-xs)", fontWeight: 700 }}>Current</span>
-                  </div>
-                </SettingsCard>
+                <AccountSecurityPanel />
+                <EnterpriseIdentityPanel />
+                <SecurityOperationsPanel />
               </div>
             )}
 
@@ -958,20 +934,9 @@ export default function SettingsPage() {
                     </div>
                   </div>
 
-                  <div style={{ marginTop: "1.5rem", display: "flex", justifyContent: "flex-end" }}>
-                    <Button
-                      onClick={() => {
-                        setSavingGateways(true);
-                        setTimeout(() => {
-                          setSavingGateways(false);
-                          showMsg("Communication & gateway configuration updated successfully!", "success");
-                        }, 500);
-                      }}
-                      isLoading={savingGateways}
-                    >
-                      <Save size={16} /> Save Gateway Settings
-                    </Button>
-                  </div>
+                  <p style={{ marginTop: "1.5rem", fontSize: "var(--text-sm)", color: "var(--text-secondary)" }}>
+                    Communication credentials and delivery settings are deployment-managed secrets. They cannot be saved from the browser.
+                  </p>
                 </SettingsCard>
 
                 {/* Diagnostic Test Dispatch Console */}

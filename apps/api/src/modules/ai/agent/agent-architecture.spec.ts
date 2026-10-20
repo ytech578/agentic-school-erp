@@ -5,6 +5,7 @@ import { AgentControlPlaneService } from './agent-control-plane.service';
 import { AgentPolicyService } from './agent-policy.service';
 import { AgentToolDispatcher } from './agent-tool-dispatcher';
 import { PrismaService } from '../../../core/database/prisma.service';
+import { AuditService } from '../../../core/audit/audit.service';
 import { AgentActionStatus } from '@prisma/client';
 import { AGENT_ERRORS, ToolHandlerKey } from './agent-types';
 import { TOOL_REGISTRY, validateToolRegistry } from './tool-registry';
@@ -60,6 +61,10 @@ describe('Change #8C — Agent Architecture & Decoupling Enforcement', () => {
         AgentPolicyService,
         { provide: AgentToolDispatcher, useValue: dispatcher },
         { provide: PrismaService, useValue: mockPrisma },
+        {
+          provide: AuditService,
+          useValue: { recordMutation: jest.fn().mockResolvedValue({}) },
+        },
       ],
     }).compile();
 

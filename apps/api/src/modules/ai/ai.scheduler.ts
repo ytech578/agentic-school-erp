@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { RunWithSystemDatabaseContext } from '../../core/database/system-database-context.decorator';
 import { AIService } from './ai.service';
 import { PrismaService } from '../../core/database/prisma.service';
 
@@ -16,6 +17,7 @@ export class AIScheduler {
    * Run proactive monitoring for ALL active schools every day at 7:00 AM IST.
    */
   @Cron('0 7 * * *', { name: 'proactive-monitoring', timeZone: 'Asia/Kolkata' })
+  @RunWithSystemDatabaseContext()
   async handleDailyMonitoring() {
     this.logger.log('Running daily proactive AI monitoring for all schools...');
     try {

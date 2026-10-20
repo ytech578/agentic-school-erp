@@ -9,11 +9,28 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 
+function isAllowedOrigin(origin?: string): boolean {
+  // Native/mobile and internal server connections may not send Origin.
+  if (!origin) return true;
+  const configured = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (configured.includes(origin)) return true;
+  return (
+    process.env.NODE_ENV !== 'production' &&
+    /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+  );
+}
+
 @Injectable()
 @WebSocketGateway({
   cors: {
-    origin: '*',
+    origin: (origin, callback) => callback(null, isAllowedOrigin(origin)),
+    credentials: true,
   },
+  allowRequest: (request, callback) =>
+    callback(null, isAllowedOrigin(request.headers.origin)),
   namespace: '/notifications',
 })
 export class NotificationsGateway
@@ -43,7 +60,9 @@ export class NotificationsGateway
         return;
       }
 
-      const secret = this.configService.get<string>('jwt.accessSecret') || process.env.JWT_ACCESS_SECRET;
+      const secret =
+        this.configService.get<string>('jwt.accessSecret') ||
+        process.env.JWT_ACCESS_SECRET;
       if (!secret) throw new Error('JWT Access Secret is not configured');
       const decoded = this.jwtService.verify(token, { secret });
 

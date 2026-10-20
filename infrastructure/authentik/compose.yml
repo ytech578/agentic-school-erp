@@ -1,0 +1,60 @@
+name: school-erp-identity
+services:
+  identity-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.25
+    environment:
+      POSTGRES_DB: authentik
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: ${AUTHENTIK_PG_PASSWORD:?Generate the isolated identity secrets first}
+    volumes:
+      - identity_database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d authentik -U authentik"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  server:
+    # Version read from Authentik's official compose.yml on 2026-10-19.
+    image: ghcr.io/goauthentik/server:2026.8.4@sha256:e7226ae116dac5aa0a5643803e735b010038f492c401e08e16b3bf1ac54c090c
+    command: server
+    restart: unless-stopped
+    mem_limit: ${AUTHENTIK_SERVER_MEMORY_LIMIT:-1024m}
+    cpus: 1.0
+    depends_on:
+      identity-db: { condition: service_healthy }
+    environment: &identity_environment
+      AUTHENTIK_POSTGRESQL__HOST: identity-db
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_PG_PASSWORD:?Identity DB password required}
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?Identity encryption key required}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: 'false'
+      AUTHENTIK_DISABLE_STARTUP_ANALYTICS: 'true'
+    ports:
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - identity_data:/data
+      - identity_templates:/templates
+  worker:
+    image: ghcr.io/goauthentik/server:2026.8.4@sha256:e7226ae116dac5aa0a5643803e735b010038f492c401e08e16b3bf1ac54c090c
+    command: worker
+    restart: unless-stopped
+    mem_limit: ${AUTHENTIK_WORKER_MEMORY_LIMIT:-768m}
+    cpus: 0.75
+    user: root
+    depends_on:
+      identity-db: { condition: service_healthy }
+    environment: *identity_environment
+    volumes:
+      - identity_data:/data
+      - identity_templates:/templates
+      - identity_certificates:/certs
+    # No Docker socket: the identity service cannot control unrelated ERP containers.
+volumes:
+  identity_database:
+  identity_data:
+  identity_templates:
+  identity_certificates:

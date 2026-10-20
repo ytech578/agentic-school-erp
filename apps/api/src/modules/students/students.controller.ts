@@ -24,6 +24,10 @@ import { RolesGuard } from '../../core/guards/roles.guard';
 import { Roles } from '../../core/decorators/roles.decorator';
 import { CreateStudentSchema, UpdateStudentSchema } from '@school-erp/shared';
 
+interface StudentRequest {
+  user: { id: string; role: string; schoolId: string };
+}
+
 @ApiTags('Students')
 @Controller('students')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -32,7 +36,7 @@ export class StudentsController {
 
   @Post()
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  async createStudent(@Request() req: any, @Body() body: any) {
+  async createStudent(@Request() req: StudentRequest, @Body() body: any) {
     const parsedBody = CreateStudentSchema.parse(body);
     const schoolId = req.user.schoolId;
     return this.studentsService.createStudent(schoolId, parsedBody);
@@ -41,7 +45,7 @@ export class StudentsController {
   @Get()
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
   async getStudents(
-    @Request() req: any,
+    @Request() req: StudentRequest,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('search') search?: string,
@@ -61,33 +65,41 @@ export class StudentsController {
 
   @Get(':id')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL', 'TEACHER')
-  async getStudentById(@Request() req: any, @Param('id') id: string) {
+  async getStudentById(
+    @Request() req: StudentRequest,
+    @Param('id') id: string,
+  ) {
     const schoolId = req.user.schoolId;
     return this.studentsService.getStudentById(schoolId, id, req.user.role);
   }
 
   @Post('calculate-risk')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
-  async calculateRiskScores(@Request() req: any) {
+  async calculateRiskScores(@Request() req: StudentRequest) {
     const schoolId = req.user.schoolId;
     return this.studentsService.calculateRiskScores(schoolId);
   }
   @Put(':id')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   async updateStudent(
-    @Request() req: any,
+    @Request() req: StudentRequest,
     @Param('id') id: string,
     @Body() body: any,
   ) {
     const parsedBody = UpdateStudentSchema.parse(body);
     const schoolId = req.user.schoolId;
-    return this.studentsService.updateStudent(schoolId, id, parsedBody);
+    return this.studentsService.updateStudent(
+      schoolId,
+      id,
+      parsedBody,
+      req.user.id,
+    );
   }
 
   @Post('batch-promote')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   async batchPromote(
-    @Request() req: any,
+    @Request() req: StudentRequest,
     @Body()
     body: {
       fromSectionId: string;
@@ -106,7 +118,7 @@ export class StudentsController {
   @Patch(':id/status')
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   async updateStudentStatus(
-    @Request() req: any,
+    @Request() req: StudentRequest,
     @Param('id') id: string,
     @Body()
     body: {
@@ -116,7 +128,12 @@ export class StudentsController {
     },
   ) {
     const schoolId = req.user.schoolId;
-    return this.studentsService.updateStudentStatus(schoolId, id, body);
+    return this.studentsService.updateStudentStatus(
+      schoolId,
+      id,
+      body,
+      req.user.id,
+    );
   }
 
   @Get(':id/aadhaar')
@@ -125,7 +142,10 @@ export class StudentsController {
     summary:
       'Audited retrieval of unmasked student and guardian Aadhaar numbers',
   })
-  async getDecryptedAadhaar(@Request() req: any, @Param('id') id: string) {
+  async getDecryptedAadhaar(
+    @Request() req: StudentRequest,
+    @Param('id') id: string,
+  ) {
     const schoolId = req.user.schoolId;
     return this.studentsService.getDecryptedAadhaar(schoolId, id);
   }
@@ -164,7 +184,7 @@ export class StudentsController {
     },
   })
   async uploadDocument(
-    @Request() req: any,
+    @Request() req: StudentRequest,
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
     @Body('documentType') documentType: DocumentType,
@@ -177,6 +197,7 @@ export class StudentsController {
       file,
       documentType,
       uploadedById,
+      req.user,
     );
   }
 
@@ -190,9 +211,9 @@ export class StudentsController {
     'STUDENT',
   )
   @ApiOperation({ summary: 'List all documents for a student' })
-  async getDocuments(@Request() req: any, @Param('id') id: string) {
+  async getDocuments(@Request() req: StudentRequest, @Param('id') id: string) {
     const schoolId = req.user.schoolId;
-    return this.studentsService.getStudentDocuments(schoolId, id);
+    return this.studentsService.getStudentDocuments(schoolId, id, req.user);
   }
 
   @Get(':id/documents/:docId/download')
@@ -208,7 +229,7 @@ export class StudentsController {
     summary: 'Securely download an authenticated student document',
   })
   async downloadDocument(
-    @Request() req: any,
+    @Request() req: StudentRequest,
     @Param('id') id: string,
     @Param('docId') docId: string,
     @Res() res: Response,
@@ -241,7 +262,7 @@ export class StudentsController {
   @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Delete a student document' })
   async deleteDocument(
-    @Request() req: any,
+    @Request() req: StudentRequest,
     @Param('id') id: string,
     @Param('docId') docId: string,
   ) {

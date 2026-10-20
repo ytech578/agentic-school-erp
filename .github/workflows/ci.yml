@@ -33,10 +33,13 @@ jobs:
         run: npm run build --workspace=packages/shared
 
       - name: Lint API
-        run: npm run lint --workspace=apps/api || true
+        run: npm run lint --workspace=apps/api
 
       - name: Lint Web
-        run: npm run lint --workspace=apps/web || true
+        run: npm run lint --workspace=apps/web
+
+      - name: Typecheck all workspaces
+        run: npm run typecheck
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Job 2: Unit Tests with Code Coverage
@@ -73,9 +76,10 @@ jobs:
 
     env:
       DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/erp_test?schema=public"
-      JWT_SECRET: "ci-pipeline-test-jwt-secret-minimum-32-chars-long"
-      JWT_REFRESH_SECRET: "ci-pipeline-test-refresh-jwt-secret-minimum-32-chars"
+      JWT_ACCESS_SECRET: "K7mQ2vL9xR4nB8dF1pC6wH3jS5tY0aE9uI2oP7rT4"
+      JWT_REFRESH_SECRET: "Z3kN8bV1qD6mF9hJ2cL7wR4sT0xA5eG8iO1pU6yW3"
       REDIS_URL: "redis://localhost:6379"
+      CORS_ORIGIN: "http://localhost:3000"
       NODE_ENV: "test"
 
     steps:
@@ -94,12 +98,22 @@ jobs:
         run: npx prisma generate
         working-directory: apps/api
 
-      - name: Push Prisma Schema to Test Database
-        run: npx prisma db push --skip-generate
+      - name: Apply Prisma migrations to test database
+        run: npx prisma migrate deploy
         working-directory: apps/api
+
+      - name: Verify Prisma migration status
+        run: npx prisma migrate status
+        working-directory: apps/api
+
+      - name: Verify clean restore, schema drift, and PostgreSQL RLS
+        run: node scripts/db/verify-migrations.js
 
       - name: Build Shared Package
         run: npm run build --workspace=packages/shared
+
+      - name: Run operational and identity-protocol regression tests
+        run: npm run test:ops
 
       - name: Run API Tests with Coverage
         working-directory: apps/api
@@ -119,7 +133,11 @@ jobs:
 
       - name: Run Web Tests
         working-directory: apps/web
-        run: npx jest --passWithNoTests --forceExit || true
+        run: npx jest --passWithNoTests --forceExit
+
+      - name: Run API E2E smoke tests
+        working-directory: apps/api
+        run: npx jest --config ./test/jest-e2e.json --runInBand --forceExit
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Job 3: Build Applications + Docker Images
@@ -198,5 +216,5 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Audit for critical vulnerabilities
-        run: npm audit --audit-level=critical || true
+      - name: Audit for high and critical vulnerabilities
+        run: npm audit --omit=dev --audit-level=high

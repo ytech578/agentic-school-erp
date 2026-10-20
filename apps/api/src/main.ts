@@ -6,11 +6,11 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import compression from 'compression';
-import { json, urlencoded } from 'express';
+import { urlencoded } from 'express';
 import { AppModule } from './app.module';
-import { GlobalExceptionFilter } from './core/filters/global-exception.filter';
 import { TransformInterceptor } from './core/interceptors/transform.interceptor';
 import { ZodValidationPipe } from './core/pipes/zod-validation.pipe';
+import { apiJsonParser } from './core/http/api-json-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -21,7 +21,9 @@ async function bootstrap() {
 
   const port = process.env.PORT || 4000;
   const apiPrefix = process.env.API_PREFIX || 'api';
-  if (!process.env.CORS_ORIGIN && process.env.NODE_ENV === 'production') { throw new Error('CORS_ORIGIN is required in production'); }
+  if (!process.env.CORS_ORIGIN && process.env.NODE_ENV === 'production') {
+    throw new Error('CORS_ORIGIN is required in production');
+  }
   const rawCorsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000';
   const corsOrigin = rawCorsOrigin.includes(',')
     ? rawCorsOrigin.split(',').map((o) => o.trim())
@@ -52,14 +54,7 @@ async function bootstrap() {
   app.use(cookieParser());
 
   // ─── Body Parsers (Support base64 QR codes & file uploads) ───────────────
-  app.use(
-    json({
-      limit: '25mb',
-      verify: (req: any, _res, buf) => {
-        req.rawBody = buf;
-      },
-    }),
-  );
+  app.use(apiJsonParser());
   app.use(urlencoded({ limit: '25mb', extended: true }));
 
   // ─── CORS ─────────────────────────────────────────────────────────────────
@@ -124,7 +119,6 @@ async function bootstrap() {
       stopAtFirstError: false,
     }),
   );
-  app.useGlobalFilters(new GlobalExceptionFilter());
   app.useGlobalInterceptors(new TransformInterceptor());
   // Note: ZodValidationPipe is applied per-route where Zod schemas are used
   // class-validator DTOs use the built-in ValidationPipe from NestJS
@@ -184,6 +178,8 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err: unknown) => {
+  const details = err instanceof Error ? err.stack || err.message : String(err);
+  process.stderr.write(`Fatal bootstrap failure: ${details}\n`);
   new Logger('Bootstrap').error('Fatal bootstrap failure', err);
   process.exit(1);
 });

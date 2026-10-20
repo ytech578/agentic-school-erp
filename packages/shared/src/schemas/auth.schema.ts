@@ -7,7 +7,21 @@ import { z } from 'zod';
 export const LoginSchema = z.object({
   email: z.string().email('Invalid email address'),
   password: z.string().min(1, 'Password is required'),
+  otp: z.string().trim().min(6).max(32).optional(),
   rememberMe: z.boolean().optional().default(false),
+});
+
+export const MfaSetupSchema = z.object({
+  password: z.string().min(1, 'Current password is required'),
+});
+
+export const MfaVerifySchema = z.object({
+  token: z.string().trim().min(6).max(32),
+});
+
+export const MfaDisableSchema = z.object({
+  password: z.string().min(1, 'Current password is required'),
+  token: z.string().trim().min(6).max(32),
 });
 
 export const RegisterSchema = z.object({
@@ -61,6 +75,9 @@ export const ChangePasswordSchema = z
   });
 
 export type LoginInput = z.infer<typeof LoginSchema>;
+export type MfaSetupInput = z.infer<typeof MfaSetupSchema>;
+export type MfaVerifyInput = z.infer<typeof MfaVerifySchema>;
+export type MfaDisableInput = z.infer<typeof MfaDisableSchema>;
 export type RegisterInput = z.infer<typeof RegisterSchema>;
 export type ForgotPasswordInput = z.infer<typeof ForgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>;

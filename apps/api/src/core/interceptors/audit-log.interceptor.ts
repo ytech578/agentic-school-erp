@@ -6,9 +6,9 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
-import { tap } from 'rxjs/operators';
-import { AuditAction, Prisma } from '@prisma/client';
-import { PrismaService } from '../database/prisma.service';
+import { concatMap } from 'rxjs/operators';
+import { AuditAction } from '@prisma/client';
+import { AuditService } from '../audit/audit.service';
 
 const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const EXCLUDED_PATHS = [
@@ -40,7 +40,7 @@ interface RequestLike {
 export class AuditLogInterceptor implements NestInterceptor {
   private readonly logger = new Logger(AuditLogInterceptor.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly audit: AuditService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const http = context.switchToHttp();
@@ -55,91 +55,77 @@ export class AuditLogInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    // Capture incoming payload as the "before" state (intent of mutation)
-    const beforeState =
-      request.body && Object.keys(request.body).length > 0
-        ? this.sanitizeData(
-            JSON.parse(JSON.stringify(request.body)) as Record<string, unknown>,
-          )
-        : null;
-
     return next.handle().pipe(
-      tap({
-        next: (responseBody: unknown) => {
-          void (async () => {
-            try {
-              const user = request.user;
-              if (!user || !user.id) return;
+      concatMap(async (responseBody: unknown) => {
+        try {
+          const user = request.user;
+          if (!user || !user.id) return responseBody;
 
-              let action: AuditAction = AuditAction.UPDATE;
-              if (request.method === 'POST') action = AuditAction.CREATE;
-              if (request.method === 'DELETE') action = AuditAction.DELETE;
+          let action: AuditAction = AuditAction.UPDATE;
+          if (request.method === 'POST') action = AuditAction.CREATE;
+          if (request.method === 'DELETE') action = AuditAction.DELETE;
 
-              const controllerName =
-                context.getClass()?.name?.replace(/Controller$/, '') ||
-                'System';
+          const controllerName =
+            context.getClass()?.name?.replace(/Controller$/, '') || 'System';
 
-              let resourceId: string | null = null;
-              if (typeof request.params?.id === 'string') {
-                resourceId = request.params.id;
-              } else if (
-                typeof request.body?.id === 'string' ||
-                typeof request.body?.id === 'number'
-              ) {
-                resourceId = String(request.body.id);
-              }
+          let resourceId: string | null = null;
+          if (typeof request.params?.id === 'string') {
+            resourceId = request.params.id;
+          } else if (
+            typeof request.body?.id === 'string' ||
+            typeof request.body?.id === 'number'
+          ) {
+            resourceId = String(request.body.id);
+          }
 
-              const schoolId =
-                typeof user.schoolId === 'string'
-                  ? user.schoolId
-                  : typeof request.headers?.['x-school-id'] === 'string'
-                    ? request.headers['x-school-id']
-                    : null;
+          const schoolId =
+            typeof user.schoolId === 'string'
+              ? user.schoolId
+              : typeof request.headers?.['x-school-id'] === 'string'
+                ? request.headers['x-school-id']
+                : null;
 
-              // Sanitize payload: strip passwords, secrets, tokens
-              const rawData =
-                responseBody &&
-                typeof responseBody === 'object' &&
-                'data' in responseBody
-                  ? (responseBody as Record<string, unknown>).data
-                  : responseBody;
-              const sanitizedAfter = this.sanitizeData(rawData);
+          // Sanitize payload: strip passwords, secrets, tokens
+          const rawData =
+            responseBody &&
+            typeof responseBody === 'object' &&
+            'data' in responseBody
+              ? (responseBody as Record<string, unknown>).data
+              : responseBody;
+          const sanitizedAfter = this.sanitizeData(rawData);
 
-              await this.prisma.activityLog.create({
-                data: {
-                  schoolId,
-                  userId: user.id,
-                  action,
-                  module: controllerName.toUpperCase(),
-                  resourceId,
-                  resourceType: controllerName,
-                  description: `${request.method} ${request.route?.path || url} executed by ${user.role || 'USER'}`,
-                  ipAddress: (
-                    request.ip ||
-                    (typeof request.headers?.['x-forwarded-for'] === 'string'
-                      ? request.headers['x-forwarded-for']
-                      : '') ||
-                    ''
-                  ).slice(0, 45),
-                  userAgent: String(
-                    request.headers?.['user-agent'] || '',
-                  ).slice(0, 255),
-                  before: beforeState
-                    ? (beforeState as Prisma.InputJsonValue)
-                    : Prisma.DbNull,
-                  after: sanitizedAfter
-                    ? (sanitizedAfter as unknown as Prisma.InputJsonValue)
-                    : Prisma.DbNull,
-                },
-              });
-            } catch (err: unknown) {
-              const message = err instanceof Error ? err.message : String(err);
-              this.logger.warn(
-                `Failed to record audit activity log: ${message}`,
-              );
-            }
-          })();
-        },
+          await this.audit.recordMutation({
+            schoolId,
+            userId: user.id,
+            action,
+            module: controllerName.toUpperCase(),
+            resourceId,
+            resourceType: controllerName,
+            description: `${request.method} ${request.route?.path || url} executed by ${user.role || 'USER'}`,
+            ipAddress: (
+              request.ip ||
+              (typeof request.headers?.['x-forwarded-for'] === 'string'
+                ? request.headers['x-forwarded-for']
+                : '') ||
+              ''
+            ).slice(0, 45),
+            userAgent: String(request.headers?.['user-agent'] || '').slice(
+              0,
+              255,
+            ),
+            // An HTTP request body is an actor's intended change, not a
+            // persisted pre-mutation snapshot. Do not record it as
+            // `before`, because that creates a misleading audit trail.
+            // Services that need immutable before/after values must take
+            // their snapshot within the transaction that mutates the row.
+            before: null,
+            after: sanitizedAfter,
+          });
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          this.logger.warn(`Failed to record audit activity log: ${message}`);
+        }
+        return responseBody;
       }),
     );
   }
@@ -153,6 +139,12 @@ export class AuditLogInterceptor implements NestInterceptor {
       'refreshToken',
       'secret',
       'twoFactorSecret',
+      'otpauthUri',
+      'qrCodeDataUrl',
+      'recoveryCodes',
+      'accessToken',
+      'clientSecret',
+      'samlCertificate',
     ]);
     if (Array.isArray(data)) {
       return {
@@ -164,7 +156,11 @@ export class AuditLogInterceptor implements NestInterceptor {
     for (const [key, value] of Object.entries(
       data as Record<string, unknown>,
     )) {
-      if (sensitiveKeys.has(key)) continue;
+      if (
+        sensitiveKeys.has(key) ||
+        /(?:password|secret|token|recoverycodes)$/i.test(key)
+      )
+        continue;
       if (value !== null && typeof value === 'object') {
         sanitized[key] = '[Object]';
       } else {

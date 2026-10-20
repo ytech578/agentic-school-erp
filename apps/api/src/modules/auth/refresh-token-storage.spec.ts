@@ -16,6 +16,7 @@ describe('Secure Refresh-Token Storage & Flow (Change #3)', () => {
   let mockUsersService: any;
   let mockJwtService: any;
   let mockEmailService: any;
+  let mockAudit: any;
 
   const mockUser = {
     id: 'user_123',
@@ -29,6 +30,7 @@ describe('Secure Refresh-Token Storage & Flow (Change #3)', () => {
     mockPrisma = {
       userSession: {
         create: jest.fn(),
+        findFirst: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
         updateMany: jest.fn(),
@@ -36,6 +38,9 @@ describe('Secure Refresh-Token Storage & Flow (Change #3)', () => {
       activityLog: {
         create: jest.fn(),
       },
+      $transaction: jest.fn((callback: (tx: any) => unknown) =>
+        callback(mockPrisma),
+      ),
     };
 
     mockConfig = {
@@ -58,6 +63,7 @@ describe('Secure Refresh-Token Storage & Flow (Change #3)', () => {
       signAsync: jest.fn().mockResolvedValue('mock.access.token'),
     };
     mockEmailService = {};
+    mockAudit = { recordMutation: jest.fn() };
 
     authService = new AuthService(
       mockPrisma,
@@ -65,6 +71,7 @@ describe('Secure Refresh-Token Storage & Flow (Change #3)', () => {
       mockJwtService,
       mockConfig,
       mockEmailService,
+      mockAudit,
     );
 
     jwtRefreshStrategy = new JwtRefreshStrategy(mockConfig, mockPrisma);
@@ -261,18 +268,27 @@ describe('Secure Refresh-Token Storage & Flow (Change #3)', () => {
       const rawLogoutToken = 'raw-client-token-to-logout-555';
       const expectedHash = hashRefreshToken(rawLogoutToken);
 
-      mockPrisma.userSession.updateMany.mockResolvedValue({ count: 1 });
-      mockPrisma.activityLog.create.mockResolvedValue({});
+      mockPrisma.userSession.findFirst.mockResolvedValue({
+        id: 'session-to-revoke',
+        userId: mockUser.id,
+        refreshToken: expectedHash,
+        status: 'ACTIVE',
+        user: { schoolId: mockUser.schoolId },
+      });
+      mockPrisma.userSession.update.mockResolvedValue({
+        id: 'session-to-revoke',
+        status: 'REVOKED',
+      });
 
       await authService.logout(rawLogoutToken, mockUser.id);
 
-      expect(mockPrisma.userSession.updateMany).toHaveBeenCalledWith({
+      expect(mockPrisma.userSession.findFirst).toHaveBeenCalledWith({
         where: { refreshToken: expectedHash, userId: mockUser.id },
-        data: { status: 'REVOKED' },
+        include: { user: { select: { schoolId: true } } },
       });
 
       // Invariant: raw token was never passed into database update query
-      expect(mockPrisma.userSession.updateMany).not.toHaveBeenCalledWith(
+      expect(mockPrisma.userSession.findFirst).not.toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             refreshToken: rawLogoutToken,

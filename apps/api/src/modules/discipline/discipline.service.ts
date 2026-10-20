@@ -14,6 +14,7 @@ import {
   UpdateDisciplineIncidentDto,
 } from './dto/discipline.dto';
 import { Cron } from '@nestjs/schedule';
+import { RunWithSystemDatabaseContext } from '../../core/database/system-database-context.decorator';
 
 @Injectable()
 export class DisciplineService {
@@ -518,6 +519,7 @@ export class DisciplineService {
   // ─── 7. SCHEDULED CRON: UNRESOLVED INCIDENT ESCALATION ───────────────────
 
   @Cron('0 */2 * * *')
+  @RunWithSystemDatabaseContext()
   async escalateUnresolvedMajorIncidents() {
     try {
       const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);

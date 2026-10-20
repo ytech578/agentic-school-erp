@@ -16,10 +16,12 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { SmsWhatsAppService } from './sms-whatsapp.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../core/guards/roles.guard';
+import { Roles } from '../../core/decorators/roles.decorator';
 
 @ApiTags('Notifications')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('notifications')
 export class NotificationsController {
   constructor(
@@ -73,6 +75,7 @@ export class NotificationsController {
   }
 
   @Post('test-gateway')
+  @Roles('SUPER_ADMIN', 'SCHOOL_ADMIN', 'PRINCIPAL')
   @ApiOperation({ summary: 'Send test SMS or WhatsApp dispatch' })
   async testGateway(
     @Body()

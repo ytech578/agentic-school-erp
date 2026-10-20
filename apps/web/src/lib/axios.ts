@@ -57,14 +57,44 @@ function onRefreshFailed() {
   refreshSubscribers = [];
 }
 
+// Authentication entry points intentionally use 401 responses as part of their
+// normal protocol (invalid credentials, MFA challenges, expired reset tokens).
+// Retrying those responses through the session-refresh flow hides the original
+// error and, in the MFA case, prevents the login page from showing the OTP step.
+const AUTH_ENTRY_ENDPOINTS = [
+  '/auth/login',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+  '/sso/exchange',
+] as const;
+
+export function shouldAttemptSessionRefresh(
+  status: number | undefined,
+  url: string | undefined,
+  alreadyRetried: boolean | undefined,
+  isAuthenticated: boolean,
+): boolean {
+  if (status !== 401 || alreadyRetried || !isAuthenticated) return false;
+
+  const requestUrl = url || '';
+  return !AUTH_ENTRY_ENDPOINTS.some((endpoint) => requestUrl.includes(endpoint));
+}
+
 // Response interceptor: Handle 401s and token refresh with mutex
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
     
-    // Handle 401 Unauthorized with single-flight mutex
-    if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/refresh')) {
+    // Refresh only an established session. Login and other authentication-entry
+    // 401s must reach their caller unchanged (especially MFA_REQUIRED).
+    const authState = useAuthStore.getState();
+    if (shouldAttemptSessionRefresh(
+      error.response?.status,
+      originalRequest?.url,
+      originalRequest?._retry,
+      authState.isAuthenticated,
+    )) {
       if (isRefreshing) {
         // Queue concurrent requests behind the active refresh promise
         return new Promise((resolve, reject) => {
@@ -87,18 +117,13 @@ apiClient.interceptors.response.use(
         const state = useAuthStore.getState();
         const currentRefreshToken = state.refreshToken;
 
-        // If no refresh token exists in state or cookies, session cannot be refreshed
-        if (!currentRefreshToken) {
-          onRefreshFailed();
-          state.logout();
-          return Promise.reject(error);
-        }
-
         const response = await axios.post(
           `${API_URL}/auth/refresh`,
-          { refreshToken: currentRefreshToken },
+          currentRefreshToken ? { refreshToken: currentRefreshToken } : {},
           {
-            headers: { 'x-refresh-token': currentRefreshToken },
+            headers: currentRefreshToken
+              ? { 'x-refresh-token': currentRefreshToken }
+              : undefined,
             withCredentials: true,
             timeout: 15000,
           }

@@ -228,30 +228,12 @@ export default function ParentFeesPage() {
       }
     }
 
-    // Direct UPI / Bank QR / NEFT Bank Transfer reconciliation
-    try {
-      const res = await apiClient.post("/fees/parent/pay", {
-        studentId: paymentModal.student.studentId,
-        amount: paymentModal.amount,
-        paymentMode:
-          paymentModal.method === "BANK_TRANSFER"
-            ? "NEFT"
-            : paymentModal.method === "BANK_QR"
-            ? "ONLINE_UPI"
-            : "ONLINE_UPI",
-        transactionRef: parentUtr.trim() || undefined,
-      });
-
-      const receiptNumber =
-        res.data?.data?.receiptNumber || res.data?.receiptNumber || "RCT-ONLINE-OK";
-      setSuccessReceipt(receiptNumber);
-      fetchReceiptDetails(receiptNumber);
-      fetchDues();
-    } catch (err: any) {
-      setPaymentError(err.response?.data?.message || "Payment submission failed. Please try again.");
-    } finally {
-      setIsProcessing(false);
-    }
+    // A browser-supplied UTR is not proof of settlement. Receipts are issued
+    // only after gateway/webhook verification or staff reconciliation.
+    setPaymentError(
+      "For bank transfer or static QR payments, please submit the UTR to the school accounts office for reconciliation. A receipt will be issued after verification.",
+    );
+    setIsProcessing(false);
   };
 
   const copyToClipboard = (text: string, fieldId: string) => {

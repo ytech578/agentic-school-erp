@@ -1,5 +1,5 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
-import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -7,6 +7,8 @@ import { UserThrottlerGuard } from './core/guards/user-throttler.guard';
 import { LoggerModule } from 'nestjs-pino';
 import { PrometheusModule } from '@willsoto/nestjs-prometheus';
 import { AuditLogInterceptor } from './core/interceptors/audit-log.interceptor';
+import { GlobalExceptionFilter } from './core/filters/global-exception.filter';
+import { TenantDatabaseInterceptor } from './core/interceptors/tenant-database.interceptor';
 import { TenantMiddleware } from './core/middleware/tenant.middleware';
 import { PrismaModule } from './core/database/prisma.module';
 import { RedisModule } from './core/cache/redis.module';
@@ -42,6 +44,7 @@ import { PtmModule } from './modules/ptm/ptm.module';
 import { DisciplineModule } from './modules/discipline/discipline.module';
 import { DpdpModule } from './modules/dpdp/dpdp.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { EnterpriseIdentityModule } from './modules/enterprise-identity/enterprise-identity.module';
 
 import { AlumniModule } from './modules/alumni/alumni.module';
 import appConfig from './config/app.config';
@@ -49,12 +52,14 @@ import databaseConfig from './config/database.config';
 import jwtConfig from './config/jwt.config';
 import redisConfig from './config/redis.config';
 import aiConfig from './config/ai.config';
+import { privateLogPaths, safeRequestLog } from './core/security/log-privacy';
 
 @Module({
   imports: [
     // ─── Config ────────────────────────────────────────────────────────
     ConfigModule.forRoot({
       isGlobal: true,
+      ignoreEnvFile: process.env.APP_RUNTIME_ENV_ONLY === 'true',
       envFilePath: ['.env'],
       load: [appConfig, databaseConfig, jwtConfig, redisConfig, aiConfig],
     }),
@@ -65,6 +70,8 @@ import aiConfig from './config/ai.config';
     // ─── Observability & Metrics ───────────────────────────────────────
     LoggerModule.forRoot({
       pinoHttp: {
+        serializers: { req: safeRequestLog },
+        redact: { paths: privateLogPaths, censor: '[REDACTED]' },
         level: process.env.NODE_ENV !== 'production' ? 'debug' : 'info',
         transport:
           process.env.NODE_ENV !== 'production'
@@ -103,6 +110,7 @@ import aiConfig from './config/ai.config';
 
     // ─── Feature Modules ───────────────────────────────────────────────
     AuthModule,
+    EnterpriseIdentityModule,
     UsersModule,
     SchoolsModule,
     StudentsModule,
@@ -132,8 +140,16 @@ import aiConfig from './config/ai.config';
   ],
   providers: [
     {
+      provide: APP_FILTER,
+      useClass: GlobalExceptionFilter,
+    },
+    {
       provide: APP_GUARD,
       useClass: UserThrottlerGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TenantDatabaseInterceptor,
     },
     {
       provide: APP_INTERCEPTOR,

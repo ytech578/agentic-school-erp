@@ -1,4 +1,7 @@
-version: '3.9'
+# Keep the development stack stable when the repository directory is renamed
+# or moved. Without an explicit project name, Compose derives ownership from
+# the folder name and can orphan otherwise healthy database containers.
+name: aischoolerpv10
 
 services:
   postgres:
@@ -19,6 +22,21 @@ services:
       timeout: 5s
       retries: 5
 
+  clamav:
+    image: clamav/clamav:1.4.3
+    container_name: school_erp_clamav
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3310:3310"
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping=1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+
   redis:
     image: redis:7-alpine
     container_name: school_erp_redis
@@ -35,6 +53,8 @@ services:
       retries: 5
 
 volumes:
+  clamav_data:
+    driver: local
   postgres_data:
     driver: local
   redis_data:
