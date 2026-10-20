@@ -16,6 +16,8 @@
     "test:ops": "node --test scripts/db/*.test.js scripts/dr/*.test.js scripts/ops/*.test.js",
     "test:cov": "npm run test:cov --workspace=apps/api",
     "lint": "npm run lint --workspaces --if-present",
+    "lint:prune": "npm run lint --workspaces --if-present -- --prune-suppressions",
+    "ci:verify": "npm run build --workspace=packages/shared && npm run lint && npm run typecheck && npm run test:ops && npm run test:cov --workspace=apps/api -- --runInBand --forceExit && npm run test --workspace=apps/web -- --runInBand --forceExit",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "db:migrate": "npm run db:migrate --workspace=apps/api",
     "db:seed": "npm run db:seed --workspace=apps/api",
