@@ -74,7 +74,14 @@ export class IdentityProviderService {
       where: { id: providerId, schoolId },
     });
     if (!before) throw new NotFoundException('Identity provider not found');
-    const dto = IdentityProviderSchema.parse({ ...before, ...patch });
+    // Prisma represents unused protocol fields as null; the request schema
+    // represents absent fields as undefined. Normalize only persisted nulls,
+    // before merging the already validated patch. Explicit null input must
+    // still be rejected, and the selected protocol's required fields validated.
+    const storedInput = Object.fromEntries(
+      Object.entries(before).filter(([, value]) => value !== null),
+    );
+    const dto = IdentityProviderSchema.parse({ ...storedInput, ...patch });
     return this.prisma.$transaction(async (tx) => {
       const after = await tx.identityProvider.update({
         where: { id: providerId },

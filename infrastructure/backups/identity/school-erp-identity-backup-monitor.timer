@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly identity backup missing/stale/failure monitor
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=30s
+Unit=school-erp-identity-backup-monitor.service
+
+[Install]
+WantedBy=timers.target

@@ -163,7 +163,7 @@ async function main() {
     }
   }
 }
-module.exports = { encryptArchive, decryptArchive };
+module.exports = { encryptArchive, decryptArchive, databaseChecksums };
 if (require.main === module) main().catch((error) => {
   console.error(JSON.stringify({ error: 'Backup or restore verification failed; secrets were not logged', operation: error.operation || currentOperation, code: /^[A-Z0-9_]+$/.test(error.code || '') ? error.code : 'UNSPECIFIED', diagnostic: error.diagnostic }));
   process.exitCode = 1;

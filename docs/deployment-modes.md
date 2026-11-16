@@ -1,5 +1,13 @@
 # School-controlled and cloud-hosted ERP deployments
 
+**Staging update, 2026-11-07:** a cloud staging installation now runs on GCP with
+the dedicated Neon database and configured private R2 storage. ERP password/MFA
+login and dashboard reload passed; the laptop identity test stack remains
+stopped. This supersedes the historical development-only status below, not the
+separate school residency, production identity and recovery requirements. See
+[`neon-staging-cutover.md`](neon-staging-cutover.md) for the verified execution
+boundary. No school-controlled installation was converted into a cloud school.
+
 Decision confirmed with the project owner on 2026-10-19: Authentik is the
 selected identity provider. Some schools need their own local servers; other
 schools may use hosted storage. These are separate deployment boundaries, not

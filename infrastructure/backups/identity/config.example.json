@@ -1,0 +1,10 @@
+{
+  "project": "school-erp-staging",
+  "stateDirectory": "/var/lib/school-erp-identity-backup",
+  "keyFile": "/home/ytech578/school-erp-secrets/identity-staging-recovery-20261111.key",
+  "storageEnvFile": "/home/ytech578/school-erp-secrets/storage.env",
+  "alertEnvFile": "/etc/school-erp-backup/alerts.env",
+  "dependencyImage": "sha256:c7eac78e4848a072e0535b0490efc3367ab188d760d8fb88afa58e9a96d6d152",
+  "discoveryUrl": "https://auth-staging.agenticschoolos.in/application/o/school-erp-demo001-staging/.well-known/openid-configuration",
+  "issuer": "https://auth-staging.agenticschoolos.in/application/o/school-erp-demo001-staging/"
+}

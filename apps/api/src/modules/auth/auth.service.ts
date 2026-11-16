@@ -27,6 +27,10 @@ import { EmailService } from '../../services/email/email.service';
 import { ROLE_PERMISSIONS, UserRole } from '@school-erp/shared';
 import type { LoginInput, ResetPasswordInput } from '@school-erp/shared';
 import { hashRefreshToken } from './utils/refresh-token.util';
+import {
+  hashMfaRecoveryCode,
+  recoveryCodePeppers,
+} from './utils/recovery-code.util';
 
 @Injectable()
 export class AuthService {
@@ -840,13 +844,15 @@ export class AuthService {
     const secret = decryptSensitiveField(user.twoFactorSecret);
     if (secret && verifyTotp(secret, token)) return true;
 
-    const hashed = this.hashRecoveryCode(token);
+    const candidates = this.recoveryPeppers().map((pepper) =>
+      hashMfaRecoveryCode(token, pepper),
+    );
     const hashes = Array.isArray(user.mfaRecoveryCodes)
       ? user.mfaRecoveryCodes.filter(
           (item): item is string => typeof item === 'string',
         )
       : [];
-    if (!hashes.includes(hashed)) {
+    if (!hashes.some((hash) => candidates.includes(hash))) {
       throw new UnauthorizedException('Invalid MFA or recovery code');
     }
     const consumed = await this.prisma.user.updateMany({
@@ -858,7 +864,11 @@ export class AuthService {
           equals: user.mfaRecoveryCodes as Prisma.InputJsonValue,
         },
       },
-      data: { mfaRecoveryCodes: hashes.filter((item) => item !== hashed) },
+      // Remove all representations of the supplied code, including an old
+      // pepper's hash, while preserving the compare-and-swap replay guard.
+      data: {
+        mfaRecoveryCodes: hashes.filter((item) => !candidates.includes(item)),
+      },
     });
     if (consumed.count !== 1) {
       throw new UnauthorizedException('Recovery code was already used');
@@ -867,15 +877,16 @@ export class AuthService {
   }
 
   private hashRecoveryCode(code: string): string {
-    let pepper = this.config.get<string>('MFA_RECOVERY_CODE_PEPPER');
-    if (!pepper && this.config.get<string>('app.nodeEnv') === 'production') {
-      throw new Error('MFA_RECOVERY_CODE_PEPPER is required in production');
-    }
-    pepper ||= this.config.getOrThrow<string>('jwt.refreshSecret');
-    return crypto
-      .createHmac('sha256', pepper)
-      .update(code.trim().toUpperCase())
-      .digest('hex');
+    return hashMfaRecoveryCode(code, this.recoveryPeppers()[0]);
+  }
+
+  private recoveryPeppers(): string[] {
+    return recoveryCodePeppers({
+      current: this.config.get<string>('MFA_RECOVERY_CODE_PEPPER'),
+      previous: this.config.get<string>('MFA_RECOVERY_CODE_PEPPER_PREV'),
+      developmentFallback: this.config.get<string>('jwt.refreshSecret'),
+      production: this.config.get<string>('app.nodeEnv') === 'production',
+    });
   }
 
   private async incrementFailedAttempts(userId: string) {

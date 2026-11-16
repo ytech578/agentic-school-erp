@@ -6,6 +6,14 @@ that date. PostgreSQL and volumes are separate from ERP/Neon; the worker has no
 Docker daemon socket. Only loopback ports are bound. Generated secrets are in
 the ignored `.env.authentik` file, never in source or chat.
 
+**Staging update, 2026-11-07:** the GCP staging server, worker and identity
+database are running privately in the shared staging layout. The ERP password/MFA
+login and dashboard reload passed browser acceptance. Authentik's administrator
+password and identity MFA are not initialized, and its public hostname remains
+disabled. This is not accepted school SSO. See
+[`docs/neon-staging-cutover.md`](../../docs/neon-staging-cutover.md) for the current
+deployment record; the local-test and initial hosting notes below are historical.
+
 Local testing approved by the owner; no cloud server exists yet. The isolated
 Authentik server, worker, database, HTTPS proxy and test cache were verified running
 on 2026-10-19. The owner stopped this test stack on 2026-10-20 to free laptop RAM;

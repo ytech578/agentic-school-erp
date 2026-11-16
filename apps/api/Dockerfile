@@ -1,5 +1,5 @@
 # ── Stage 1: Dependencies ────────────────────────────────────────────────────
-FROM node:20-alpine AS deps
+FROM node:26-alpine AS deps
 
 WORKDIR /app
 
@@ -29,7 +29,7 @@ RUN npx prisma generate
 RUN npm run build
 
 # ── Stage 3: Production Runner ───────────────────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:26-alpine AS runner
 
 WORKDIR /app
 

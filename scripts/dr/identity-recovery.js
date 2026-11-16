@@ -110,6 +110,30 @@ function validateBundle(bundle) {
   bundle.volumes.forEach((v) => tarInventory(decode(v.archive)));
   return bundle;
 }
+function backupManifest(bundle, encrypted, archiveName) {
+  validateBundle(bundle);
+  if (!/^identity-\d+-[a-f0-9]{8}\.enc$/.test(archiveName)) throw new Error('Invalid identity archive name');
+  return {
+    format: 'school-erp-identity-backup', version: 1,
+    createdAt: bundle.createdAt, sourceProject: bundle.project,
+    archive: { file: archiveName, bytes: encrypted.length, sha256: sha(encrypted) },
+    databaseImage: bundle.databaseImage, identityImage: bundle.identityImage,
+    volumeTargets: bundle.volumes.map((volume) => volume.target).sort(),
+    independentCopyVerified: false,
+  };
+}
+function verifyManifest(manifest, bundle, encrypted, archiveName) {
+  const expected = backupManifest(bundle, encrypted, archiveName);
+  // A sidecar is a transport/inventory checksum, not authority for declaring
+  // independent key custody, remote recovery or production acceptance.
+  for (const field of ['format', 'version', 'createdAt', 'sourceProject', 'databaseImage', 'identityImage']) {
+    if (manifest?.[field] !== expected[field]) throw new Error('Identity manifest metadata mismatch');
+  }
+  if (!manifest.archive || ['file', 'bytes', 'sha256'].some((field) => manifest.archive[field] !== expected.archive[field]) ||
+      JSON.stringify(manifest.volumeTargets) !== JSON.stringify(expected.volumeTargets)) {
+    throw new Error('Identity manifest archive or inventory mismatch');
+  }
+}
 async function ready(container, user, database) {
   for (let attempt = 0; attempt < 45; attempt++) {
     try {
@@ -124,7 +148,7 @@ async function ready(container, user, database) {
   }
   throw new Error('Recovery database did not become ready');
 }
-function sourceContainers(project) {
+function sourceContainers(project, { requireStopped = true } = {}) {
   if (!/^[a-z0-9][a-z0-9_-]{1,62}$/.test(project)) throw new Error('Invalid Compose project');
   const ids = docker(['ps', '-aq', '--filter', `label=com.docker.compose.project=${project}`])
     .toString().trim().split(/\s+/).filter(Boolean);
@@ -135,7 +159,7 @@ function sourceContainers(project) {
     return matches[0];
   };
   const server = pick('server'), worker = pick('worker'), db = pick('identity-db');
-  if (server.State.Running || worker.State.Running) throw new Error('Stop the identity server and worker before a consistent offline backup');
+  if (requireStopped && (server.State.Running || worker.State.Running)) throw new Error('Stop the identity server and worker before a consistent offline backup');
   return { server, worker, db };
 }
 function archiveVolume(image, volume) {
@@ -143,7 +167,7 @@ function archiveVolume(image, volume) {
     '--read-only', '--security-opt=no-new-privileges', '--mount', `type=volume,src=${volume},dst=/source,readonly`,
     '--entrypoint', 'tar', image, '-C', '/source', '-cf', '-', '.']);
 }
-async function backup(key, project) {
+async function backup(key, project, outputDirectory = directory) {
   const { server, worker, db } = sourceContainers(project);
   const dbEnv = variables(db), serverEnv = variables(server), workerEnv = variables(worker);
   if (server.Image !== worker.Image || serverEnv.AUTHENTIK_SECRET_KEY !== workerEnv.AUTHENTIK_SECRET_KEY) throw new Error('Identity server/worker configuration mismatch');
@@ -178,16 +202,20 @@ async function backup(key, project) {
     if (plain.length > limit) throw new Error('Backup exceeds 128 MiB local-tool limit; use a streaming production backup service');
     const encrypted = encryptArchive(plain, key);
     if (!decryptArchive(encrypted, key).equals(plain)) throw new Error('Backup encryption verification failed');
-    const destination = path.join(directory, `identity-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.enc`);
+    fs.mkdirSync(outputDirectory, { recursive: true, mode: 0o700 });
+    const destination = path.join(outputDirectory, `identity-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.enc`);
     fs.writeFileSync(destination, encrypted, { flag: 'wx', mode: 0o600 });
+    const manifestPath = destination + '.json';
+    fs.writeFileSync(manifestPath, JSON.stringify(backupManifest(bundle, encrypted, path.basename(destination)), null, 2) + '\n',
+      { flag: 'wx', mode: 0o600 });
     console.log(JSON.stringify({ encryptedArchive: destination, sha256: sha(encrypted),
-      sourceProject: project, volumes: bundle.volumes.length, independentCopy: false }));
+      manifest: manifestPath, sourceProject: project, volumes: bundle.volumes.length, independentCopy: false }));
     return destination;
   } finally {
     if (started) docker(['stop', '--time', '30', db.Id]);
   }
 }
-async function drill(bundle, archiveHash) {
+async function drill(bundle, archiveHash, operatorWindow = null) {
   // This exact name and label belong only to this invocation, never a source.
   const name = `erp-identity-drill-${crypto.randomBytes(10).toString('hex')}`;
   const volumes = [];
@@ -195,11 +223,16 @@ async function drill(bundle, archiveHash) {
   let serverCreated = false;
   const serverName = name + '-server';
   const startedAt = Date.now();
+  if (operatorWindow) {
+    // Register an independent cleanup watchdog before creating any resources.
+    await operatorWindow.beforeResources({ name, serverName,
+      volumes: bundle.volumes.map((_, index) => `${name}-files-${index}`) });
+  }
   try {
     docker(['image', 'inspect', bundle.databaseImage]);
     const password = crypto.randomBytes(32).toString('hex');
     docker(['run', '-d', '--pull=never', '--name', name, '--label', `erp.identity.drill=${name}`,
-      '--network=none', '--memory=256m', '--cpus=0.5',
+      '--network=none', operatorWindow ? '--memory=512m' : '--memory=256m', '--cpus=0.5',
       '-e', 'POSTGRES_PASSWORD', '-e', 'POSTGRES_USER=authentik', '-e', 'POSTGRES_DB=authentik',
       bundle.databaseImage], undefined, { ...process.env, POSTGRES_PASSWORD: password });
     created = true;
@@ -247,12 +280,12 @@ async function drill(bundle, archiveHash) {
       }
     }
     let login = null;
-    if (process.argv.includes('--synthetic-login')) {
-      if (bundle.project !== 'school-erp-identity') throw new Error('Synthetic login requires the local test project');
+    const syntheticLogin = process.argv.includes('--synthetic-login');
+    if (syntheticLogin || (operatorWindow && !operatorWindow.dataOnly)) {
+      if (syntheticLogin && operatorWindow) throw new Error('Cannot combine operator and synthetic login');
+      if (syntheticLogin && bundle.project !== 'school-erp-identity') throw new Error('Synthetic login requires the local test project');
       if (require('node:os').freemem() < 2 * 1024 ** 3) throw new Error('At least 2 GiB free host memory required for the optional restored login check');
       docker(['image', 'inspect', bundle.identityImage]);
-      const state = JSON.parse(fs.readFileSync(path.join(root, 'backups/identity/authentik-fixture.json')));
-      const secrets = JSON.parse(fs.readFileSync(path.join(root, 'backups/identity/development-secrets.json')));
       const mountArgs = bundle.volumes.flatMap((v, index) => ['--mount', `type=volume,src=${volumes[index]},dst=${v.target}`]);
       docker(['run', '-d', '--pull=never', '--name', serverName, '--label', `erp.identity.drill=${name}`,
         '--network', `container:${name}`, '--memory=1024m', '--memory-swap=1024m', '--cpus=1',
@@ -271,10 +304,18 @@ async function drill(bundle, archiveHash) {
         } catch { await new Promise((resolve) => setTimeout(resolve, 1000)); }
       }
       if (!healthy) throw new Error('Restored identity server did not become ready');
-      const loginScript = fs.readFileSync(path.join(__dirname, 'identity-restore-login.py'), 'utf8');
-      login = JSON.parse(docker(['exec', '-i', serverName, 'python', '-c', loginScript],
-        JSON.stringify({ slug: state.slug, email: state.email, totpSecret: state.totpSecret, password: secrets.fixturePassword })));
-      if (login.restoredPasswordAndTotpLogin !== true || login.missingMfaDenied !== true) throw new Error('Restored MFA acceptance incomplete');
+      if (operatorWindow) {
+        // The operator enters existing credentials privately in a browser.
+        // Opening a window never constitutes successful restored-login acceptance.
+        await operatorWindow.serve({ name, serverName, archiveHash, backupCreatedAt: bundle.createdAt });
+      } else {
+        const state = JSON.parse(fs.readFileSync(path.join(root, 'backups/identity/authentik-fixture.json')));
+        const secrets = JSON.parse(fs.readFileSync(path.join(root, 'backups/identity/development-secrets.json')));
+        const loginScript = fs.readFileSync(path.join(__dirname, 'identity-restore-login.py'), 'utf8');
+        login = JSON.parse(docker(['exec', '-i', serverName, 'python', '-c', loginScript],
+          JSON.stringify({ slug: state.slug, email: state.email, totpSecret: state.totpSecret, password: secrets.fixturePassword })));
+        if (login.restoredPasswordAndTotpLogin !== true || login.missingMfaDenied !== true) throw new Error('Restored MFA acceptance incomplete');
+      }
     }
     return { verifiedAt: new Date().toISOString(), sourceProject: bundle.project,
       archiveSha256: archiveHash, backupCreatedAt: bundle.createdAt,
@@ -282,6 +323,7 @@ async function drill(bundle, archiveHash) {
       originalSecretKeyRecovered: true, exactImageRecorded: true,
       outboundNetworkBlocked: true, portsPublished: false,
       runtimeLoginAfterRestoreTested: Boolean(login), restoredLogin: login, productionAccepted: false,
+      operatorWindowPrepared: Boolean(operatorWindow && !operatorWindow.dataOnly),
       durationSeconds: Math.round((Date.now() - startedAt) / 1000) };
   } finally {
     // Remove only owned, disposable drill resources; encrypted backup is retained.
@@ -308,8 +350,26 @@ async function drill(bundle, archiveHash) {
     if (failures.length) throw new Error(`Drill cleanup incomplete; inspect resources with label erp.identity.drill=${name}`);
   }
 }
+function loadRecoveryArchive(archivePath, keyFile) {
+  if (!keyFile || !path.isAbsolute(keyFile)) throw new Error('Set an absolute operator-controlled recovery key path');
+  const keyText = fs.readFileSync(keyFile, 'utf8').trim();
+  if (!/^[a-f0-9]{64}$/i.test(keyText)) throw new Error('Invalid recovery key');
+  const key = Buffer.from(keyText, 'hex');
+  try {
+    const archive = path.resolve(archivePath);
+    if (fs.statSync(archive).size > limit + 35) throw new Error('Archive exceeds local-tool limit');
+    const encrypted = fs.readFileSync(archive);
+    const bundle = validateBundle(JSON.parse(decryptArchive(encrypted, key)));
+    const manifestPath = archive + '.json';
+    const manifestPresent = fs.existsSync(manifestPath);
+    if (manifestPresent) {
+      if (fs.statSync(manifestPath).size > 64 * 1024) throw new Error('Identity manifest exceeds size limit');
+      verifyManifest(JSON.parse(fs.readFileSync(manifestPath, 'utf8')), bundle, encrypted, path.basename(archive));
+    }
+    return { archive, bundle, archiveHash: sha(encrypted), manifestPresent };
+  } finally { key.fill(0); }
+}
 async function main() {
-  fs.mkdirSync(directory, { recursive: true });
   const keyFile = process.env.IDENTITY_BACKUP_KEY_FILE;
   if (!keyFile || !path.isAbsolute(keyFile)) throw new Error('Set IDENTITY_BACKUP_KEY_FILE to an absolute operator-controlled key path');
   const mode = process.argv[2];
@@ -318,25 +378,28 @@ async function main() {
     console.log('Recovery key created without replacing any existing key. Keep an independent protected copy.');
     return;
   }
-  const keyText = fs.readFileSync(keyFile, 'utf8').trim();
-  if (!/^[a-f0-9]{64}$/i.test(keyText)) throw new Error('Invalid recovery key');
-  const key = Buffer.from(keyText, 'hex');
-  if (mode === 'backup') return backup(key, process.env.IDENTITY_COMPOSE_PROJECT || 'school-erp-identity');
+  if (mode === 'backup') {
+    const keyText = fs.readFileSync(keyFile, 'utf8').trim();
+    if (!/^[a-f0-9]{64}$/i.test(keyText)) throw new Error('Invalid recovery key');
+    const key = Buffer.from(keyText, 'hex');
+    try { return await backup(key, process.env.IDENTITY_COMPOSE_PROJECT || 'school-erp-identity',
+      process.env.IDENTITY_BACKUP_DIRECTORY || directory); }
+    finally { key.fill(0); }
+  }
   if (!['verify', 'drill'].includes(mode) || !process.argv[3]) throw new Error('Use init-key, backup, verify <archive>, or drill <archive>');
-  const archive = path.resolve(process.argv[3]);
-  if (fs.statSync(archive).size > limit + 35) throw new Error('Archive exceeds local-tool limit');
-  const encrypted = fs.readFileSync(archive);
-  const bundle = validateBundle(JSON.parse(decryptArchive(encrypted, key)));
+  const { archive, bundle, archiveHash, manifestPresent } = loadRecoveryArchive(process.argv[3], keyFile);
   if (mode === 'verify') {
-    console.log(JSON.stringify({ authenticated: true, entriesVerified: 4, restoreExecuted: false }));
+    console.log(JSON.stringify({ authenticated: true, entriesVerified: 4, manifestVerified: manifestPresent,
+      independentCopyVerified: false, restoreExecuted: false }));
     return;
   }
-  const report = await drill(bundle, sha(encrypted));
+  const report = await drill(bundle, archiveHash);
   const reportPath = archive + `.drill-${Date.now()}.json`;
   fs.writeFileSync(reportPath, JSON.stringify({ ...report, disposableResourcesRemoved: true }, null, 2), { flag: 'wx', mode: 0o600 });
   console.log(JSON.stringify({ ...report, disposableResourcesRemoved: true, report: reportPath }));
 }
-module.exports = { canonicalDump, validateBundle, entry, decode, tarInventory };
+module.exports = { canonicalDump, validateBundle, entry, decode, tarInventory, backupManifest, verifyManifest,
+  loadRecoveryArchive, drill, sourceContainers };
 if (require.main === module) main().catch((error) => {
   // Only locally authored errors are emitted. Parser errors may contain secret content.
   console.error(error instanceof SyntaxError ? 'Recovery metadata is invalid' : error.message);

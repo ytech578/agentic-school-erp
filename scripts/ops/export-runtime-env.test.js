@@ -9,3 +9,14 @@ test('runtime export excludes recovery/owner credentials while preserving applic
 test('owner credentials cannot be relabelled as the runtime role', () => {
   assert.throws(() => runtimeEnvironment({ DATABASE_URL: 'postgresql://owner:pwd@db-pooler.neon.tech/erp', MIGRATION_DATABASE_URL: 'postgresql://owner:pwd@db.neon.tech/erp' }));
 });
+
+test('runtime export retains both recovery-code peppers during an explicit transition', () => {
+  const current = 'a'.repeat(64), previous = 'b'.repeat(64);
+  const data = runtimeEnvironment({
+    DATABASE_URL: 'postgresql://runtime:pwd@db-pooler.neon.tech/erp',
+    MFA_RECOVERY_CODE_PEPPER: current,
+    MFA_RECOVERY_CODE_PEPPER_PREV: previous,
+  });
+  assert.equal(data.MFA_RECOVERY_CODE_PEPPER, current);
+  assert.equal(data.MFA_RECOVERY_CODE_PEPPER_PREV, previous);
+});

@@ -47,7 +47,9 @@ describe('CryptoUtil - AES-256-GCM Aadhaar & PII Encryption', () => {
     const encrypted = encryptSensitiveField(sampleAadhaar)!;
     const parts = encrypted.split(':');
     // Tamper with the ciphertext byte
-    const tamperedCipher = parts[4].slice(0, -2) + 'ff';
+    const changedBytes = Buffer.from(parts[4], 'hex');
+    changedBytes[changedBytes.length - 1] ^= 1;
+    const tamperedCipher = changedBytes.toString('hex');
     const tampered = `${parts[0]}:${parts[1]}:${parts[2]}:${parts[3]}:${tamperedCipher}`;
 
     expect(() => decryptSensitiveField(tampered)).toThrow();

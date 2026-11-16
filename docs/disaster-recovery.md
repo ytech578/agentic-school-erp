@@ -1,5 +1,20 @@
 # Disaster recovery and restore verification
 
+## Latest staging evidence (17 November 2026 IST)
+
+Daily VM-based encrypted Neon and Authentik backups with verified private R2 copies
+are enabled; the first timed runs for both have been accepted. Neon same-host
+recovery matched all 76 tables; Authentik same-host recovery included operator MFA
+login. Independent Google monitoring passed failure/recovery email tests. These
+supersede the older local-only/scheduling-pending snapshots below, not the remaining
+production requirements.
+
+Separate-host and independently held-key recovery, full ERP/document/role recovery,
+current provider PITR acceptance and overall production approval remain pending.
+The assessed laptop has stopped Docker Desktop, no ordinary Linux distribution and
+only 1.93 GiB free physical RAM; no recovery key or backup was copied to it.
+See `production-readiness-2026-11-17.md` for the current ordered gates and evidence.
+
 ## Service objectives
 
 | Workload | RPO | RTO | Recovery source |

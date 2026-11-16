@@ -1,0 +1,19 @@
+[Unit]
+Description=Check identity backup age, integrity, remote verification receipt and alert failures
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+# A concurrent backup owns the lock. Skip this check, not the backup itself.
+ExecStart=/usr/bin/flock --nonblock --conflict-exit-code=0 /var/lib/school-erp-identity-backup/job.lock /opt/school-erp-backup/node /opt/school-erp-backup/scripts/dr/scheduled-identity-backup.js monitor /etc/school-erp-backup/config.json
+TimeoutStartSec=90s
+KillMode=control-group
+MemoryMax=512M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/school-erp-identity-backup
+LimitCORE=0

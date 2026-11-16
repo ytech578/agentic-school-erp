@@ -10,3 +10,15 @@
 .idea
 scratch
 scripts
+
+# Never send recovery material, school documents or TLS keys to a build daemon.
+# These are operational mounts/storage, not application source or image assets.
+backups/
+**/uploads/
+nginx/ssl/
+**/*.pem
+**/*.key
+**/storage.env
+**/*secrets*.env
+**/*credentials*.csv
+**/*.credentials.json

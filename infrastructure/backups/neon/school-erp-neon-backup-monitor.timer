@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly Neon ERP backup integrity and failure check
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=30s
+Unit=school-erp-neon-backup-monitor.service
+
+[Install]
+WantedBy=timers.target

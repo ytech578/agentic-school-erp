@@ -1,0 +1,26 @@
+[Unit]
+Description=Publish minimal backup health to independent Google Cloud Monitoring
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/bin/flock --nonblock --conflict-exit-code=0 /var/lib/school-erp-monitoring/job.lock /opt/school-erp-neon-backup/node /opt/school-erp-neon-backup/scripts/ops/external-backup-monitor.js /etc/school-erp-monitoring/config.json
+TimeoutStartSec=60s
+KillMode=control-group
+MemoryMax=128M
+TasksMax=32
+CPUQuota=25%
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/school-erp-monitoring
+InaccessiblePaths=-/etc/school-erp-neon-backup/database.env -/etc/school-erp-neon-backup/recovery.key -/etc/school-erp-neon-backup/storage.env -/etc/school-erp-backup/alerts.env -/etc/school-erp-backup/recovery.key -/etc/school-erp-backup/storage.env -/var/run/docker.sock
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LimitCORE=0

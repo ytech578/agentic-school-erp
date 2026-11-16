@@ -1,0 +1,112 @@
+pid /tmp/nginx.pid;
+error_log /dev/stderr warn;
+events { worker_connections 512; }
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    server_tokens off;
+    # No query-string logs: SSO callbacks can contain one-time credentials.
+    access_log off;
+    client_max_body_size 25m;
+    client_body_timeout 30s;
+    keepalive_timeout 30s;
+    map $http_upgrade $connection_upgrade { default upgrade; '' close; }
+    map "${AUTHENTIK_PUBLIC_ENABLED}" $identity_public_ready {
+        default 0;
+        '1' 1;
+    }
+    # Keep all security headers inherited at every location. Setting add_header
+    # inside a location would otherwise discard the parent security headers.
+    map "$host:$uri" $staging_cache_control {
+        default 'private, no-store';
+        '~^${ERP_DOMAIN}:/_next/static/' '';
+    }
+    # Docker can assign a different address after a container stop/start. Resolve
+    # service names periodically instead of retaining a stale address until reload.
+    # Requires the pinned nginx image (open-source resolve support >= 1.27.3).
+    resolver 127.0.0.11 valid=5s ipv6=off;
+    resolver_timeout 2s;
+    upstream erp_web {
+        zone erp_web 64k;
+        server web:3000 resolve;
+    }
+    upstream erp_api {
+        zone erp_api 64k;
+        server api:4000 resolve;
+    }
+    upstream school_identity {
+        zone school_identity 64k;
+        server server:9000 resolve;
+    }
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_tickets off;
+    ssl_certificate /tls/fullchain.pem;
+    ssl_certificate_key /tls/privkey.pem;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy same-origin always;
+    add_header Strict-Transport-Security 'max-age=86400' always;
+    add_header Cache-Control $staging_cache_control always;
+
+    server { listen 8080 default_server; server_name _; return 444; }
+    server {
+        listen 8080;
+        server_name ${ERP_DOMAIN};
+        return 308 https://${ERP_DOMAIN}$request_uri;
+    }
+    server {
+        listen 8080;
+        server_name ${AUTHENTIK_DOMAIN};
+        return 308 https://${AUTHENTIK_DOMAIN}$request_uri;
+    }
+    server { listen 8443 ssl default_server; ssl_reject_handshake on; }
+    server {
+        listen 8443 ssl;
+        server_name ${ERP_DOMAIN};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        # Do not trust user-supplied forwarded chains or Cloudflare headers from
+        # an unrestricted origin. Origin firewall/CDN trust is a separate gate.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 120s;
+        # Compatibility for already deployed login bundles using the local
+        # development /api/sso prefix. Re-enter the normal API location so
+        # authentication, headers and query handling remain identical.
+        location ^~ /api/sso/ {
+            rewrite ^/api/sso/(.*)$ /api/v1/sso/$1 last;
+        }
+        location ^~ /api/ {
+            # Keep /api/v1 intact; do not accidentally double-prefix v1.
+            proxy_pass http://erp_api;
+            proxy_no_cache 1;
+            proxy_cache_bypass 1;
+            proxy_hide_header Cache-Control;
+        }
+        location ^~ /uploads/ { return 404; }
+        location ^~ /_next/static/ { proxy_pass http://erp_web; }
+        location / {
+            proxy_pass http://erp_web;
+            proxy_buffering off;
+            proxy_hide_header Cache-Control;
+        }
+    }
+    server {
+        listen 8443 ssl;
+        server_name ${AUTHENTIK_DOMAIN};
+        if ($identity_public_ready = 0) { return 503; }
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 120s;
+        proxy_buffering off;
+        proxy_hide_header Cache-Control;
+        location / { proxy_pass http://school_identity; }
+    }
+}

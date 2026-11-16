@@ -27,6 +27,11 @@
     "db:neon:backup": "node scripts/dr/neon-backup.js backup",
     "db:backup:health": "node scripts/dr/check-backup-health.js",
     "ops:runtime-env": "node scripts/ops/export-runtime-env.js",
+    "security:encryption:local": "node scripts/ops/migrate-encryption-local.js",
+    "security:neon:preflight": "node scripts/ops/neon-cutover-preflight.js",
+    "security:neon:cutover": "node scripts/ops/migrate-encryption-neon.js",
+    "ops:staging:verify": "node scripts/ops/verify-staging-ingress.js",
+    "ops:staging:package": "node scripts/ops/package-staging-source.js",
     "ops:audit:export": "node scripts/ops/export-audit.js",
     "identity:init": "node scripts/ops/init-authentik.js",
     "identity:development:init": "node scripts/ops/init-identity-development.js",
@@ -36,6 +41,7 @@
     "identity:backup": "node scripts/dr/identity-recovery.js backup",
     "identity:backup:verify": "node scripts/dr/identity-recovery.js verify",
     "identity:restore:drill": "node scripts/dr/identity-recovery.js drill",
+    "identity:restore:second-host": "node scripts/dr/second-host-identity-drill.js",
     "school:readiness": "node scripts/ops/school-readiness.js",
     "db:neon:backup:verify": "node scripts/dr/neon-backup.js verify",
     "db:neon:restore:drill": "node scripts/dr/neon-backup.js drill",
@@ -53,6 +59,11 @@
   },
   "devDependencies": {
     "concurrently": "^9.2.4"
+  },
+  "overrides": {
+    "@nestjs/platform-express": {
+      "multer": "^2.5.0"
+    }
   },
   "engines": {
     "node": ">=20.0.0",

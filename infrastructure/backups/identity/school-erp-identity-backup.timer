@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily 03:00 India-time Authentik backup maintenance
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Asia/Kolkata
+AccuracySec=1s
+RandomizedDelaySec=0
+# Do not unexpectedly pause sign-in in daytime after a reboot/missed run.
+# The independent hourly monitor alerts on a missed/stale backup instead.
+Persistent=false
+Unit=school-erp-identity-backup.service
+
+[Install]
+WantedBy=timers.target

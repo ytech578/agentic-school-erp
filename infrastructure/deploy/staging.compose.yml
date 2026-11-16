@@ -1,0 +1,80 @@
+# Single-VM staging only. Merge last, after root/cloud and identity base files.
+# Do NOT also include authentik/production.compose.yml: this proxy owns HTTPS.
+name: school-erp-staging
+services:
+  api:
+    environment:
+      PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:?Complete the coordinated encryption cutover first}
+      MFA_RECOVERY_CODE_PEPPER: ${MFA_RECOVERY_CODE_PEPPER:?Provide the active recovery-code pepper}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?Provide the existing application signing key}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Provide the existing application refresh key}
+      APP_URL: https://${ERP_DOMAIN:?Set the approved staging hostname}
+      API_URL: https://${ERP_DOMAIN}
+      CORS_ORIGIN: https://${ERP_DOMAIN}
+      API_PREFIX: api
+      NODE_OPTIONS: --max-old-space-size=512
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+  web:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: https://${ERP_DOMAIN}/api/v1
+    environment:
+      NEXT_PUBLIC_API_URL: https://${ERP_DOMAIN}/api/v1
+      INTERNAL_API_URL: http://api:4000/api/v1
+      NODE_OPTIONS: --max-old-space-size=512
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+  redis:
+    command: [redis-server, --requirepass, '${REDIS_PASSWORD:?Provide a dedicated Redis password}', --maxmemory, 192mb, --maxmemory-policy, noeviction]
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+  # Identity HTTP is reachable only on the compose network, never on the VM.
+  identity-db:
+    # The development-sized 256 MiB cap caused PostgreSQL child OOM kills
+    # during private OIDC setup. This is a ceiling, not reserved host memory.
+    mem_limit: 768m
+    memswap_limit: 1536m
+  server:
+    ports: !override []
+  nginx:
+    image: nginx:alpine@sha256:892bb2152464f0c5d8972593a5f5afaf8054552580b699d95f8ff4af08c2d33d
+    user: '${TLS_READER_UID:?Set the certificate owner UID}:${TLS_READER_GID:?Set the certificate owner GID}'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - >-
+        envsubst '$$ERP_DOMAIN $$AUTHENTIK_DOMAIN $$AUTHENTIK_PUBLIC_ENABLED' < /staging-nginx.conf.template > /tmp/nginx.conf;
+        exec nginx -c /tmp/nginx.conf -g 'daemon off;'
+    environment:
+      ERP_DOMAIN: ${ERP_DOMAIN}
+      AUTHENTIK_DOMAIN: ${AUTHENTIK_DOMAIN:?Set the approved identity hostname}
+      # Keep the fresh identity installation private until administrator setup
+      # and school-provider binding have been accepted through a private path.
+      AUTHENTIK_PUBLIC_ENABLED: ${AUTHENTIK_PUBLIC_ENABLED:-0}
+    ports: !override
+      - '80:8080'
+      - '443:8443'
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+      - /var/cache/nginx:rw,noexec,nosuid,size=16m,mode=1777
+    volumes: !override
+      - ./infrastructure/deploy/staging-nginx.conf.template:/staging-nginx.conf.template:ro
+      - ${ORIGIN_TLS_DIRECTORY:?Set the absolute private origin certificate directory}:/tls:ro
+    depends_on: !override
+      web: { condition: service_healthy }
+      api: { condition: service_healthy }
+      server: { condition: service_started }
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M

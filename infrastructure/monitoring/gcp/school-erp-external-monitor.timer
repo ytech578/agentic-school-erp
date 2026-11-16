@@ -1,0 +1,13 @@
+[Unit]
+Description=Send backup-health heartbeat every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=1s
+RandomizedDelaySec=5s
+Persistent=false
+Unit=school-erp-external-monitor.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily 02:00 India-time Neon ERP backup
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 Asia/Kolkata
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=false
+Unit=school-erp-neon-backup.service
+
+[Install]
+WantedBy=timers.target

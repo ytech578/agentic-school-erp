@@ -1,5 +1,25 @@
 # Sunrise Public School: cloud deployment handoff
 
+**Latest staging update, 17 November 2026 IST:** ERP and DEMO001 pilot OIDC/MFA
+login, same-host recovery exercises, the first scheduled Neon/Authentik backups,
+private R2 checksum verification and independent Google failure/recovery alerts
+have passed their bounded staging checks. The older dated notes below are not
+current statements that Authentik is uninitialized or scheduling is unavailable.
+No production school/owner acceptance is inferred. Separate-host/full application
+recovery, provider PITR, production security/load tests and school-specific data
+location/contact approval remain open. The read-only laptop assessment did not
+find a ready Linux recovery host. See
+[`production-readiness-2026-11-17.md`](production-readiness-2026-11-17.md).
+
+**Staging update, 2026-11-07:** the owner has since provided the domain, GCP staging
+VM and private R2 storage. The controlled Neon cutover, staging ERP publication,
+operator password/MFA login and dashboard reload passed. The school email domain,
+administrator/recovery contacts, approved data location and production acceptance
+are still unresolved. Authentik remains private and uninitialized; running
+containers do not establish school federation. See
+[`neon-staging-cutover.md`](neon-staging-cutover.md) for the current execution
+record. The original planning snapshot below is retained for context.
+
 Confirmed by the owner on 2026-10-20: **Sunrise Public School**, school code
 **DEMO001**, cloud installation. A Vercel account exists; its plan is unknown.
 There is currently no production server, domain or institutional email domain.

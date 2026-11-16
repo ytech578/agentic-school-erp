@@ -1,0 +1,13 @@
+{
+  "project": "school-erp-staging",
+  "expectedHost": "ep-replace-me.ap-southeast-1.aws.neon.tech",
+  "expectedDatabase": "school_erp",
+  "expectedRole": "school_erp_backup",
+  "postgresImage": "sha256:REPLACE_WITH_REVIEWED_POSTGRES_16_IMAGE_ID",
+  "dependencyImage": "sha256:REPLACE_WITH_REVIEWED_DEPENDENCY_IMAGE_ID",
+  "stateDirectory": "/var/lib/school-erp-neon-backup",
+  "databaseEnvFile": "/etc/school-erp-neon-backup/database.env",
+  "keyFile": "/etc/school-erp-neon-backup/recovery.key",
+  "storageEnvFile": "/etc/school-erp-neon-backup/storage.env",
+  "alertEnvFile": "/etc/school-erp-backup/alerts.env"
+}

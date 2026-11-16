@@ -1,0 +1,8 @@
+{
+  "projectId": "agentic-school-erp-staging",
+  "instanceName": "school-erp-staging",
+  "sourceProject": "school-erp-staging",
+  "neonConfigPath": "/etc/school-erp-neon-backup/config.json",
+  "identityConfigPath": "/etc/school-erp-backup/config.json",
+  "stateDirectory": "/var/lib/school-erp-monitoring"
+}
